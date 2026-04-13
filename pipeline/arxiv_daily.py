@@ -319,10 +319,10 @@ def call_llm(
             return result, usage
         except Exception as e:
             last_error = e
-            logger.error(f"Batch {batch_num:03d} LLM call attempt {attempt + 1} failed: {e}")
+            logger.error(f"[Phase2] Batch {batch_num:03d} LLM call attempt {attempt + 1} failed: {e}")
             if hasattr(e, "read"):
                 try:
-                    logger.error(f"Batch {batch_num:03d} response body: {e.read().decode('utf-8')}")
+                    logger.error(f"[Phase2] Batch {batch_num:03d} response body: {e.read().decode('utf-8')}")
                 except Exception:
                     pass
             if attempt < MAX_RETRIES - 1:
@@ -411,7 +411,7 @@ def run_phase2(
     hash_file.write_text(current_hash)
 
     results_by_id: dict[str, dict] = {}
-    failed_batches = 0
+    failed_indices: list[int] = []
 
     for idx, batch in enumerate(batches):
         batch_num = idx + 1
@@ -467,12 +467,69 @@ def run_phase2(
 
         except Exception as e:
             elapsed = time.monotonic() - t0
-            failed_batches += 1
-            logger.error(f"Batch {batch_num} failed after all retries: {e}")
+            failed_indices.append(idx)
+            logger.error(f"[Phase2] Batch {batch_num} failed after all retries: {e}")
             print(
                 f"[{batch_num}/{total}] batch_{batch_num:03d} FAILED ({elapsed:.1f}s), see log",
                 file=sys.stderr,
             )
+
+    # Retry failed batches once
+    if failed_indices:
+        print(f"Retrying {len(failed_indices)} failed batch(es)...", file=sys.stderr)
+        still_failed = 0
+        for idx in failed_indices:
+            batch = batches[idx]
+            batch_num = idx + 1
+            total = len(batches)
+
+            messages = build_prompt(batch, current_tags)
+            t0 = time.monotonic()
+            try:
+                result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num)
+
+                for p in result.get("papers", []):
+                    results_by_id[p["id"]] = {
+                        "summary": p.get("summary", ""),
+                        "tags": p.get("tags", []),
+                        "venue": p.get("venue"),
+                    }
+
+                new_tags = result.get("new_tags", [])
+                for t in new_tags:
+                    if t not in current_tags:
+                        current_tags.append(t)
+
+                cache_entry = {
+                    "papers": result.get("papers", []),
+                    "new_tags": new_tags,
+                    "current_tags": list(current_tags),
+                }
+                cache_path = field_cache / f"batch_{batch_num:03d}.json"
+                with open(cache_path, "w", encoding="utf-8") as f:
+                    json.dump(cache_entry, f, ensure_ascii=False, indent=2)
+
+                elapsed = time.monotonic() - t0
+                usage_str = ""
+                if usage:
+                    pt = usage.get("prompt_tokens", 0)
+                    ct = usage.get("completion_tokens", 0)
+                    tt = usage.get("total_tokens", 0)
+                    usage_str = f", tokens: {pt}+{ct}={tt}"
+                print(f"[{batch_num}/{total}] batch_{batch_num:03d} retry OK ({elapsed:.1f}s{usage_str})", file=sys.stderr)
+
+            except Exception as e:
+                elapsed = time.monotonic() - t0
+                still_failed += 1
+                logger.error(f"[Phase2] Batch {batch_num} retry failed: {e}")
+                print(
+                    f"[{batch_num}/{total}] batch_{batch_num:03d} retry FAILED ({elapsed:.1f}s), see log",
+                    file=sys.stderr,
+                )
+
+        failed_batches = still_failed
+    else:
+        failed_batches = 0
 
     # Save updated tags
     tags_out = {
@@ -700,6 +757,7 @@ def main():
     parser.add_argument("--output", required=True, help="Output directory for markdown files")
     parser.add_argument("--tags", required=True, help="Path to tags.json")
     parser.add_argument("--no-cache", action="store_true", help="Ignore cache, full re-run")
+    parser.add_argument("--date", help="Use saved HTML for this date (YYYY-MM-DD) instead of fetching")
     args = parser.parse_args()
 
     cache_base = Path.home() / ".cache" / "arxiv-update"
@@ -727,21 +785,39 @@ def main():
         sys.exit(2)
 
     logger = setup_logging(cache_base)
-    logger.info(f"Starting run for field={args.field}")
+    logger.info(f"[Phase1] Starting run for field={args.field}")
 
     # Phase 1: Download and parse
-    print(f"Fetching arxiv.org/list/{args.field}/new ...", file=sys.stderr)
-    try:
-        html = fetch_page(args.field)
-    except Exception as e:
-        logger.error(f"Failed to fetch page: {e}")
-        print(f"Error: Failed to fetch arxiv page: {e}", file=sys.stderr)
-        print(f"Log: {log_path}", file=sys.stderr)
-        sys.exit(2)
+    pages_dir = cache_base / "pages" / args.field
+    pages_dir.mkdir(parents=True, exist_ok=True)
+    field_cache = cache_base / args.field
+    field_cache.mkdir(parents=True, exist_ok=True)
+
+    html = None
+    if args.date:
+        # Load saved HTML for specified date
+        saved_path = pages_dir / f"{args.date}.html"
+        if not saved_path.exists():
+            logger.error(f"[Phase1] No saved HTML for date {args.date} at {saved_path}")
+            print(f"Error: No saved HTML for date {args.date} at {saved_path}", file=sys.stderr)
+            print(f"Log: {log_path}", file=sys.stderr)
+            sys.exit(2)
+        html = saved_path.read_text(encoding="utf-8")
+        logger.info(f"[Phase1] Using saved HTML for {args.date} from {saved_path}")
+        print(f"Using saved HTML for {args.date} from {saved_path}", file=sys.stderr)
+    else:
+        print(f"Fetching arxiv.org/list/{args.field}/new ...", file=sys.stderr)
+        try:
+            html = fetch_page(args.field)
+        except Exception as e:
+            logger.error(f"[Phase1] Failed to fetch page: {e}")
+            print(f"Error: Failed to fetch arxiv page: {e}", file=sys.stderr)
+            print(f"Log: {log_path}", file=sys.stderr)
+            sys.exit(2)
 
     data = parse_html(html, args.field)
     if not data["sections"]:
-        logger.error("No sections found in page")
+        logger.error("[Phase1] No sections found in page")
         print(
             "Error: No papers found. The field may not exist or no updates today.",
             file=sys.stderr,
@@ -749,8 +825,40 @@ def main():
         print(f"Log: {log_path}", file=sys.stderr)
         sys.exit(2)
 
+    # Parse listing date
+    try:
+        listing_date = datetime.strptime(data["listing_date"], "%d %B %Y")
+        date_str = listing_date.strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        listing_date = datetime.now()
+        date_str = listing_date.strftime("%Y-%m-%d")
+
+    # Save HTML to pages archive (keyed by listing date)
+    page_archive_path = pages_dir / f"{date_str}.html"
+    if not page_archive_path.exists():
+        page_archive_path.write_text(html, encoding="utf-8")
+        logger.info(f"[Phase1] Saved HTML to {page_archive_path}")
+
     total_papers = sum(s["count"] for s in data["sections"])
     print(f"Parsed {total_papers} papers in {len(data['sections'])} sections", file=sys.stderr)
+
+    # Check if this listing date has already been processed
+    output_dir = Path(args.output)
+    expected_output = output_dir / f"{date_str}-{args.field}.md"
+    if expected_output.exists() and not args.no_cache and not args.date:
+        logger.info(f"[Phase1] Skipped: {expected_output} already exists (listing date {date_str})")
+        print(f"Skipped: {expected_output} already exists (listing date {date_str})", file=sys.stderr)
+        summary = {
+            "listing_date": date_str,
+            "field": args.field,
+            "output_file": str(expected_output),
+            "sections": {s["name"]: s["count"] for s in data["sections"]},
+            "total": total_papers,
+            "failed_batches": 0,
+            "skipped": True,
+        }
+        print(json.dumps(summary, ensure_ascii=False))
+        sys.exit(0)
 
     # Phase 2: LLM summarization
     tags_path = Path(args.tags)
@@ -770,7 +878,6 @@ def main():
     output_file = generate_markdown(data, results_by_id, output_dir)
 
     # Clean cache on full success
-    field_cache = cache_base / args.field
     if failed_batches == 0 and field_cache.exists():
         shutil.rmtree(field_cache)
 
@@ -802,7 +909,7 @@ def main():
         )
         sys.exit(1)
     else:
-        logger.info(f"Run completed successfully. Output: {output_file}")
+        logger.info(f"[Phase3] Run completed successfully. Output: {output_file}")
         sys.exit(0)
 
 
