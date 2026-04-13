@@ -262,8 +262,13 @@ def call_llm(
     model: str,
     logger: logging.Logger,
     batch_num: int = 0,
-) -> dict:
-    """Call LLM API with retries. Returns parsed JSON response."""
+) -> tuple[dict, dict]:
+    """Call LLM API with retries using streaming mode.
+
+    Returns:
+        (parsed_result, usage_info)
+        usage_info: {"prompt_tokens": int, "completion_tokens": int, "total_tokens": int}
+    """
     url = f"{api_endpoint.rstrip('/')}/chat/completions"
     payload = json.dumps(
         {
@@ -271,6 +276,8 @@ def call_llm(
             "messages": messages,
             "temperature": 0.3,
             "response_format": {"type": "json_object"},
+            "stream": True,
+            "stream_options": {"include_usage": True},
         }
     ).encode("utf-8")
 
@@ -283,15 +290,33 @@ def call_llm(
     for attempt in range(MAX_RETRIES):
         try:
             req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
-            content = body["choices"][0]["message"]["content"]
-            content = content.strip()
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                content_parts = []
+                usage = {}
+                for raw_line in resp:
+                    line = raw_line.decode("utf-8").strip()
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str == "[DONE]":
+                        break
+                    chunk = json.loads(data_str)
+                    # Extract usage from the final chunk
+                    if chunk.get("usage"):
+                        usage = chunk["usage"]
+                    # Extract content delta
+                    choices = chunk.get("choices", [])
+                    if choices:
+                        delta = choices[0].get("delta", {})
+                        if delta.get("content"):
+                            content_parts.append(delta["content"])
+
+            content = "".join(content_parts).strip()
             if content.startswith("```"):
                 content = re.sub(r"^```(?:json)?\s*", "", content)
                 content = re.sub(r"\s*```$", "", content)
             result = json.loads(content)
-            return result
+            return result, usage
         except Exception as e:
             last_error = e
             logger.error(f"Batch {batch_num:03d} LLM call attempt {attempt + 1} failed: {e}")
@@ -408,7 +433,7 @@ def run_phase2(
         messages = build_prompt(batch, current_tags)
         t0 = time.monotonic()
         try:
-            result = call_llm(messages, api_endpoint, api_key, model, logger, batch_num)
+            result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num)
 
             for p in result.get("papers", []):
                 results_by_id[p["id"]] = {
@@ -432,7 +457,13 @@ def run_phase2(
                 json.dump(cache_entry, f, ensure_ascii=False, indent=2)
 
             elapsed = time.monotonic() - t0
-            print(f"[{batch_num}/{total}] batch_{batch_num:03d} done ({elapsed:.1f}s)", file=sys.stderr)
+            usage_str = ""
+            if usage:
+                pt = usage.get("prompt_tokens", 0)
+                ct = usage.get("completion_tokens", 0)
+                tt = usage.get("total_tokens", 0)
+                usage_str = f", tokens: {pt}+{ct}={tt}"
+            print(f"[{batch_num}/{total}] batch_{batch_num:03d} done ({elapsed:.1f}s{usage_str})", file=sys.stderr)
 
         except Exception as e:
             elapsed = time.monotonic() - t0
