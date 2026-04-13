@@ -129,7 +129,10 @@ def extract_paper(chunk: str) -> dict | None:
         chunk, re.DOTALL,
     )
     if subjects_match:
-        paper["subjects"] = clean_html(subjects_match.group(1))
+        raw = subjects_match.group(1)
+        # Extract abbreviation codes in parentheses, preserving original order
+        codes = re.findall(r"\(([a-z-]+\.[A-Z]+)\)", raw)
+        paper["subjects"] = "; ".join(codes) if codes else clean_html(raw)
 
     comments_html = ""
     comments_match = re.search(
@@ -216,7 +219,13 @@ def build_prompt(batch_papers: list[dict], current_tags: list[str]) -> list[dict
 
     user_content = f"""Below are {len(batch_papers)} papers. For each paper:
 1. Write a 1-3 sentence Chinese summary of the abstract.
-2. Assign 1-3 tags from the existing tag list. Only create new tags if existing ones truly cannot cover the topic.
+2. Assign 1-3 tags from the existing tag list.
+   - Tags should be at the level of specific research topics or methods, NOT broad categories.
+   - If a broad tag (e.g. "LLM") exists but a more specific subtopic tag (e.g. "LLM Reasoning", "LLM Agent") also exists and fits better, prefer the specific one.
+   - If no existing tag adequately captures the paper's specific topic, create a new one.
+   - New tags must be in English, concise (1-3 words), and at a similar granularity as existing specific tags.
+   - BAD granularity: "LLM", "NLP", "Computer Vision" (too broad)
+   - GOOD granularity: "LLM Reasoning", "LLM Alignment", "Object Detection", "Code Generation"
 3. If Comments indicate the paper is accepted/published (keywords: accepted, published, to appear, camera-ready, appearing at, presented at), extract the venue abbreviation + year (e.g. "ACL 2026"). Workshop papers should be formatted as "{{Conference}} {{Year}} Workshop". If only submitted/under review/preprint, set venue to null.
 
 Current tag list: {tags_str}
@@ -252,6 +261,7 @@ def call_llm(
     api_key: str,
     model: str,
     logger: logging.Logger,
+    batch_num: int = 0,
 ) -> dict:
     """Call LLM API with retries. Returns parsed JSON response."""
     url = f"{api_endpoint.rstrip('/')}/chat/completions"
@@ -284,10 +294,10 @@ def call_llm(
             return result
         except Exception as e:
             last_error = e
-            logger.error(f"LLM call attempt {attempt + 1} failed: {e}")
+            logger.error(f"Batch {batch_num:03d} LLM call attempt {attempt + 1} failed: {e}")
             if hasattr(e, "read"):
                 try:
-                    logger.error(f"Response body: {e.read().decode('utf-8')}")
+                    logger.error(f"Batch {batch_num:03d} response body: {e.read().decode('utf-8')}")
                 except Exception:
                     pass
             if attempt < MAX_RETRIES - 1:
@@ -396,8 +406,9 @@ def run_phase2(
             continue
 
         messages = build_prompt(batch, current_tags)
+        t0 = time.monotonic()
         try:
-            result = call_llm(messages, api_endpoint, api_key, model, logger)
+            result = call_llm(messages, api_endpoint, api_key, model, logger, batch_num)
 
             for p in result.get("papers", []):
                 results_by_id[p["id"]] = {
@@ -420,13 +431,15 @@ def run_phase2(
             with open(cache_path, "w", encoding="utf-8") as f:
                 json.dump(cache_entry, f, ensure_ascii=False, indent=2)
 
-            print(f"[{batch_num}/{total}] batch_{batch_num:03d} done", file=sys.stderr)
+            elapsed = time.monotonic() - t0
+            print(f"[{batch_num}/{total}] batch_{batch_num:03d} done ({elapsed:.1f}s)", file=sys.stderr)
 
         except Exception as e:
+            elapsed = time.monotonic() - t0
             failed_batches += 1
             logger.error(f"Batch {batch_num} failed after all retries: {e}")
             print(
-                f"[{batch_num}/{total}] batch_{batch_num:03d} FAILED, see log",
+                f"[{batch_num}/{total}] batch_{batch_num:03d} FAILED ({elapsed:.1f}s), see log",
                 file=sys.stderr,
             )
 
@@ -451,6 +464,25 @@ SECTION_NAME_CN = {
     "Cross submissions": "跨领域投稿",
     "Replacement submissions": "替换投稿",
 }
+
+
+def extract_paper_abbrev(title: str) -> str | None:
+    """Extract acronym/abbreviation from a paper title, if present.
+
+    Common patterns:
+        "ACRONYM: Description..."
+        "Description (ACRONYM)"
+        "ACRONYM - Description"
+    """
+    # "ACRONYM: ..."  or  "ACRONYM - ..."
+    m = re.match(r"^([A-Z][A-Za-z0-9-]{1,15})[\s]*[:：\-–—]\s", title)
+    if m:
+        return m.group(1)
+    # "... (ACRONYM)" at end or mid-title
+    m = re.search(r"\(([A-Z][A-Za-z0-9-]{1,15})\)", title)
+    if m:
+        return m.group(1)
+    return None
 
 
 def generate_markdown(data: dict, results_by_id: dict, output_dir: Path) -> Path:
@@ -482,22 +514,36 @@ def generate_markdown(data: dict, results_by_id: dict, output_dir: Path) -> Path
             for tag in r.get("tags", []):
                 global_tag_freq[tag] = global_tag_freq.get(tag, 0) + 1
 
-    # Per-section summary: top-5 tags with representative paper titles
+    # Per-section summary: top-5 tags with representative papers
     section_summaries = []
     for section in data["sections"]:
         if not section["papers"]:
             continue
-        sec_tag_papers: dict[str, list[str]] = {}
+        sec_tag_papers: dict[str, list[dict]] = {}
         for paper in section["papers"]:
             r = results_by_id.get(paper["id"], {})
             for tag in r.get("tags", []):
-                sec_tag_papers.setdefault(tag, []).append(paper.get("title", paper["id"]))
+                sec_tag_papers.setdefault(tag, []).append(paper)
         top_tags = sorted(sec_tag_papers.items(), key=lambda x: -len(x[1]))[:5]
         cn_name = SECTION_NAME_CN.get(section["name"], section["name"])
         tag_parts = []
-        for tag, titles in top_tags:
-            rep = titles[0][:40] + ("..." if len(titles[0]) > 40 else "")
-            tag_parts.append(f"{tag}({rep})")
+        for tag, papers in top_tags:
+            # Pick up to 3 representative papers, prefer those with abbreviations
+            refs = []
+            for p in papers:
+                abbrev = extract_paper_abbrev(p.get("title", ""))
+                if abbrev:
+                    refs.append(f"{abbrev} [[{p['_num']}]](#{p['_num']})")
+                if len(refs) >= 3:
+                    break
+            if len(refs) < 3:
+                for p in papers:
+                    if len(refs) >= 3:
+                        break
+                    ref_str = f"[[{p['_num']}]](#{p['_num']})"
+                    if not any(ref_str in r for r in refs):
+                        refs.append(ref_str)
+            tag_parts.append(f"{tag}({', '.join(refs[:3])})")
         section_summaries.append((cn_name, section["count"], ", ".join(tag_parts)))
 
     # Overall trend
@@ -544,7 +590,7 @@ def generate_markdown(data: dict, results_by_id: dict, output_dir: Path) -> Path
 
     # Accepted papers
     if accepted:
-        refs = ", ".join(f"[{num}](#{num})({venue})" for num, venue in accepted)
+        refs = ", ".join(f"[[{num}]](#{num})({venue})" for num, venue in accepted)
         lines.append(f"**已录用论文**：{refs}")
     else:
         lines.append("**已录用论文**：无")
@@ -554,7 +600,7 @@ def generate_markdown(data: dict, results_by_id: dict, output_dir: Path) -> Path
     if opensource:
         refs = []
         for num, urls in opensource:
-            refs.append(f"[{num}](#{num})([code]({urls[0]}))")
+            refs.append(f"[[{num}]](#{num})([code]({urls[0]}))")
         lines.append(f"**开源论文**：{', '.join(refs)}")
     else:
         lines.append("**开源论文**：无")
@@ -595,6 +641,12 @@ def generate_markdown(data: dict, results_by_id: dict, output_dir: Path) -> Path
             lines.append(f"- **Subjects**: {subjects}")
             if tags:
                 lines.append(f"- **Tags**: {', '.join(tags)}")
+            venue = r.get("venue")
+            if venue:
+                lines.append(f"- **Venue**: {venue}")
+            if paper.get("code_urls"):
+                code_links = ", ".join(f"[code]({u})" for u in paper["code_urls"])
+                lines.append(f"- **Code**: {code_links}")
             lines.append(f"- **Summary**: {summary}")
             lines.append("")
 
