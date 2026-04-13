@@ -574,7 +574,7 @@ def generate_markdown(data: dict, results_by_id: dict, output_dir: Path) -> Path
                     ref_str = f"[[{p['_num']}]](#{p['_num']})"
                     if not any(ref_str in r for r in refs):
                         refs.append(ref_str)
-            tag_parts.append(f"{tag}({', '.join(refs[:3])})")
+            tag_parts.append(f"{tag} ({', '.join(refs[:3])})")
         section_summaries.append((cn_name, section["count"], ", ".join(tag_parts)))
 
     # Overall trend
