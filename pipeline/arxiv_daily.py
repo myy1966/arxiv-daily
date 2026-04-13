@@ -1,0 +1,727 @@
+#!/usr/bin/env python3
+"""
+arxiv_daily.py - Download arxiv daily listings, generate LLM summaries, and produce markdown.
+
+Usage:
+    python3 arxiv_daily.py cs.AI \\
+      --output ~/arxiv-daily/_posts \\
+      --tags ~/arxiv-daily/data/tags.json
+
+Environment variables (all required):
+    ARXIV_UPDATE_KEY   - LLM API key
+    ARXIV_UPDATE_API   - LLM API endpoint (e.g. https://api.openai.com/v1)
+    ARXIV_UPDATE_MODEL - LLM model name (e.g. gpt-4o)
+"""
+
+import argparse
+import hashlib
+import json
+import logging
+import os
+import re
+import shutil
+import sys
+import time
+import urllib.request
+from datetime import datetime, timezone, timedelta
+from html import unescape
+from pathlib import Path
+
+BATCH_SIZE = 16
+MAX_RETRIES = 3
+RETRY_DELAYS = [2, 4, 8]
+
+# ---------------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------------
+
+def setup_logging(cache_base: Path) -> logging.Logger:
+    cache_base.mkdir(parents=True, exist_ok=True)
+    log_path = cache_base / "arxiv_daily.log"
+    logger = logging.getLogger("arxiv_daily")
+    logger.setLevel(logging.DEBUG)
+    fh = logging.FileHandler(log_path, encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logger.addHandler(fh)
+    return logger
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: Download & Parse
+# ---------------------------------------------------------------------------
+
+def fetch_page(field: str) -> str:
+    """Download the arxiv new listings page for the given field."""
+    url = f"https://arxiv.org/list/{field}/new"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return resp.read().decode("utf-8")
+
+
+def clean_html(text: str) -> str:
+    """Strip HTML tags and normalize whitespace."""
+    text = re.sub(r"<[^>]+>", "", text)
+    text = unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def parse_listing_date(html: str) -> str | None:
+    """Extract the listing date from the page header."""
+    m = re.search(r"Showing new listings for \w+,\s*(\d+ \w+ \d+)", html)
+    if m:
+        return m.group(1)
+    return None
+
+
+def parse_sections(html: str) -> list[tuple[str, int, int]]:
+    """Find section headers and their positions: (name, count, position)."""
+    pattern = re.compile(
+        r"<h3>(New submissions|Cross submissions|Replacement submissions)"
+        r"\s*\(showing \d+ of (\d+) entries\)</h3>",
+        re.IGNORECASE,
+    )
+    sections = []
+    for m in pattern.finditer(html):
+        name = m.group(1)
+        if "Cross" in name:
+            name = "Cross submissions"
+        elif "Replacement" in name:
+            name = "Replacement submissions"
+        sections.append((name, int(m.group(2)), m.start()))
+    return sections
+
+
+def extract_code_urls(html_fragment: str) -> list[str]:
+    """Extract code repository URLs from HTML href attributes."""
+    urls = []
+    href_pattern = re.compile(r'href="(https?://[^"]+)"')
+    for m in href_pattern.finditer(html_fragment):
+        url = m.group(1)
+        if "github.com" in url or "gitlab.com" in url:
+            urls.append(url)
+    return list(dict.fromkeys(urls))
+
+
+def extract_paper(chunk: str) -> dict | None:
+    """Extract a single paper's data from an HTML chunk."""
+    paper = {}
+
+    id_match = re.search(r"arXiv:(\d+\.\d+)", chunk)
+    if not id_match:
+        return None
+    paper["id"] = id_match.group(1)
+
+    title_match = re.search(
+        r"<span class='descriptor'>Title:</span>\s*(.*?)\s*</div>", chunk, re.DOTALL
+    )
+    if title_match:
+        paper["title"] = clean_html(title_match.group(1))
+
+    authors_match = re.search(r"<div class='list-authors'>(.*?)</div>", chunk, re.DOTALL)
+    if authors_match:
+        names = re.findall(r">([^<]+)</a>", authors_match.group(1))
+        paper["authors"] = ", ".join(names)
+
+    subjects_match = re.search(
+        r"<div class='list-subjects'><span class='descriptor'>Subjects:</span>\s*(.*?)</div>",
+        chunk, re.DOTALL,
+    )
+    if subjects_match:
+        paper["subjects"] = clean_html(subjects_match.group(1))
+
+    comments_html = ""
+    comments_match = re.search(
+        r"<div class='list-comments mathjax'><span class='descriptor'>Comments:</span>\s*(.*?)</div>",
+        chunk, re.DOTALL,
+    )
+    if comments_match:
+        comments_html = comments_match.group(1)
+        paper["comments"] = clean_html(comments_html)
+
+    abstract_html = ""
+    abstract_match = re.search(r"<p class='mathjax'>\s*(.*?)\s*</p>", chunk, re.DOTALL)
+    if abstract_match:
+        abstract_html = abstract_match.group(1)
+        paper["abstract"] = clean_html(abstract_html)
+
+    # Extract code URLs from both abstract and comments HTML
+    code_urls = extract_code_urls(abstract_html + " " + comments_html)
+    if code_urls:
+        paper["code_urls"] = code_urls
+
+    return paper
+
+
+def parse_html(html: str, field: str) -> dict:
+    """Phase 1: Parse HTML into structured data.
+
+    Returns:
+        {
+            "listing_date": "12 April 2026",
+            "field": field,
+            "sections": [{"name": ..., "count": ..., "papers": [...]}],
+        }
+    Papers include: id, title, authors, subjects, comments, code_urls, abstract
+    """
+    listing_date = parse_listing_date(html)
+    sections = parse_sections(html)
+
+    if not sections:
+        return {"listing_date": listing_date, "field": field, "sections": []}
+
+    dt_pattern = re.compile(r"<dt>\s*<a name=['\"]item(\d+)['\"]", re.DOTALL)
+    all_items = list(dt_pattern.finditer(html))
+
+    def get_section_name(pos: int) -> str:
+        for i, (name, _, sec_pos) in enumerate(sections):
+            next_pos = sections[i + 1][2] if i + 1 < len(sections) else len(html)
+            if sec_pos <= pos < next_pos:
+                return name
+        return "Unknown"
+
+    section_papers: dict[str, list[dict]] = {}
+    for i, item_match in enumerate(all_items):
+        start = item_match.start()
+        end = all_items[i + 1].start() if i + 1 < len(all_items) else len(html)
+        chunk = html[start:end]
+        paper = extract_paper(chunk)
+        if not paper:
+            continue
+        section_name = get_section_name(start)
+        section_papers.setdefault(section_name, []).append(paper)
+
+    result_sections = []
+    for name, count, _ in sections:
+        papers = section_papers.get(name, [])
+        result_sections.append({"name": name, "count": count, "papers": papers})
+
+    return {"listing_date": listing_date, "field": field, "sections": result_sections}
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: LLM Summarization
+# ---------------------------------------------------------------------------
+
+def build_prompt(batch_papers: list[dict], current_tags: list[str]) -> list[dict]:
+    """Build chat messages for LLM API call."""
+    tags_str = ", ".join(current_tags) if current_tags else "(empty)"
+    papers_text = []
+    for p in batch_papers:
+        entry = f"ID: {p['id']}\nTitle: {p.get('title', 'N/A')}\nAbstract: {p.get('abstract', 'N/A')}"
+        if p.get("comments"):
+            entry += f"\nComments: {p['comments']}"
+        papers_text.append(entry)
+
+    user_content = f"""Below are {len(batch_papers)} papers. For each paper:
+1. Write a 1-3 sentence Chinese summary of the abstract.
+2. Assign 1-3 tags from the existing tag list. Only create new tags if existing ones truly cannot cover the topic.
+3. If Comments indicate the paper is accepted/published (keywords: accepted, published, to appear, camera-ready, appearing at, presented at), extract the venue abbreviation + year (e.g. "ACL 2026"). Workshop papers should be formatted as "{{Conference}} {{Year}} Workshop". If only submitted/under review/preprint, set venue to null.
+
+Current tag list: {tags_str}
+
+Papers:
+---
+{"---".join(papers_text)}
+---
+
+Respond in strict JSON format:
+{{
+  "papers": [
+    {{"id": "...", "summary": "Chinese summary", "tags": ["tag1", "tag2"], "venue": "VENUE 2026 or null"}}
+  ],
+  "new_tags": ["new_tag1"]
+}}"""
+
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are a research paper summarization and classification assistant. "
+                "Output valid JSON only, no markdown fences."
+            ),
+        },
+        {"role": "user", "content": user_content},
+    ]
+
+
+def call_llm(
+    messages: list[dict],
+    api_endpoint: str,
+    api_key: str,
+    model: str,
+    logger: logging.Logger,
+) -> dict:
+    """Call LLM API with retries. Returns parsed JSON response."""
+    url = f"{api_endpoint.rstrip('/')}/chat/completions"
+    payload = json.dumps(
+        {
+            "model": model,
+            "messages": messages,
+            "temperature": 0.3,
+            "response_format": {"type": "json_object"},
+        }
+    ).encode("utf-8")
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    last_error = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+            content = body["choices"][0]["message"]["content"]
+            content = content.strip()
+            if content.startswith("```"):
+                content = re.sub(r"^```(?:json)?\s*", "", content)
+                content = re.sub(r"\s*```$", "", content)
+            result = json.loads(content)
+            return result
+        except Exception as e:
+            last_error = e
+            logger.error(f"LLM call attempt {attempt + 1} failed: {e}")
+            if hasattr(e, "read"):
+                try:
+                    logger.error(f"Response body: {e.read().decode('utf-8')}")
+                except Exception:
+                    pass
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAYS[attempt])
+
+    raise last_error  # type: ignore[misc]
+
+
+def compute_metadata_hash(data: dict) -> str:
+    """Compute SHA-256 of sorted paper IDs for cache validity."""
+    all_ids = []
+    for section in data["sections"]:
+        for paper in section["papers"]:
+            all_ids.append(paper["id"])
+    all_ids.sort()
+    return hashlib.sha256(json.dumps(all_ids).encode()).hexdigest()
+
+
+def run_phase2(
+    data: dict,
+    tags_path: Path,
+    cache_dir: Path,
+    no_cache: bool,
+    api_endpoint: str,
+    api_key: str,
+    model: str,
+    logger: logging.Logger,
+) -> tuple[dict, int]:
+    """Phase 2: LLM summarization.
+
+    Returns:
+        (results_by_id, failed_batches_count)
+        results_by_id: {paper_id: {"summary": ..., "tags": [...], "venue": ...}}
+    """
+    # Load tags
+    if tags_path.exists():
+        with open(tags_path, "r", encoding="utf-8") as f:
+            tags_data = json.load(f)
+        current_tags = tags_data.get("tags", [])
+        # Handle old format where tags might be objects
+        if current_tags and isinstance(current_tags[0], dict):
+            current_tags = [t.get("name", str(t)) for t in current_tags]
+    else:
+        tags_path.parent.mkdir(parents=True, exist_ok=True)
+        current_tags = []
+
+    # Collect all papers with abstracts into batches
+    all_papers = []
+    for section in data["sections"]:
+        for paper in section["papers"]:
+            if paper.get("abstract"):
+                all_papers.append(paper)
+
+    batches = []
+    for i in range(0, len(all_papers), BATCH_SIZE):
+        batches.append(all_papers[i : i + BATCH_SIZE])
+
+    if not batches:
+        return {}, 0
+
+    # Cache setup
+    field_cache = cache_dir / data["field"]
+    field_cache.mkdir(parents=True, exist_ok=True)
+    current_hash = compute_metadata_hash(data)
+    hash_file = field_cache / "metadata_hash"
+
+    # Check cache validity
+    cached_batches: dict[int, dict] = {}
+    if not no_cache and hash_file.exists():
+        old_hash = hash_file.read_text().strip()
+        if old_hash == current_hash:
+            for bf in sorted(field_cache.glob("batch_*.json")):
+                try:
+                    with open(bf, "r", encoding="utf-8") as f:
+                        cached = json.load(f)
+                    batch_idx = int(bf.stem.split("_")[1])
+                    cached_batches[batch_idx] = cached
+                    if cached.get("current_tags"):
+                        current_tags = cached["current_tags"]
+                except Exception:
+                    pass
+        else:
+            for bf in field_cache.glob("batch_*.json"):
+                bf.unlink()
+
+    hash_file.write_text(current_hash)
+
+    results_by_id: dict[str, dict] = {}
+    failed_batches = 0
+
+    for idx, batch in enumerate(batches):
+        batch_num = idx + 1
+        total = len(batches)
+
+        if batch_num in cached_batches:
+            cached = cached_batches[batch_num]
+            for p in cached.get("papers", []):
+                results_by_id[p["id"]] = {
+                    "summary": p.get("summary", ""),
+                    "tags": p.get("tags", []),
+                    "venue": p.get("venue"),
+                }
+            if cached.get("current_tags"):
+                current_tags = cached["current_tags"]
+            print(f"[{batch_num}/{total}] batch_{batch_num:03d} cached", file=sys.stderr)
+            continue
+
+        messages = build_prompt(batch, current_tags)
+        try:
+            result = call_llm(messages, api_endpoint, api_key, model, logger)
+
+            for p in result.get("papers", []):
+                results_by_id[p["id"]] = {
+                    "summary": p.get("summary", ""),
+                    "tags": p.get("tags", []),
+                    "venue": p.get("venue"),
+                }
+
+            new_tags = result.get("new_tags", [])
+            for t in new_tags:
+                if t not in current_tags:
+                    current_tags.append(t)
+
+            cache_entry = {
+                "papers": result.get("papers", []),
+                "new_tags": new_tags,
+                "current_tags": list(current_tags),
+            }
+            cache_path = field_cache / f"batch_{batch_num:03d}.json"
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(cache_entry, f, ensure_ascii=False, indent=2)
+
+            print(f"[{batch_num}/{total}] batch_{batch_num:03d} done", file=sys.stderr)
+
+        except Exception as e:
+            failed_batches += 1
+            logger.error(f"Batch {batch_num} failed after all retries: {e}")
+            print(
+                f"[{batch_num}/{total}] batch_{batch_num:03d} FAILED, see log",
+                file=sys.stderr,
+            )
+
+    # Save updated tags
+    tags_out = {
+        "updated_at": datetime.now(timezone(timedelta(hours=8))).isoformat(),
+        "tags": current_tags,
+    }
+    tags_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(tags_path, "w", encoding="utf-8") as f:
+        json.dump(tags_out, f, ensure_ascii=False, indent=2)
+
+    return results_by_id, failed_batches
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Markdown Generation
+# ---------------------------------------------------------------------------
+
+SECTION_NAME_CN = {
+    "New submissions": "新投稿",
+    "Cross submissions": "跨领域投稿",
+    "Replacement submissions": "替换投稿",
+}
+
+
+def generate_markdown(data: dict, results_by_id: dict, output_dir: Path) -> Path:
+    """Phase 3: Generate markdown file. Pure deterministic logic, no LLM."""
+    listing_date_str = data["listing_date"]
+    field = data["field"]
+
+    try:
+        listing_date = datetime.strptime(listing_date_str, "%d %B %Y")
+    except (ValueError, TypeError):
+        listing_date = datetime.now()
+
+    date_str = listing_date.strftime("%Y-%m-%d")
+    date_display = f"{listing_date.year}年{listing_date.month}月{listing_date.day}日"
+
+    # Assign global numbering
+    global_num = 0
+    for section in data["sections"]:
+        for paper in section["papers"]:
+            global_num += 1
+            paper["_num"] = global_num
+    total = global_num
+
+    # Collect global tag frequencies
+    global_tag_freq: dict[str, int] = {}
+    for section in data["sections"]:
+        for paper in section["papers"]:
+            r = results_by_id.get(paper["id"], {})
+            for tag in r.get("tags", []):
+                global_tag_freq[tag] = global_tag_freq.get(tag, 0) + 1
+
+    # Per-section summary: top-5 tags with representative paper titles
+    section_summaries = []
+    for section in data["sections"]:
+        if not section["papers"]:
+            continue
+        sec_tag_papers: dict[str, list[str]] = {}
+        for paper in section["papers"]:
+            r = results_by_id.get(paper["id"], {})
+            for tag in r.get("tags", []):
+                sec_tag_papers.setdefault(tag, []).append(paper.get("title", paper["id"]))
+        top_tags = sorted(sec_tag_papers.items(), key=lambda x: -len(x[1]))[:5]
+        cn_name = SECTION_NAME_CN.get(section["name"], section["name"])
+        tag_parts = []
+        for tag, titles in top_tags:
+            rep = titles[0][:40] + ("..." if len(titles[0]) > 40 else "")
+            tag_parts.append(f"{tag}({rep})")
+        section_summaries.append((cn_name, section["count"], ", ".join(tag_parts)))
+
+    # Overall trend
+    top3 = sorted(global_tag_freq.items(), key=lambda x: -x[1])[:3]
+    trend_tags = "、".join(t[0] for t in top3) if top3 else "多方向"
+    trend_line = f"今日论文主要聚焦于{trend_tags}等方向。"
+
+    # Accepted papers (venue non-null)
+    accepted = []
+    for section in data["sections"]:
+        for paper in section["papers"]:
+            r = results_by_id.get(paper["id"], {})
+            venue = r.get("venue")
+            if venue:
+                accepted.append((paper["_num"], venue))
+
+    # Open source papers (code_urls non-empty)
+    opensource = []
+    for section in data["sections"]:
+        for paper in section["papers"]:
+            if paper.get("code_urls"):
+                opensource.append((paper["_num"], paper["code_urls"]))
+
+    # --- Build markdown ---
+    lines = []
+
+    # Front matter
+    now = datetime.now(timezone(timedelta(hours=8)))
+    lines.append("---")
+    lines.append(f'title: "arXiv {field} Daily Update"')
+    lines.append(f"date: {now.strftime('%Y-%m-%d %H:%M:%S +0800')}")
+    lines.append(f"categories: [{field}]")
+    lines.append("---")
+    lines.append("")
+
+    # Top summary
+    lines.append(f"{field} 领域 {date_display} 共有 {total} 篇论文更新：")
+    lines.append("")
+    for cn_name, count, tag_desc in section_summaries:
+        lines.append(f"- **{count} 篇{cn_name}**：{tag_desc}")
+    lines.append("")
+    lines.append(f"**整体趋势**：{trend_line}")
+    lines.append("")
+
+    # Accepted papers
+    if accepted:
+        refs = ", ".join(f"[{num}](#{num})({venue})" for num, venue in accepted)
+        lines.append(f"**已录用论文**：{refs}")
+    else:
+        lines.append("**已录用论文**：无")
+    lines.append("")
+
+    # Open source papers
+    if opensource:
+        refs = []
+        for num, urls in opensource:
+            refs.append(f"[{num}](#{num})([code]({urls[0]}))")
+        lines.append(f"**开源论文**：{', '.join(refs)}")
+    else:
+        lines.append("**开源论文**：无")
+    lines.append("")
+
+    # Paper sections
+    for section in data["sections"]:
+        if not section["papers"]:
+            continue
+
+        lines.append("---")
+        lines.append("")
+        cn_name = SECTION_NAME_CN.get(section["name"], section["name"])
+        lines.append(f"## {cn_name} ({section['count']})")
+        lines.append("")
+
+        for paper in section["papers"]:
+            num = paper["_num"]
+            pid = paper["id"]
+            title = paper.get("title", "Untitled")
+            authors = paper.get("authors", "")
+            subjects = paper.get("subjects", "")
+            r = results_by_id.get(pid, {})
+            summary = r.get("summary", "")
+            tags = r.get("tags", [])
+
+            lines.append(f'<a id="{num}"></a>')
+            lines.append(f"### [{num}] {title}")
+
+            if section["name"] == "Cross submissions":
+                lines.append(f"- **arXiv**: [{pid}](https://arxiv.org/abs/{pid}) (cross-listed)")
+            elif section["name"] == "Replacement submissions":
+                lines.append(f"- **arXiv**: [{pid}](https://arxiv.org/abs/{pid}) (replaced)")
+            else:
+                lines.append(f"- **arXiv**: [{pid}](https://arxiv.org/abs/{pid})")
+
+            lines.append(f"- **Authors**: {authors}")
+            lines.append(f"- **Subjects**: {subjects}")
+            if tags:
+                lines.append(f"- **Tags**: {', '.join(tags)}")
+            lines.append(f"- **Summary**: {summary}")
+            lines.append("")
+
+    # Write file
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / f"{date_str}-{field}.md"
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    return output_file
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(description="arxiv daily listing summarizer")
+    parser.add_argument("field", help="arXiv field, e.g. cs.AI, cs.CL")
+    parser.add_argument("--output", required=True, help="Output directory for markdown files")
+    parser.add_argument("--tags", required=True, help="Path to tags.json")
+    parser.add_argument("--no-cache", action="store_true", help="Ignore cache, full re-run")
+    args = parser.parse_args()
+
+    cache_base = Path.home() / ".cache" / "arxiv-update"
+    log_path = cache_base / "arxiv_daily.log"
+
+    # Check env vars
+    api_key = os.environ.get("ARXIV_UPDATE_KEY")
+    api_endpoint = os.environ.get("ARXIV_UPDATE_API")
+    model = os.environ.get("ARXIV_UPDATE_MODEL")
+
+    missing = []
+    if not api_key:
+        missing.append("ARXIV_UPDATE_KEY")
+    if not api_endpoint:
+        missing.append("ARXIV_UPDATE_API")
+    if not model:
+        missing.append("ARXIV_UPDATE_MODEL")
+
+    if missing:
+        print(
+            f"Error: Missing environment variables: {', '.join(missing)}",
+            file=sys.stderr,
+        )
+        print(f"Log: {log_path}", file=sys.stderr)
+        sys.exit(2)
+
+    logger = setup_logging(cache_base)
+    logger.info(f"Starting run for field={args.field}")
+
+    # Phase 1: Download and parse
+    print(f"Fetching arxiv.org/list/{args.field}/new ...", file=sys.stderr)
+    try:
+        html = fetch_page(args.field)
+    except Exception as e:
+        logger.error(f"Failed to fetch page: {e}")
+        print(f"Error: Failed to fetch arxiv page: {e}", file=sys.stderr)
+        print(f"Log: {log_path}", file=sys.stderr)
+        sys.exit(2)
+
+    data = parse_html(html, args.field)
+    if not data["sections"]:
+        logger.error("No sections found in page")
+        print(
+            "Error: No papers found. The field may not exist or no updates today.",
+            file=sys.stderr,
+        )
+        print(f"Log: {log_path}", file=sys.stderr)
+        sys.exit(2)
+
+    total_papers = sum(s["count"] for s in data["sections"])
+    print(f"Parsed {total_papers} papers in {len(data['sections'])} sections", file=sys.stderr)
+
+    # Phase 2: LLM summarization
+    tags_path = Path(args.tags)
+    results_by_id, failed_batches = run_phase2(
+        data,
+        tags_path,
+        cache_base,
+        args.no_cache,
+        api_endpoint,
+        api_key,
+        model,
+        logger,
+    )
+
+    # Phase 3: Generate markdown
+    output_dir = Path(args.output)
+    output_file = generate_markdown(data, results_by_id, output_dir)
+
+    # Clean cache on full success
+    field_cache = cache_base / args.field
+    if failed_batches == 0 and field_cache.exists():
+        shutil.rmtree(field_cache)
+
+    # Build summary JSON for stdout
+    sections_summary = {}
+    for s in data["sections"]:
+        sections_summary[s["name"]] = s["count"]
+
+    try:
+        ld = datetime.strptime(data["listing_date"], "%d %B %Y")
+        listing_date_iso = ld.strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        listing_date_iso = data["listing_date"]
+
+    summary = {
+        "listing_date": listing_date_iso,
+        "field": args.field,
+        "output_file": str(output_file),
+        "sections": sections_summary,
+        "total": total_papers,
+        "failed_batches": failed_batches,
+    }
+    print(json.dumps(summary, ensure_ascii=False))
+
+    if failed_batches > 0:
+        print(
+            f"Warning: {failed_batches} batch(es) failed. See log: {log_path}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    else:
+        logger.info(f"Run completed successfully. Output: {output_file}")
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
