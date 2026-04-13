@@ -9,9 +9,9 @@ Example:
     python parse_arxiv.py cs.AI
     python parse_arxiv.py cs.CL --output-dir /tmp
 
-Outputs two JSON files in the output directory:
-    - metadata.json: paper ID, title, authors, subjects, comments, section info
-    - abstracts.json: paper ID -> abstract text mapping
+Outputs to the output directory:
+    - metadata.json: paper ID, title, authors, subjects, comments, github_urls, section info
+    - abstracts/batch_001.json, abstracts/batch_002.json, ...: abstract text in batches of 16
 """
 
 import argparse
@@ -115,12 +115,19 @@ def extract_paper(chunk: str) -> dict | None:
     if comments_match:
         paper["comments"] = clean_html(comments_match.group(1))
 
-    # Abstract
+    # Abstract (raw HTML for link extraction, then cleaned text)
     abstract_match = re.search(
         r"<p class='mathjax'>\s*(.*?)\s*</p>", chunk, re.DOTALL
     )
     if abstract_match:
-        paper["abstract"] = clean_html(abstract_match.group(1))
+        abstract_html = abstract_match.group(1)
+        # Extract GitHub URLs from raw HTML before cleaning
+        github_urls = re.findall(
+            r'href="(https?://github\.com/[^"]+)"', abstract_html
+        )
+        if github_urls:
+            paper["github_urls"] = list(dict.fromkeys(github_urls))  # deduplicate
+        paper["abstract"] = clean_html(abstract_html)
 
     return paper
 
@@ -166,7 +173,7 @@ def parse_papers(html: str) -> dict:
 
         section_name = get_section_name(start)
 
-        # Separate abstract from metadata
+        # Separate abstract from metadata, keep github_urls in metadata
         abstract = paper.pop("abstract", None)
         if abstract:
             abstracts[paper["id"]] = abstract
@@ -223,9 +230,23 @@ def main():
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, ensure_ascii=False, indent=2)
 
-    abs_path = out_dir / "abstracts.json"
-    with open(abs_path, "w", encoding="utf-8") as f:
-        json.dump(result["abstracts"], f, ensure_ascii=False, indent=2)
+    # Output abstracts in batches of 16
+    BATCH_SIZE = 16
+    abs_dir = out_dir / "abstracts"
+    # Clean previous batch files
+    if abs_dir.exists():
+        for old in abs_dir.glob("batch_*.json"):
+            old.unlink()
+    abs_dir.mkdir(parents=True, exist_ok=True)
+
+    abs_items = list(result["abstracts"].items())
+    batch_count = 0
+    for start in range(0, len(abs_items), BATCH_SIZE):
+        batch = dict(abs_items[start : start + BATCH_SIZE])
+        batch_count += 1
+        batch_path = abs_dir / f"batch_{batch_count:03d}.json"
+        with open(batch_path, "w", encoding="utf-8") as f:
+            json.dump(batch, f, ensure_ascii=False, indent=2)
 
     # Summary
     total = sum(s["count"] for s in result["sections"])
@@ -233,7 +254,8 @@ def main():
     print(f"Total: {total} papers", file=sys.stderr)
     for s in result["sections"]:
         print(f"  {s['name']}: {s['count']}", file=sys.stderr)
-    print(f"Output: {meta_path}, {abs_path}", file=sys.stderr)
+    print(f"Abstracts: {batch_count} batch files (batch size: {BATCH_SIZE})", file=sys.stderr)
+    print(f"Output: {out_dir}", file=sys.stderr)
 
 
 if __name__ == "__main__":
