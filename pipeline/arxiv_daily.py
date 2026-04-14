@@ -67,12 +67,31 @@ def clean_html(text: str) -> str:
     return text
 
 
-def parse_listing_date(html: str) -> str | None:
-    """Extract the listing date from the page header."""
+def parse_listing_date(html: str) -> tuple[str | None, str]:
+    """Extract listing date and page type from HTML.
+
+    Returns:
+        (date_str in YYYY-MM-DD or None, page_type "new" or "catchup" or "unknown")
+    """
+    # /list/{field}/new page: "Showing new listings for Friday, 12 April 2026"
     m = re.search(r"Showing new listings for \w+,\s*(\d+ \w+ \d+)", html)
     if m:
-        return m.group(1)
-    return None
+        try:
+            dt = datetime.strptime(m.group(1), "%d %B %Y")
+            return dt.strftime("%Y-%m-%d"), "new"
+        except ValueError:
+            pass
+
+    # /catchup/{field}/{date} page: "Total of 16 entries for Fri, 10 Apr 2026"
+    m = re.search(r"Total of \d+ entries for \w+,\s*(\d+ \w+ \d+)", html)
+    if m:
+        try:
+            dt = datetime.strptime(m.group(1), "%d %b %Y")
+            return dt.strftime("%Y-%m-%d"), "catchup"
+        except ValueError:
+            pass
+
+    return None, "unknown"
 
 
 def parse_sections(html: str) -> list[tuple[str, int, int]]:
@@ -114,18 +133,18 @@ def extract_paper(chunk: str) -> dict | None:
     paper["id"] = id_match.group(1)
 
     title_match = re.search(
-        r"<span class='descriptor'>Title:</span>\s*(.*?)\s*</div>", chunk, re.DOTALL
+        r"""<span class=['"]descriptor['"]>Title:</span>\s*(.*?)\s*</div>""", chunk, re.DOTALL
     )
     if title_match:
         paper["title"] = clean_html(title_match.group(1))
 
-    authors_match = re.search(r"<div class='list-authors'>(.*?)</div>", chunk, re.DOTALL)
+    authors_match = re.search(r"""<div class=['"]list-authors['"]>(.*?)</div>""", chunk, re.DOTALL)
     if authors_match:
         names = re.findall(r">([^<]+)</a>", authors_match.group(1))
         paper["authors"] = ", ".join(names)
 
     subjects_match = re.search(
-        r"<div class='list-subjects'><span class='descriptor'>Subjects:</span>\s*(.*?)</div>",
+        r"""<div class=['"]list-subjects['"]><span class=['"]descriptor['"]>Subjects:</span>\s*(.*?)</div>""",
         chunk, re.DOTALL,
     )
     if subjects_match:
@@ -136,7 +155,7 @@ def extract_paper(chunk: str) -> dict | None:
 
     comments_html = ""
     comments_match = re.search(
-        r"<div class='list-comments mathjax'><span class='descriptor'>Comments:</span>\s*(.*?)</div>",
+        r"""<div class=['"]list-comments mathjax['"]><span class=['"]descriptor['"]>Comments:</span>\s*(.*?)</div>""",
         chunk, re.DOTALL,
     )
     if comments_match:
@@ -144,7 +163,7 @@ def extract_paper(chunk: str) -> dict | None:
         paper["comments"] = clean_html(comments_html)
 
     abstract_html = ""
-    abstract_match = re.search(r"<p class='mathjax'>\s*(.*?)\s*</p>", chunk, re.DOTALL)
+    abstract_match = re.search(r"""<p class=['"]mathjax['"]>\s*(.*?)\s*</p>""", chunk, re.DOTALL)
     if abstract_match:
         abstract_html = abstract_match.group(1)
         paper["abstract"] = clean_html(abstract_html)
@@ -162,17 +181,18 @@ def parse_html(html: str, field: str) -> dict:
 
     Returns:
         {
-            "listing_date": "12 April 2026",
+            "listing_date": "YYYY-MM-DD" or None,
+            "page_type": "new" or "catchup" or "unknown",
             "field": field,
             "sections": [{"name": ..., "count": ..., "papers": [...]}],
         }
     Papers include: id, title, authors, subjects, comments, code_urls, abstract
     """
-    listing_date = parse_listing_date(html)
+    listing_date, page_type = parse_listing_date(html)
     sections = parse_sections(html)
 
     if not sections:
-        return {"listing_date": listing_date, "field": field, "sections": []}
+        return {"listing_date": listing_date, "page_type": page_type, "field": field, "sections": []}
 
     dt_pattern = re.compile(r"<dt>\s*<a name=['\"]item(\d+)['\"]", re.DOTALL)
     all_items = list(dt_pattern.finditer(html))
@@ -200,7 +220,7 @@ def parse_html(html: str, field: str) -> dict:
         papers = section_papers.get(name, [])
         result_sections.append({"name": name, "count": count, "papers": papers})
 
-    return {"listing_date": listing_date, "field": field, "sections": result_sections}
+    return {"listing_date": listing_date, "page_type": page_type, "field": field, "sections": result_sections}
 
 
 # ---------------------------------------------------------------------------
@@ -573,17 +593,15 @@ def extract_paper_abbrev(title: str) -> str | None:
     return None
 
 
-def generate_markdown(data: dict, results_by_id: dict, output_dir: Path) -> Path:
+def generate_markdown(data: dict, results_by_id: dict, output_dir: Path, date_str: str) -> Path:
     """Phase 3: Generate markdown file. Pure deterministic logic, no LLM."""
-    listing_date_str = data["listing_date"]
     field = data["field"]
 
     try:
-        listing_date = datetime.strptime(listing_date_str, "%d %B %Y")
+        listing_date = datetime.strptime(date_str, "%Y-%m-%d")
     except (ValueError, TypeError):
         listing_date = datetime.now()
 
-    date_str = listing_date.strftime("%Y-%m-%d")
     date_display = f"{listing_date.year}年{listing_date.month}月{listing_date.day}日"
 
     # Assign global numbering
@@ -825,22 +843,67 @@ def main():
         print(f"Log: {log_path}", file=sys.stderr)
         sys.exit(2)
 
-    # Parse listing date
-    try:
-        listing_date = datetime.strptime(data["listing_date"], "%d %B %Y")
-        date_str = listing_date.strftime("%Y-%m-%d")
-    except (ValueError, TypeError):
-        listing_date = datetime.now()
-        date_str = listing_date.strftime("%Y-%m-%d")
+    page_date = data["listing_date"]  # YYYY-MM-DD or None
+    page_type = data["page_type"]     # "new", "catchup", or "unknown"
+
+    # Validate actual parsed content
+    parsed_papers = sum(len(s["papers"]) for s in data["sections"])
+    papers_with_abstract = sum(
+        1 for s in data["sections"] for p in s["papers"] if p.get("abstract")
+    )
+    if parsed_papers == 0:
+        logger.error("[Phase1] Sections found but no papers could be parsed from page")
+        print("Error: No papers could be parsed. Page format may be unsupported.", file=sys.stderr)
+        print(f"Log: {log_path}", file=sys.stderr)
+        sys.exit(2)
+    if papers_with_abstract == 0:
+        logger.error(f"[Phase1] {parsed_papers} papers parsed but none have abstracts")
+        print(f"Error: {parsed_papers} papers parsed but no abstracts extracted. Page format may be unsupported.", file=sys.stderr)
+        print(f"Log: {log_path}", file=sys.stderr)
+        sys.exit(2)
+
+    total_papers = sum(s["count"] for s in data["sections"])
+    if parsed_papers != total_papers:
+        logger.warning(f"[Phase1] Parsed {parsed_papers} of {total_papers} papers, some may be missing")
+        print(f"Warning: Parsed {parsed_papers} of {total_papers} papers", file=sys.stderr)
+
+    print(f"Page type: {page_type}, page date: {page_date}", file=sys.stderr)
+    print(f"Parsed {parsed_papers}/{total_papers} papers ({papers_with_abstract} with abstracts) in {len(data['sections'])} sections", file=sys.stderr)
+
+    # Determine listing date and validate against --date if provided
+    if args.date:
+        # Validate --date format
+        try:
+            datetime.strptime(args.date, "%Y-%m-%d")
+        except ValueError:
+            logger.error(f"[Phase1] Invalid --date format: {args.date}")
+            print(f"Error: Invalid --date format: {args.date}, expected YYYY-MM-DD", file=sys.stderr)
+            sys.exit(2)
+        # Validate page date matches --date
+        if page_date and page_date != args.date:
+            logger.error(
+                f"[Phase1] Date mismatch: --date={args.date} but page contains date {page_date} ({page_type})"
+            )
+            print(
+                f"Error: Date mismatch: --date={args.date} but page contains date {page_date} ({page_type})",
+                file=sys.stderr,
+            )
+            print(f"Log: {log_path}", file=sys.stderr)
+            sys.exit(2)
+        date_str = args.date
+    elif page_date:
+        date_str = page_date
+    else:
+        logger.error("[Phase1] Unrecognized page format: cannot extract listing date")
+        print("Error: Unrecognized page format, expected arxiv /list/new or /catchup page.", file=sys.stderr)
+        print(f"Log: {log_path}", file=sys.stderr)
+        sys.exit(2)
 
     # Save HTML to pages archive (keyed by listing date)
     page_archive_path = pages_dir / f"{date_str}.html"
     if not page_archive_path.exists():
         page_archive_path.write_text(html, encoding="utf-8")
         logger.info(f"[Phase1] Saved HTML to {page_archive_path}")
-
-    total_papers = sum(s["count"] for s in data["sections"])
-    print(f"Parsed {total_papers} papers in {len(data['sections'])} sections", file=sys.stderr)
 
     # Check if this listing date has already been processed
     output_dir = Path(args.output)
@@ -875,7 +938,7 @@ def main():
 
     # Phase 3: Generate markdown
     output_dir = Path(args.output)
-    output_file = generate_markdown(data, results_by_id, output_dir)
+    output_file = generate_markdown(data, results_by_id, output_dir, date_str)
 
     # Clean cache on full success
     if failed_batches == 0 and field_cache.exists():
@@ -886,14 +949,8 @@ def main():
     for s in data["sections"]:
         sections_summary[s["name"]] = s["count"]
 
-    try:
-        ld = datetime.strptime(data["listing_date"], "%d %B %Y")
-        listing_date_iso = ld.strftime("%Y-%m-%d")
-    except (ValueError, TypeError):
-        listing_date_iso = data["listing_date"]
-
     summary = {
-        "listing_date": listing_date_iso,
+        "listing_date": date_str,
         "field": args.field,
         "output_file": str(output_file),
         "sections": sections_summary,
