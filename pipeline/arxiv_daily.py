@@ -295,6 +295,7 @@ def call_llm(
             "model": model,
             "messages": messages,
             "temperature": 0.3,
+            "max_tokens": 65536,
             "response_format": {"type": "json_object"},
             "stream": True,
             "stream_options": {"include_usage": True},
@@ -349,6 +350,90 @@ def call_llm(
                 time.sleep(RETRY_DELAYS[attempt])
 
     raise last_error  # type: ignore[misc]
+
+
+def match_llm_results(
+    batch: list[dict], llm_papers: list[dict], logger: logging.Logger, batch_num: int,
+    raw_result: dict | None = None, cache_dir: Path | None = None,
+) -> dict[str, dict]:
+    """Match LLM results to batch papers. Returns {paper_id: {summary, tags, venue}}.
+
+    Strategy:
+    1. Try exact ID match first
+    2. Try normalized ID match (strip version suffix like v1, v2)
+    3. Fall back to positional matching for remaining unmatched papers
+    """
+    results: dict[str, dict] = {}
+    batch_ids = [p["id"] for p in batch]
+    used_llm_indices: set[int] = set()
+
+    # Build lookup by exact and normalized ID
+    llm_by_id: dict[str, int] = {}
+    llm_by_norm: dict[str, int] = {}
+    for i, p in enumerate(llm_papers):
+        pid = p.get("id", "")
+        llm_by_id[pid] = i
+        norm = re.sub(r"v\d+$", "", pid)
+        llm_by_norm[norm] = i
+
+    # Pass 1: exact match
+    for batch_id in batch_ids:
+        if batch_id in llm_by_id:
+            idx = llm_by_id[batch_id]
+            p = llm_papers[idx]
+            results[batch_id] = {
+                "summary": p.get("summary", ""),
+                "tags": p.get("tags", []),
+                "venue": p.get("venue"),
+            }
+            used_llm_indices.add(idx)
+
+    # Pass 2: normalized match for remaining
+    for batch_id in batch_ids:
+        if batch_id in results:
+            continue
+        norm = re.sub(r"v\d+$", "", batch_id)
+        if norm in llm_by_norm:
+            idx = llm_by_norm[norm]
+            if idx not in used_llm_indices:
+                p = llm_papers[idx]
+                results[batch_id] = {
+                    "summary": p.get("summary", ""),
+                    "tags": p.get("tags", []),
+                    "venue": p.get("venue"),
+                }
+                used_llm_indices.add(idx)
+                logger.warning(
+                    f"[Phase2] Batch {batch_num:03d}: matched {batch_id} to LLM id {p.get('id', '')} by normalization"
+                )
+
+    # Pass 3: report unmatched papers
+    unmatched_batch = [bid for bid in batch_ids if bid not in results]
+    if unmatched_batch:
+        unmatched_llm_ids = [
+            llm_papers[i].get("id", "?") for i in range(len(llm_papers)) if i not in used_llm_indices
+        ]
+        logger.error(
+            f"[Phase2] Batch {batch_num:03d}: {len(unmatched_batch)} papers unmatched "
+            f"(batch IDs: {unmatched_batch}, LLM IDs: {unmatched_llm_ids})"
+        )
+        if cache_dir is not None and raw_result is not None:
+            debug_path = cache_dir / f"batch_{batch_num:03d}_debug.json"
+            debug_data = {
+                "batch_input_ids": batch_ids,
+                "prompt_papers": [
+                    {"id": p["id"], "title": p.get("title", ""), "abstract": p.get("abstract", "")[:200]}
+                    for p in batch
+                ],
+                "llm_response": raw_result,
+                "unmatched_batch_ids": unmatched_batch,
+                "unmatched_llm_ids": unmatched_llm_ids,
+            }
+            with open(debug_path, "w", encoding="utf-8") as f:
+                json.dump(debug_data, f, ensure_ascii=False, indent=2)
+            logger.error(f"[Phase2] Batch {batch_num:03d} debug info saved to {debug_path}")
+
+    return results
 
 
 def compute_metadata_hash(data: dict) -> str:
@@ -439,12 +524,8 @@ def run_phase2(
 
         if batch_num in cached_batches:
             cached = cached_batches[batch_num]
-            for p in cached.get("papers", []):
-                results_by_id[p["id"]] = {
-                    "summary": p.get("summary", ""),
-                    "tags": p.get("tags", []),
-                    "venue": p.get("venue"),
-                }
+            matched = match_llm_results(batch, cached.get("papers", []), logger, batch_num, cached, field_cache)
+            results_by_id.update(matched)
             if cached.get("current_tags"):
                 current_tags = cached["current_tags"]
             print(f"[{batch_num}/{total}] batch_{batch_num:03d} cached", file=sys.stderr)
@@ -455,12 +536,8 @@ def run_phase2(
         try:
             result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num)
 
-            for p in result.get("papers", []):
-                results_by_id[p["id"]] = {
-                    "summary": p.get("summary", ""),
-                    "tags": p.get("tags", []),
-                    "venue": p.get("venue"),
-                }
+            matched = match_llm_results(batch, result.get("papers", []), logger, batch_num, result, field_cache)
+            results_by_id.update(matched)
 
             new_tags = result.get("new_tags", [])
             for t in new_tags:
@@ -508,12 +585,8 @@ def run_phase2(
             try:
                 result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num)
 
-                for p in result.get("papers", []):
-                    results_by_id[p["id"]] = {
-                        "summary": p.get("summary", ""),
-                        "tags": p.get("tags", []),
-                        "venue": p.get("venue"),
-                    }
+                matched = match_llm_results(batch, result.get("papers", []), logger, batch_num, result, field_cache)
+                results_by_id.update(matched)
 
                 new_tags = result.get("new_tags", [])
                 for t in new_tags:
