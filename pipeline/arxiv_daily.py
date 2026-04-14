@@ -27,6 +27,11 @@ from datetime import datetime, timezone, timedelta
 from html import unescape
 from pathlib import Path
 
+try:
+    from json_repair import loads as json_repair_loads
+except ImportError:
+    json_repair_loads = None
+
 BATCH_SIZE = 16
 MAX_RETRIES = 3
 RETRY_DELAYS = [2, 4, 8]
@@ -340,6 +345,18 @@ def call_llm(
             try:
                 result = json.loads(content)
             except json.JSONDecodeError as je:
+                # Try json_repair as fallback before giving up
+                if json_repair_loads is not None:
+                    try:
+                        result = json_repair_loads(content)
+                        logger.warning(
+                            f"[Phase2] Batch {batch_num:03d} attempt {attempt + 1}: "
+                            f"json.loads failed ({je}), repaired by json_repair"
+                        )
+                    except Exception:
+                        result = None
+                    if isinstance(result, dict):
+                        return result, usage
                 # Save debug info for JSON parse failures
                 if debug_dir is not None:
                     debug_dir.mkdir(parents=True, exist_ok=True)
