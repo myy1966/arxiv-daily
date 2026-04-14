@@ -282,6 +282,7 @@ def call_llm(
     model: str,
     logger: logging.Logger,
     batch_num: int = 0,
+    debug_dir: Path | None = None,
 ) -> tuple[dict, dict]:
     """Call LLM API with retries using streaming mode.
 
@@ -336,7 +337,23 @@ def call_llm(
             if content.startswith("```"):
                 content = re.sub(r"^```(?:json)?\s*", "", content)
                 content = re.sub(r"\s*```$", "", content)
-            result = json.loads(content)
+            try:
+                result = json.loads(content)
+            except json.JSONDecodeError as je:
+                # Save debug info for JSON parse failures
+                if debug_dir is not None:
+                    debug_dir.mkdir(parents=True, exist_ok=True)
+                    debug_path = debug_dir / f"batch_{batch_num:03d}_json_error_attempt{attempt + 1}.json"
+                    debug_data = {
+                        "error": str(je),
+                        "prompt": messages[-1]["content"] if messages else "",
+                        "raw_response": content,
+                        "usage": usage,
+                    }
+                    with open(debug_path, "w", encoding="utf-8") as df:
+                        json.dump(debug_data, df, ensure_ascii=False, indent=2)
+                    logger.error(f"[Phase2] Batch {batch_num:03d} JSON parse debug saved to {debug_path}")
+                raise je
             return result, usage
         except Exception as e:
             last_error = e
@@ -354,7 +371,7 @@ def call_llm(
 
 def match_llm_results(
     batch: list[dict], llm_papers: list[dict], logger: logging.Logger, batch_num: int,
-    raw_result: dict | None = None, cache_dir: Path | None = None,
+    raw_result: dict | None = None, debug_dir: Path | None = None,
 ) -> dict[str, dict]:
     """Match LLM results to batch papers. Returns {paper_id: {summary, tags, venue}}.
 
@@ -417,8 +434,9 @@ def match_llm_results(
             f"[Phase2] Batch {batch_num:03d}: {len(unmatched_batch)} papers unmatched "
             f"(batch IDs: {unmatched_batch}, LLM IDs: {unmatched_llm_ids})"
         )
-        if cache_dir is not None and raw_result is not None:
-            debug_path = cache_dir / f"batch_{batch_num:03d}_debug.json"
+        if debug_dir is not None and raw_result is not None:
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            debug_path = debug_dir / f"batch_{batch_num:03d}_id_mismatch.json"
             debug_data = {
                 "batch_input_ids": batch_ids,
                 "prompt_papers": [
@@ -491,6 +509,7 @@ def run_phase2(
     # Cache setup
     field_cache = cache_dir / data["field"]
     field_cache.mkdir(parents=True, exist_ok=True)
+    debug_dir = cache_dir / "debug" / data["field"]
     current_hash = compute_metadata_hash(data)
     hash_file = field_cache / "metadata_hash"
 
@@ -524,7 +543,7 @@ def run_phase2(
 
         if batch_num in cached_batches:
             cached = cached_batches[batch_num]
-            matched = match_llm_results(batch, cached.get("papers", []), logger, batch_num, cached, field_cache)
+            matched = match_llm_results(batch, cached.get("papers", []), logger, batch_num, cached, debug_dir)
             results_by_id.update(matched)
             if cached.get("current_tags"):
                 current_tags = cached["current_tags"]
@@ -534,9 +553,9 @@ def run_phase2(
         messages = build_prompt(batch, current_tags)
         t0 = time.monotonic()
         try:
-            result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num)
+            result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num, debug_dir)
 
-            matched = match_llm_results(batch, result.get("papers", []), logger, batch_num, result, field_cache)
+            matched = match_llm_results(batch, result.get("papers", []), logger, batch_num, result, debug_dir)
             results_by_id.update(matched)
 
             new_tags = result.get("new_tags", [])
@@ -583,9 +602,9 @@ def run_phase2(
             messages = build_prompt(batch, current_tags)
             t0 = time.monotonic()
             try:
-                result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num)
+                result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num, debug_dir)
 
-                matched = match_llm_results(batch, result.get("papers", []), logger, batch_num, result, field_cache)
+                matched = match_llm_results(batch, result.get("papers", []), logger, batch_num, result, debug_dir)
                 results_by_id.update(matched)
 
                 new_tags = result.get("new_tags", [])
