@@ -842,8 +842,7 @@ def generate_markdown(data: dict, results_by_id: dict, output_dir: Path, date_st
             summary = r.get("summary", "")
             tags = r.get("tags", [])
 
-            lines.append(f'<a id="{num}"></a>')
-            lines.append(f"### [{num}] {title}")
+            lines.append(f'<h3 id="{num}">[{num}] {title}</h3>')
 
             if section["name"] == "Cross submissions":
                 lines.append(f"- **arXiv**: [{pid}](https://arxiv.org/abs/{pid}) (cross-listed)")
