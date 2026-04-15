@@ -1,0 +1,27 @@
+---
+---
+
+/* prettier-ignore */
+@use 'main
+{%- if jekyll.environment == 'production' -%}
+  .bundle
+{%- endif -%}
+';
+
+/* append your custom style below */
+
+#toc-wrapper {
+  overscroll-behavior: contain;
+  max-height: calc(100vh - 4rem);
+  scrollbar-width: thin;
+}
+
+/* Remove bottom gradient overlay that hides TOC entries */
+#toc-wrapper::after {
+  display: none;
+}
+
+/* Disable collapse so all TOC entries are always visible */
+#toc-wrapper .is-collapsible {
+  max-height: none !important;
+}
