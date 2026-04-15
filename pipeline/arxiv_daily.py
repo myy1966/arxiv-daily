@@ -461,8 +461,39 @@ def match_llm_results(
                     f"[Phase2] Batch {batch_num:03d}: matched {batch_id} to LLM id {p.get('id', '')} by normalization"
                 )
 
-    # Pass 3: report unmatched papers
-    unmatched_batch = [bid for bid in batch_ids if bid not in results]
+    # Pass 3: quality check - remove papers with missing tags or short summary
+    MIN_SUMMARY_LEN = 50
+    quality_failures: list[dict] = []
+    for bid in list(results.keys()):
+        r = results[bid]
+        issues = []
+        if not r.get("tags"):
+            issues.append("missing tags")
+        if len(r.get("summary", "")) < MIN_SUMMARY_LEN:
+            issues.append(f"summary too short ({len(r.get('summary', ''))} chars < {MIN_SUMMARY_LEN})")
+        if issues:
+            quality_failures.append({"id": bid, "issues": issues, "result": r})
+            del results[bid]
+    if quality_failures:
+        logger.error(
+            f"[Phase2] Batch {batch_num:03d}: {len(quality_failures)} papers failed quality check: "
+            + ", ".join(f"{qf['id']}({', '.join(qf['issues'])})" for qf in quality_failures)
+        )
+        if debug_dir is not None and raw_result is not None:
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            debug_path = debug_dir / f"batch_{batch_num:03d}_quality_error.json"
+            debug_data = {
+                "batch_input_ids": batch_ids,
+                "quality_failures": quality_failures,
+                "llm_response": raw_result,
+            }
+            with open(debug_path, "w", encoding="utf-8") as f:
+                json.dump(debug_data, f, ensure_ascii=False, indent=2)
+            logger.error(f"[Phase2] Batch {batch_num:03d} quality debug saved to {debug_path}")
+
+    # Pass 4: report unmatched papers (excluding quality failures already reported)
+    quality_failed_ids = {qf["id"] for qf in quality_failures}
+    unmatched_batch = [bid for bid in batch_ids if bid not in results and bid not in quality_failed_ids]
     if unmatched_batch:
         unmatched_llm_ids = [
             llm_papers[i].get("id", "?") for i in range(len(llm_papers)) if i not in used_llm_indices
@@ -488,7 +519,7 @@ def match_llm_results(
                 json.dump(debug_data, f, ensure_ascii=False, indent=2)
             logger.error(f"[Phase2] Batch {batch_num:03d} debug info saved to {debug_path}")
 
-    return results, len(unmatched_batch)
+    return results, len(unmatched_batch) + len(quality_failures)
 
 
 def compute_metadata_hash(data: dict) -> str:
