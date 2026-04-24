@@ -1260,12 +1260,33 @@ def main():
         logger,
     )
 
-    # Phase 3: Generate markdown
+    # Phase 3: Generate markdown (only if all batches succeeded)
     output_dir = Path(args.output)
+
+    if failed_batches > 0:
+        logger.error(f"[Phase2] {failed_batches} batch(es) still failed after retry, skipping markdown generation")
+        print(
+            f"Error: {failed_batches} batch(es) failed. Markdown not generated. "
+            f"Re-run with --date {date_str} to retry (cached batches will be reused).",
+            file=sys.stderr,
+        )
+        print(f"Log: {log_path}", file=sys.stderr)
+
+        summary = {
+            "listing_date": date_str,
+            "field": args.field,
+            "output_file": None,
+            "sections": {s["name"]: s["count"] for s in data["sections"]},
+            "total": total_papers,
+            "failed_batches": failed_batches,
+        }
+        print(json.dumps(summary, ensure_ascii=False))
+        sys.exit(1)
+
     output_file = generate_markdown(data, results_by_id, output_dir, date_str)
 
     # Clean cache on full success
-    if failed_batches == 0 and field_cache.exists():
+    if field_cache.exists():
         shutil.rmtree(field_cache)
 
     # Build summary JSON for stdout
@@ -1279,19 +1300,11 @@ def main():
         "output_file": str(output_file),
         "sections": sections_summary,
         "total": total_papers,
-        "failed_batches": failed_batches,
+        "failed_batches": 0,
     }
     print(json.dumps(summary, ensure_ascii=False))
-
-    if failed_batches > 0:
-        print(
-            f"Warning: {failed_batches} batch(es) failed. See log: {log_path}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    else:
-        logger.info(f"[Phase3] Run completed successfully. Output: {output_file}")
-        sys.exit(0)
+    logger.info(f"[Phase3] Run completed successfully. Output: {output_file}")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
