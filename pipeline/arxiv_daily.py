@@ -289,6 +289,7 @@ def call_llm(
     logger: logging.Logger,
     batch_num: int = 0,
     debug_dir: Path | None = None,
+    batch_label: str | None = None,
 ) -> tuple[dict, dict]:
     """Call LLM API with retries using streaming mode.
 
@@ -296,6 +297,8 @@ def call_llm(
         (parsed_result, usage_info)
         usage_info: {"prompt_tokens": int, "completion_tokens": int, "total_tokens": int}
     """
+    label = batch_label or f"batch_{batch_num:03d}"
+    log_label = batch_label or f"Batch {batch_num:03d}"
     url = f"{api_endpoint.rstrip('/')}/chat/completions"
     payload = json.dumps(
         {
@@ -323,7 +326,7 @@ def call_llm(
             stream_file = None
             if debug_dir is not None:
                 debug_dir.mkdir(parents=True, exist_ok=True)
-                stream_path = debug_dir / f"batch_{batch_num:03d}_stream_attempt{attempt + 1}.txt"
+                stream_path = debug_dir / f"{label}_stream_attempt{attempt + 1}.txt"
                 stream_file = open(stream_path, "w", encoding="utf-8")
             try:
                 with urllib.request.urlopen(req, timeout=300) as resp:
@@ -367,7 +370,7 @@ def call_llm(
                     try:
                         result = json_repair_loads(content)
                         logger.warning(
-                            f"[Phase2] Batch {batch_num:03d} attempt {attempt + 1}: "
+                            f"[Phase2] {log_label} attempt {attempt + 1}: "
                             f"json.loads failed ({je}), repaired by json_repair"
                         )
                     except Exception:
@@ -377,7 +380,7 @@ def call_llm(
                 # Save debug info for JSON parse failures
                 if debug_dir is not None:
                     debug_dir.mkdir(parents=True, exist_ok=True)
-                    debug_path = debug_dir / f"batch_{batch_num:03d}_json_error_attempt{attempt + 1}.json"
+                    debug_path = debug_dir / f"{label}_json_error_attempt{attempt + 1}.json"
                     debug_data = {
                         "error": str(je),
                         "prompt": messages[-1]["content"] if messages else "",
@@ -386,18 +389,18 @@ def call_llm(
                     }
                     with open(debug_path, "w", encoding="utf-8") as df:
                         json.dump(debug_data, df, ensure_ascii=False, indent=2)
-                logger.error(f"[Phase2] Batch {batch_num:03d} LLM call attempt {attempt + 1} JSON parse failed: {je}")
+                logger.error(f"[Phase2] {log_label} LLM call attempt {attempt + 1} JSON parse failed: {je}")
                 if debug_dir is not None:
-                    logger.error(f"[Phase2] Batch {batch_num:03d} JSON parse debug saved to {debug_path}")
+                    logger.error(f"[Phase2] {log_label} JSON parse debug saved to {debug_path}")
                 raise je
             return result, usage
         except Exception as e:
             last_error = e
             if not isinstance(e, json.JSONDecodeError):
-                logger.error(f"[Phase2] Batch {batch_num:03d} LLM call attempt {attempt + 1} failed: {e}")
+                logger.error(f"[Phase2] {log_label} LLM call attempt {attempt + 1} failed: {e}")
             if hasattr(e, "read"):
                 try:
-                    logger.error(f"[Phase2] Batch {batch_num:03d} response body: {e.read().decode('utf-8')}")
+                    logger.error(f"[Phase2] {log_label} response body: {e.read().decode('utf-8')}")
                 except Exception:
                     pass
             if attempt < MAX_RETRIES - 1:
@@ -409,6 +412,7 @@ def call_llm(
 def match_llm_results(
     batch: list[dict], llm_papers: list[dict], logger: logging.Logger, batch_num: int,
     raw_result: dict | None = None, debug_dir: Path | None = None,
+    batch_label: str | None = None, attempt: int = 0,
 ) -> tuple[dict[str, dict], int]:
     """Match LLM results to batch papers. Returns ({paper_id: {summary, tags, venue}}, unmatched_count).
 
@@ -417,6 +421,9 @@ def match_llm_results(
     2. Try normalized ID match (strip version suffix like v1, v2)
     3. Fall back to positional matching for remaining unmatched papers
     """
+    label = batch_label or f"batch_{batch_num:03d}"
+    log_label = batch_label or f"Batch {batch_num:03d}"
+    attempt_suffix = f"_attempt{attempt}" if attempt > 0 else ""
     results: dict[str, dict] = {}
     batch_ids = [p["id"] for p in batch]
     used_llm_indices: set[int] = set()
@@ -458,7 +465,7 @@ def match_llm_results(
                 }
                 used_llm_indices.add(idx)
                 logger.warning(
-                    f"[Phase2] Batch {batch_num:03d}: matched {batch_id} to LLM id {p.get('id', '')} by normalization"
+                    f"[Phase2] {log_label}: matched {batch_id} to LLM id {p.get('id', '')} by normalization"
                 )
 
     # Pass 3: quality check - remove papers with missing tags or short summary
@@ -476,12 +483,12 @@ def match_llm_results(
             del results[bid]
     if quality_failures:
         logger.error(
-            f"[Phase2] Batch {batch_num:03d}: {len(quality_failures)} papers failed quality check: "
+            f"[Phase2] {log_label}: {len(quality_failures)} papers failed quality check: "
             + ", ".join(f"{qf['id']}({', '.join(qf['issues'])})" for qf in quality_failures)
         )
         if debug_dir is not None and raw_result is not None:
             debug_dir.mkdir(parents=True, exist_ok=True)
-            debug_path = debug_dir / f"batch_{batch_num:03d}_quality_error.json"
+            debug_path = debug_dir / f"{label}_quality_error{attempt_suffix}.json"
             debug_data = {
                 "batch_input_ids": batch_ids,
                 "quality_failures": quality_failures,
@@ -489,7 +496,7 @@ def match_llm_results(
             }
             with open(debug_path, "w", encoding="utf-8") as f:
                 json.dump(debug_data, f, ensure_ascii=False, indent=2)
-            logger.error(f"[Phase2] Batch {batch_num:03d} quality debug saved to {debug_path}")
+            logger.error(f"[Phase2] {log_label} quality debug saved to {debug_path}")
 
     # Pass 4: report unmatched papers (excluding quality failures already reported)
     quality_failed_ids = {qf["id"] for qf in quality_failures}
@@ -499,12 +506,12 @@ def match_llm_results(
             llm_papers[i].get("id", "?") for i in range(len(llm_papers)) if i not in used_llm_indices
         ]
         logger.error(
-            f"[Phase2] Batch {batch_num:03d}: {len(unmatched_batch)} papers unmatched "
+            f"[Phase2] {log_label}: {len(unmatched_batch)} papers unmatched "
             f"(batch IDs: {unmatched_batch}, LLM IDs: {unmatched_llm_ids})"
         )
         if debug_dir is not None and raw_result is not None:
             debug_dir.mkdir(parents=True, exist_ok=True)
-            debug_path = debug_dir / f"batch_{batch_num:03d}_id_mismatch.json"
+            debug_path = debug_dir / f"{label}_id_mismatch{attempt_suffix}.json"
             debug_data = {
                 "batch_input_ids": batch_ids,
                 "prompt_papers": [
@@ -517,7 +524,7 @@ def match_llm_results(
             }
             with open(debug_path, "w", encoding="utf-8") as f:
                 json.dump(debug_data, f, ensure_ascii=False, indent=2)
-            logger.error(f"[Phase2] Batch {batch_num:03d} debug info saved to {debug_path}")
+            logger.error(f"[Phase2] {log_label} debug info saved to {debug_path}")
 
     return results, len(unmatched_batch) + len(quality_failures)
 
@@ -541,6 +548,8 @@ def run_phase2(
     api_key: str,
     model: str,
     logger: logging.Logger,
+    batch_prefix: str = "batch",
+    save_cache: bool = True,
 ) -> tuple[dict, int]:
     """Phase 2: LLM summarization.
 
@@ -578,29 +587,29 @@ def run_phase2(
     field_cache = cache_dir / data["field"]
     field_cache.mkdir(parents=True, exist_ok=True)
     debug_dir = cache_dir / "debug" / data["field"]
-    current_hash = compute_metadata_hash(data)
-    hash_file = field_cache / "metadata_hash"
 
     # Check cache validity
     cached_batches: dict[int, dict] = {}
-    if not no_cache and hash_file.exists():
-        old_hash = hash_file.read_text().strip()
-        if old_hash == current_hash:
-            for bf in sorted(field_cache.glob("batch_*.json")):
-                try:
-                    with open(bf, "r", encoding="utf-8") as f:
-                        cached = json.load(f)
-                    batch_idx = int(bf.stem.split("_")[1])
-                    cached_batches[batch_idx] = cached
-                    if cached.get("current_tags"):
-                        current_tags = cached["current_tags"]
-                except Exception:
-                    pass
-        else:
-            for bf in field_cache.glob("batch_*.json"):
-                bf.unlink()
-
-    hash_file.write_text(current_hash)
+    if save_cache:
+        current_hash = compute_metadata_hash(data)
+        hash_file = field_cache / "metadata_hash"
+        if not no_cache and hash_file.exists():
+            old_hash = hash_file.read_text().strip()
+            if old_hash == current_hash:
+                for bf in sorted(field_cache.glob("batch_*.json")):
+                    try:
+                        with open(bf, "r", encoding="utf-8") as f:
+                            cached = json.load(f)
+                        batch_idx = int(bf.stem.split("_")[1])
+                        cached_batches[batch_idx] = cached
+                        if cached.get("current_tags"):
+                            current_tags = cached["current_tags"]
+                    except Exception:
+                        pass
+            else:
+                for bf in field_cache.glob("batch_*.json"):
+                    bf.unlink()
+        hash_file.write_text(current_hash)
 
     results_by_id: dict[str, dict] = {}
     failed_indices: list[int] = []
@@ -608,23 +617,24 @@ def run_phase2(
     for idx, batch in enumerate(batches):
         batch_num = idx + 1
         total = len(batches)
+        blabel = f"{batch_prefix}_{batch_num:03d}"
 
         if batch_num in cached_batches:
             cached = cached_batches[batch_num]
-            matched, unmatched = match_llm_results(batch, cached.get("papers", []), logger, batch_num, cached, debug_dir)
+            matched, unmatched = match_llm_results(batch, cached.get("papers", []), logger, batch_num, cached, debug_dir, batch_label=blabel)
             results_by_id.update(matched)
             if cached.get("current_tags"):
                 current_tags = cached["current_tags"]
             status = "cached" if unmatched == 0 else f"cached ({unmatched} unmatched)"
-            print(f"[{batch_num}/{total}] batch_{batch_num:03d} {status}", file=sys.stderr)
+            print(f"[{batch_num}/{total}] {blabel} {status}", file=sys.stderr)
             continue
 
         messages = build_prompt(batch, current_tags)
         t0 = time.monotonic()
         try:
-            result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num, debug_dir)
+            result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num, debug_dir, batch_label=blabel)
 
-            matched, unmatched = match_llm_results(batch, result.get("papers", []), logger, batch_num, result, debug_dir)
+            matched, unmatched = match_llm_results(batch, result.get("papers", []), logger, batch_num, result, debug_dir, batch_label=blabel)
             results_by_id.update(matched)
 
             new_tags = result.get("new_tags", [])
@@ -642,26 +652,27 @@ def run_phase2(
             if unmatched > 0:
                 failed_indices.append(idx)
                 print(
-                    f"[{batch_num}/{total}] batch_{batch_num:03d} FAILED ({unmatched} unmatched) ({elapsed:.1f}s{usage_str}), see log",
+                    f"[{batch_num}/{total}] {blabel} FAILED ({unmatched} unmatched) ({elapsed:.1f}s{usage_str}), see log",
                     file=sys.stderr,
                 )
             else:
-                cache_entry = {
-                    "papers": result.get("papers", []),
-                    "new_tags": new_tags,
-                    "current_tags": list(current_tags),
-                }
-                cache_path = field_cache / f"batch_{batch_num:03d}.json"
-                with open(cache_path, "w", encoding="utf-8") as f:
-                    json.dump(cache_entry, f, ensure_ascii=False, indent=2)
-                print(f"[{batch_num}/{total}] batch_{batch_num:03d} done ({elapsed:.1f}s{usage_str})", file=sys.stderr)
+                if save_cache:
+                    cache_entry = {
+                        "papers": result.get("papers", []),
+                        "new_tags": new_tags,
+                        "current_tags": list(current_tags),
+                    }
+                    cache_path = field_cache / f"batch_{batch_num:03d}.json"
+                    with open(cache_path, "w", encoding="utf-8") as f:
+                        json.dump(cache_entry, f, ensure_ascii=False, indent=2)
+                print(f"[{batch_num}/{total}] {blabel} done ({elapsed:.1f}s{usage_str})", file=sys.stderr)
 
         except Exception as e:
             elapsed = time.monotonic() - t0
             failed_indices.append(idx)
-            logger.error(f"[Phase2] Batch {batch_num:03d} failed after all retries: {e}")
+            logger.error(f"[Phase2] {blabel} failed after all retries: {e}")
             print(
-                f"[{batch_num}/{total}] batch_{batch_num:03d} FAILED ({elapsed:.1f}s), see log",
+                f"[{batch_num}/{total}] {blabel} FAILED ({elapsed:.1f}s), see log",
                 file=sys.stderr,
             )
 
@@ -673,13 +684,14 @@ def run_phase2(
             batch = batches[idx]
             batch_num = idx + 1
             total = len(batches)
+            blabel = f"retry_{batch_prefix}_{batch_num:03d}"
 
             messages = build_prompt(batch, current_tags)
             t0 = time.monotonic()
             try:
-                result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num, debug_dir)
+                result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num, debug_dir, batch_label=blabel)
 
-                matched, unmatched = match_llm_results(batch, result.get("papers", []), logger, batch_num, result, debug_dir)
+                matched, unmatched = match_llm_results(batch, result.get("papers", []), logger, batch_num, result, debug_dir, batch_label=blabel)
                 results_by_id.update(matched)
 
                 new_tags = result.get("new_tags", [])
@@ -697,26 +709,27 @@ def run_phase2(
                 if unmatched > 0:
                     still_failed += 1
                     print(
-                        f"[{batch_num}/{total}] batch_{batch_num:03d} retry FAILED ({unmatched} unmatched) ({elapsed:.1f}s{usage_str}), see log",
+                        f"[{batch_num}/{total}] {blabel} FAILED ({unmatched} unmatched) ({elapsed:.1f}s{usage_str}), see log",
                         file=sys.stderr,
                     )
                 else:
-                    cache_entry = {
-                        "papers": result.get("papers", []),
-                        "new_tags": new_tags,
-                        "current_tags": list(current_tags),
-                    }
-                    cache_path = field_cache / f"batch_{batch_num:03d}.json"
-                    with open(cache_path, "w", encoding="utf-8") as f:
-                        json.dump(cache_entry, f, ensure_ascii=False, indent=2)
-                    print(f"[{batch_num}/{total}] batch_{batch_num:03d} retry OK ({elapsed:.1f}s{usage_str})", file=sys.stderr)
+                    if save_cache:
+                        cache_entry = {
+                            "papers": result.get("papers", []),
+                            "new_tags": new_tags,
+                            "current_tags": list(current_tags),
+                        }
+                        cache_path = field_cache / f"batch_{batch_num:03d}.json"
+                        with open(cache_path, "w", encoding="utf-8") as f:
+                            json.dump(cache_entry, f, ensure_ascii=False, indent=2)
+                    print(f"[{batch_num}/{total}] {blabel} done ({elapsed:.1f}s{usage_str})", file=sys.stderr)
 
             except Exception as e:
                 elapsed = time.monotonic() - t0
                 still_failed += 1
-                logger.error(f"[Phase2] Batch {batch_num:03d} retry failed: {e}")
+                logger.error(f"[Phase2] {blabel} failed: {e}")
                 print(
-                    f"[{batch_num}/{total}] batch_{batch_num:03d} retry FAILED ({elapsed:.1f}s), see log",
+                    f"[{batch_num}/{total}] {blabel} FAILED ({elapsed:.1f}s), see log",
                     file=sys.stderr,
                 )
 
@@ -937,6 +950,65 @@ def generate_markdown(data: dict, results_by_id: dict, output_dir: Path, date_st
     return output_file
 
 
+def patch_markdown(md_path: Path, results_by_id: dict[str, dict], logger: logging.Logger) -> int:
+    """Patch existing markdown file with new LLM results for specific papers.
+
+    Replaces Tags and Summary lines for each paper in results_by_id.
+    Returns number of papers successfully patched.
+    """
+    content = md_path.read_text(encoding="utf-8")
+    patched = 0
+
+    for pid, r in results_by_id.items():
+        summary = r.get("summary", "")
+        tags = r.get("tags", [])
+        venue = r.get("venue")
+
+        # Find the paper block by arXiv ID link
+        # Pattern: from the arXiv line to the next heading or end
+        paper_pattern = re.compile(
+            rf"(- \*\*arXiv\*\*: \[{re.escape(pid)}\].*\n)"
+            rf"((?:- \*\*(?:Authors|Subjects|Tags|Venue|Code|Summary)\*\*:.*\n)*)",
+        )
+        m = paper_pattern.search(content)
+        if not m:
+            logger.warning(f"[Patch] Paper {pid} not found in {md_path}")
+            continue
+
+        # Parse existing metadata lines, rebuild in canonical order
+        arxiv_line = m.group(1)
+        meta_lines = m.group(2)
+
+        # Extract preserved fields
+        existing = {}
+        for line in meta_lines.splitlines():
+            for key in ("Authors", "Subjects", "Code"):
+                if line.startswith(f"- **{key}**:"):
+                    existing[key] = line + "\n"
+
+        # Rebuild in canonical order: Authors, Subjects, Tags, Venue, Code, Summary
+        new_lines = [arxiv_line]
+        if "Authors" in existing:
+            new_lines.append(existing["Authors"])
+        if "Subjects" in existing:
+            new_lines.append(existing["Subjects"])
+        if tags:
+            new_lines.append(f"- **Tags**: {', '.join(tags)}\n")
+        if venue:
+            new_lines.append(f"- **Venue**: {venue}\n")
+        if "Code" in existing:
+            new_lines.append(existing["Code"])
+        new_lines.append(f"- **Summary**: {summary}\n")
+
+        new_block = "".join(new_lines)
+        content = content[:m.start()] + new_block + content[m.end():]
+        patched += 1
+        logger.info(f"[Patch] Patched paper {pid}")
+
+    md_path.write_text(content, encoding="utf-8")
+    return patched
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -948,6 +1020,7 @@ def main():
     parser.add_argument("--tags", required=True, help="Path to tags.json")
     parser.add_argument("--no-cache", action="store_true", help="Ignore cache, full re-run")
     parser.add_argument("--date", help="Use saved HTML for this date (YYYY-MM-DD) instead of fetching")
+    parser.add_argument("--patch", nargs="+", metavar="ID", help="Re-generate specific paper IDs and patch into existing md (requires --date)")
     args = parser.parse_args()
 
     cache_base = Path.home() / ".cache" / "arxiv-update"
@@ -975,6 +1048,85 @@ def main():
         sys.exit(2)
 
     logger = setup_logging(cache_base)
+
+    # --- Patch mode ---
+    if args.patch:
+        if not args.date:
+            print("Error: --patch requires --date", file=sys.stderr)
+            sys.exit(2)
+
+        logger.info(f"[Patch] Starting patch for field={args.field} date={args.date} ids={args.patch}")
+
+        # Load saved HTML
+        pages_dir = cache_base / "pages" / args.field
+        saved_path = pages_dir / f"{args.date}.html"
+        if not saved_path.exists():
+            print(f"Error: No saved HTML for date {args.date} at {saved_path}", file=sys.stderr)
+            sys.exit(2)
+        html = saved_path.read_text(encoding="utf-8")
+        full_data = parse_html(html, args.field)
+
+        # Find requested papers and build a minimal data dict for run_phase2
+        patch_ids = set(args.patch)
+        patch_papers = []
+        for section in full_data["sections"]:
+            for paper in section["papers"]:
+                if paper["id"] in patch_ids:
+                    patch_papers.append(paper)
+        found_ids = {p["id"] for p in patch_papers}
+        missing_ids = patch_ids - found_ids
+        if missing_ids:
+            print(f"Warning: Papers not found in HTML: {', '.join(sorted(missing_ids))}", file=sys.stderr)
+        if not patch_papers:
+            print("Error: No matching papers found in saved HTML", file=sys.stderr)
+            sys.exit(2)
+
+        print(f"Regenerating {len(patch_papers)} paper(s): {', '.join(p['id'] for p in patch_papers)}", file=sys.stderr)
+
+        # Build a minimal data dict with a single section containing all patch papers
+        patch_data = {
+            "field": args.field,
+            "listing_date": args.date,
+            "page_type": "patch",
+            "sections": [{"name": "Patch", "count": len(patch_papers), "papers": patch_papers}],
+        }
+
+        tags_path = Path(args.tags)
+        results_by_id, failed_batches = run_phase2(
+            patch_data, tags_path, cache_base, no_cache=True,
+            api_endpoint=api_endpoint, api_key=api_key, model=model, logger=logger,
+            batch_prefix="patch_batch", save_cache=False,
+        )
+
+        if not results_by_id:
+            print("Error: No papers successfully matched from LLM response", file=sys.stderr)
+            sys.exit(1)
+
+        # Patch markdown
+        output_dir = Path(args.output)
+        md_path = output_dir / f"{args.date}-{args.field}.md"
+        if not md_path.exists():
+            print(f"Error: Markdown file not found: {md_path}", file=sys.stderr)
+            sys.exit(2)
+
+        patched = patch_markdown(md_path, results_by_id, logger)
+        total_failed = len(patch_ids) - len(results_by_id)
+        print(f"Patched {patched}/{len(patch_ids)} paper(s) in {md_path}", file=sys.stderr)
+        logger.info(f"[Patch] Completed: patched {patched} paper(s)")
+
+        summary = {
+            "mode": "patch",
+            "listing_date": args.date,
+            "field": args.field,
+            "output_file": str(md_path),
+            "requested": len(patch_ids),
+            "patched": patched,
+            "failed": total_failed,
+        }
+        print(json.dumps(summary, ensure_ascii=False))
+        sys.exit(0 if total_failed == 0 else 1)
+
+    # --- Normal mode ---
     logger.info(f"[Phase1] Starting run for field={args.field}")
 
     # Phase 1: Download and parse
