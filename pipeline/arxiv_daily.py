@@ -1021,9 +1021,10 @@ def main():
     parser.add_argument("--no-cache", action="store_true", help="Ignore cache, full re-run")
     parser.add_argument("--date", help="Use saved HTML for this date (YYYY-MM-DD) instead of fetching")
     parser.add_argument("--patch", nargs="+", metavar="ID", help="Re-generate specific paper IDs and patch into existing md (requires --date)")
+    parser.add_argument("--cache-dir", help="Cache directory (default: ~/.cache/arxiv-update)")
     args = parser.parse_args()
 
-    cache_base = Path.home() / ".cache" / "arxiv-update"
+    cache_base = Path(args.cache_dir) if args.cache_dir else Path.home() / ".cache" / "arxiv-update"
     log_path = cache_base / "arxiv_daily.log"
 
     # Check env vars
