@@ -1,86 +1,93 @@
-# Fake LLM API Server 实现计划
+# `arxiv_daily.py` 测试套件计划
 
-为 `arxiv-update/arxiv_daily.py` 提供一个可控的 fake LLM API，用于模拟各种错误场景以测试脚本的健壮性。
+## 背景
 
-## 1. 整体架构
+`arxiv-update/scripts/arxiv_daily.py`（1309 行）是 arxiv-update 技能的核心脚本，负责下载 arXiv 每日论文列表、调用 LLM 生成摘要、输出 Markdown 文件。目前该脚本没有任何测试覆盖。项目中已有 `tests/fake_llm_server.py` 作为模拟 LLM 服务器，但缺少正式的 pytest 测试套件。本计划旨在创建完整的测试覆盖。
 
-使用 Python 标准库 `http.server` 实现轻量级 HTTP 服务器，无需额外依赖。提供单个文件 `arxiv-update/tests/fake_llm_server.py`，可通过命令行参数或请求头控制错误模拟行为。
+## 文件结构
 
-## 2. 核心功能（正常模式）
-
-- 解析收到的 `messages`，从 prompt 中提取论文 ID 列表
-- 自动生成符合 `arxiv_daily.py` 期望格式的 JSON 响应（包含 `papers` 和 `new_tags`）
-- 以 SSE 流式格式返回，模拟真实的 chunk-by-chunk 输出
-- 在最终 chunk 中返回伪造的 `usage` 统计
-
-## 3. 可模拟的错误场景
-
-通过 **请求头** `X-Fake-Error` 或 **启动参数** `--error-mode` 控制：
-
-| 错误模式 | 说明 | 测试目标 |
-|---|---|---|
-| `none` | 正常响应 | 基线验证 |
-| `http_500` | 返回 500 Internal Server Error | 重试机制（HTTP 错误） |
-| `http_429` | 返回 429 Too Many Requests + Retry-After | 速率限制处理 |
-| `timeout` | 接受连接但不响应（挂起） | 超时处理（300s） |
-| `connection_reset` | 流式传输中途断开连接 | 流中断恢复 |
-| `invalid_json` | 返回格式错误的 JSON 内容 | JSON 解析 + `json_repair` 回退 |
-| `partial_stream` | SSE 流只发送部分 chunk 后停止 | 不完整响应处理 |
-| `wrong_ids` | 返回的论文 ID 与请求不匹配（幻觉 ID） | `match_llm_results` 的 ID 匹配逻辑（`unmatched_batch_ids` 非空） |
-| `duplicate_ids` | 返回的论文列表中包含重复 ID 条目 | `match_llm_results` 对重复 ID 的处理（`used_llm_indices` 去重逻辑） |
-| `missing_fields` | 返回的论文缺少 `tags` 或 `summary` 过短 | 质量检查逻辑（Pass 3，`MIN_SUMMARY_LEN` 校验） |
-| `no_period` | 返回的 summary 末尾没有句号（截断或缺少标点） | 摘要格式/完整性校验 |
-| `empty_papers` | 返回 `{"papers": []}` | 空结果处理 |
-| `markdown_json` | JSON 外层包裹 ` ``` ` 代码块 | markdown fence 剥离逻辑 |
-| `slow_stream` | 每个 chunk 间延迟较长 | 长时间流式传输稳定性 |
-| `versioned_ids` | 返回的论文 ID 带版本后缀（如 `2501.12345v2`） | `match_llm_results` Pass 2 归一化匹配逻辑 |
-| `malformed_sse` | SSE 流中某行 `data:` 后的内容不是合法 JSON | 流式解析中单 chunk 的 `json.loads` 失败，触发重试 |
-
-## 4. 控制机制
-
-### 4.1 全局模式（启动参数）
-
-- `--error-mode <mode>`：设置全局默认错误模式
-
-### 4.2 请求级控制（请求头）
-
-- `X-Fake-Error` 请求头：指定当前请求的错误模式，优先级高于全局模式
-
-### 4.3 序列模式
-
-- `--error-sequence <mode1,mode2,...>`：按请求顺序依次应用不同错误
-- 示例：`--error-sequence 500,500,none` 模拟"前两次失败第三次成功"，直接测试重试逻辑
-
-### 4.4 概率模式
-
-- `--error-rate <float>`：以指定概率随机触发 `--error-mode` 指定的错误，其余请求正常响应
-
-## 5. 日志
-
-打印每个请求的方法、路径、选用的错误模式、响应状态码。
-
-## 6. 使用方式
-
-```bash
-# 启动正常模式
-python fake_llm_server.py --port 8080
-
-# 全局错误模式
-python fake_llm_server.py --port 8080 --error-mode http_500
-
-# 序列模式：前2次返回500，第3次正常
-python fake_llm_server.py --port 8080 --error-mode http_500 --error-sequence 500,500,none
-
-# 概率模式：30%概率返回错误
-python fake_llm_server.py --port 8080 --error-mode invalid_json --error-rate 0.3
-
-# 配合 arxiv_daily.py 使用
-export ARXIV_UPDATE_API=http://localhost:8080/v1
-export ARXIV_UPDATE_KEY=fake-key
-export ARXIV_UPDATE_MODEL=fake-model
-python arxiv_daily.py cs.AI --output ./out --tags ./tags.json --date 2026-04-22
+```
+arxiv-update/scripts/
+├── pytest.ini                          (新建)
+└── tests/
+    ├── fake_llm_server.py              (已有)
+    ├── conftest.py                     (新建)
+    └── test_arxiv_daily.py             (新建)
 ```
 
-## 7. 文件结构
+## 需要创建的文件
 
-- `arxiv-update/tests/fake_llm_server.py` — 单文件，仅依赖 Python 标准库
+### 1. `arxiv-update/scripts/pytest.ini`
+
+pytest 配置文件，设置测试路径和 Python 模块搜索路径。
+
+```ini
+[pytest]
+testpaths = tests
+pythonpath = .
+```
+
+### 2. `arxiv-update/scripts/tests/conftest.py`
+
+共享 fixtures：
+
+| Fixture | 说明 |
+|---------|------|
+| `sample_paper_chunk` | 单篇论文的最小 HTML 片段 |
+| `sample_listing_html` | 完整的 arXiv 列表页面（内联字符串，含 2 篇 new + 1 篇 cross） |
+| `sample_paper_dict` | `extract_paper` 返回的已解析论文字典 |
+| `sample_data` | Phase 1 输出字典，包含 sections 和 papers |
+| `sample_llm_result` | LLM 响应字典，含 papers、summaries、tags |
+| `fake_llm_server` | 在随机端口启动 fake 服务器，返回 `(api_url, handler_class)`，测试结束后关闭 |
+| `logger` | 写入 `tmp_path` 的测试日志器 |
+| `tags_file` | 临时 `tags.json`，含初始标签列表 |
+
+导入策略：通过 `sys.path.insert(0, ...)` 导入 `arxiv_daily` 和 `fake_llm_server`。
+
+### 3. `arxiv-update/scripts/tests/test_arxiv_daily.py`
+
+按功能分组的测试类：
+
+| 测试类 | 测试目标 | 类型 | 关键用例 |
+|--------|----------|------|----------|
+| `TestCleanHtml` | `clean_html` | 单元测试 | 去除标签、规范化空白、反转义 HTML 实体、空输入 |
+| `TestParseListingDate` | `parse_listing_date` | 单元测试 | "new" 格式、"catchup" 格式、无日期、空 HTML |
+| `TestParseSections` | `parse_sections` | 单元测试 | 3 个 section、单个 section、无 section、计数提取 |
+| `TestExtractCodeUrls` | `extract_code_urls` | 单元测试 | github/gitlab URL、去重、无 URL、排除非代码 URL |
+| `TestExtractPaper` | `extract_paper` | 单元测试 | 完整论文、最小论文、无 ID 返回 None、评论/摘要中的代码链接 |
+| `TestParseHtml` | `parse_html` | 单元测试 | 完整页面解析、空页面、正确的 section 分配 |
+| `TestBuildPrompt` | `build_prompt` | 单元测试 | 消息结构、论文 ID 出现在内容中、空标签 |
+| `TestMatchLlmResults` | `match_llm_results` | 单元测试 | 精确匹配、版本号 ID 归一化、质量检查（摘要过短、缺少标签）、错误 ID、重复 |
+| `TestComputeMetadataHash` | `compute_metadata_hash` | 单元测试 | 确定性、顺序无关、十六进制格式 |
+| `TestExtractPaperAbbrev` | `extract_paper_abbrev` | 单元测试 | 冒号/破折号/括号模式、无缩写、小写开头被拒绝 |
+| `TestFetchPage` | `fetch_page` | 单元测试（mock） | URL 构造正确、成功响应、网络错误传播 |
+| `TestCallLlm` | `call_llm` | 集成测试 | 正常响应、500 重试、重试全部失败、markdown_json 去除、debug 文件输出 |
+| `TestRunPhase2` | `run_phase2` | 集成测试 | 正常运行、缓存命中、no_cache 标志、标签更新、失败批次 |
+| `TestGenerateMarkdown` | `generate_markdown` | 集成测试 | 文件创建、front matter、section 标题、论文条目、录用/开源论文 |
+| `TestPatchMarkdown` | `patch_markdown` | 集成测试 | 基本补丁、论文不存在、保留其他字段 |
+| `TestMainCli` | `main` | 集成测试 | 缺少环境变量退出、正常运行（mock fetch_page） |
+
+## 关键实现细节
+
+1. **Fake 服务器 fixture**：在守护线程中用 `HTTPServer` + `FakeLLMHandler` 启动服务器，绑定随机可用端口。返回 `(base_url, handler_class)` 以便测试设置 `handler_class.error_mode` / `error_sequence`。
+
+2. **测试速度**：所有集成测试中通过 monkey-patch 将 `arxiv_daily.RETRY_DELAYS` 设为 `[0.01, 0.01, 0.01]`，避免实际等待。
+
+3. **fetch_page 模拟**：使用 `unittest.mock.patch("arxiv_daily.urllib.request.urlopen")` 模拟网络请求。
+
+4. **main() 测试**：使用 `monkeypatch` 设置 `sys.argv` 和环境变量，mock `fetch_page`，直接调用 `main()`（非子进程），保持测试快速。
+
+5. **Sample HTML**：在 conftest.py 中定义内联常量，匹配真实 arXiv 页面结构（与 `parse_listing_date`、`parse_sections`、`extract_paper` 中的正则兼容）。
+
+## 涉及的关键文件
+
+- `arxiv-update/scripts/arxiv_daily.py` — 被测源码
+- `arxiv-update/scripts/tests/fake_llm_server.py` — 已有的模拟服务器，将被复用
+
+## 验证方式
+
+```bash
+cd arxiv-update/scripts && python -m pytest tests/ -v
+```
+
+预期结果：所有测试通过，覆盖纯函数 + LLM 集成 + 文件 I/O + CLI 入口。
