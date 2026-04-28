@@ -1,205 +1,86 @@
-# arxiv-update 重构计划
+# Fake LLM API Server 实现计划
 
-## 整体架构
+为 `arxiv-update/arxiv_daily.py` 提供一个可控的 fake LLM API，用于模拟各种错误场景以测试脚本的健壮性。
 
-单一脚本 `arxiv_daily.py` 完成全部工作，内部分三个阶段。LLM 仅在第 2 阶段介入，其余为确定性逻辑。
+## 1. 整体架构
+
+使用 Python 标准库 `http.server` 实现轻量级 HTTP 服务器，无需额外依赖。提供单个文件 `arxiv-update/tests/fake_llm_server.py`，可通过命令行参数或请求头控制错误模拟行为。
+
+## 2. 核心功能（正常模式）
+
+- 解析收到的 `messages`，从 prompt 中提取论文 ID 列表
+- 自动生成符合 `arxiv_daily.py` 期望格式的 JSON 响应（包含 `papers` 和 `new_tags`）
+- 以 SSE 流式格式返回，模拟真实的 chunk-by-chunk 输出
+- 在最终 chunk 中返回伪造的 `usage` 统计
+
+## 3. 可模拟的错误场景
+
+通过 **请求头** `X-Fake-Error` 或 **启动参数** `--error-mode` 控制：
+
+| 错误模式 | 说明 | 测试目标 |
+|---|---|---|
+| `none` | 正常响应 | 基线验证 |
+| `http_500` | 返回 500 Internal Server Error | 重试机制（HTTP 错误） |
+| `http_429` | 返回 429 Too Many Requests + Retry-After | 速率限制处理 |
+| `timeout` | 接受连接但不响应（挂起） | 超时处理（300s） |
+| `connection_reset` | 流式传输中途断开连接 | 流中断恢复 |
+| `invalid_json` | 返回格式错误的 JSON 内容 | JSON 解析 + `json_repair` 回退 |
+| `partial_stream` | SSE 流只发送部分 chunk 后停止 | 不完整响应处理 |
+| `wrong_ids` | 返回的论文 ID 与请求不匹配（幻觉 ID） | `match_llm_results` 的 ID 匹配逻辑（`unmatched_batch_ids` 非空） |
+| `duplicate_ids` | 返回的论文列表中包含重复 ID 条目 | `match_llm_results` 对重复 ID 的处理（`used_llm_indices` 去重逻辑） |
+| `missing_fields` | 返回的论文缺少 `tags` 或 `summary` 过短 | 质量检查逻辑（Pass 3，`MIN_SUMMARY_LEN` 校验） |
+| `no_period` | 返回的 summary 末尾没有句号（截断或缺少标点） | 摘要格式/完整性校验 |
+| `empty_papers` | 返回 `{"papers": []}` | 空结果处理 |
+| `markdown_json` | JSON 外层包裹 ` ``` ` 代码块 | markdown fence 剥离逻辑 |
+| `slow_stream` | 每个 chunk 间延迟较长 | 长时间流式传输稳定性 |
+| `versioned_ids` | 返回的论文 ID 带版本后缀（如 `2501.12345v2`） | `match_llm_results` Pass 2 归一化匹配逻辑 |
+| `malformed_sse` | SSE 流中某行 `data:` 后的内容不是合法 JSON | 流式解析中单 chunk 的 `json.loads` 失败，触发重试 |
+
+## 4. 控制机制
+
+### 4.1 全局模式（启动参数）
+
+- `--error-mode <mode>`：设置全局默认错误模式
+
+### 4.2 请求级控制（请求头）
+
+- `X-Fake-Error` 请求头：指定当前请求的错误模式，优先级高于全局模式
+
+### 4.3 序列模式
+
+- `--error-sequence <mode1,mode2,...>`：按请求顺序依次应用不同错误
+- 示例：`--error-sequence 500,500,none` 模拟"前两次失败第三次成功"，直接测试重试逻辑
+
+### 4.4 概率模式
+
+- `--error-rate <float>`：以指定概率随机触发 `--error-mode` 指定的错误，其余请求正常响应
+
+## 5. 日志
+
+打印每个请求的方法、路径、选用的错误模式、响应状态码。
+
+## 6. 使用方式
 
 ```bash
-python3 arxiv_daily.py cs.AI \
-  --output ~/arxiv-daily/_posts \
-  --tags ~/arxiv-daily/data/tags.json
+# 启动正常模式
+python fake_llm_server.py --port 8080
+
+# 全局错误模式
+python fake_llm_server.py --port 8080 --error-mode http_500
+
+# 序列模式：前2次返回500，第3次正常
+python fake_llm_server.py --port 8080 --error-mode http_500 --error-sequence 500,500,none
+
+# 概率模式：30%概率返回错误
+python fake_llm_server.py --port 8080 --error-mode invalid_json --error-rate 0.3
+
+# 配合 arxiv_daily.py 使用
+export ARXIV_UPDATE_API=http://localhost:8080/v1
+export ARXIV_UPDATE_KEY=fake-key
+export ARXIV_UPDATE_MODEL=fake-model
+python arxiv_daily.py cs.AI --output ./out --tags ./tags.json --date 2026-04-22
 ```
 
-LLM API key 从环境变量 `ARXIV_UPDATE_KEY` 读取，未设置时报错退出。API endpoint 从 `ARXIV_UPDATE_API` 读取（如 `https://api.openai.com/v1`），模型名从 `ARXIV_UPDATE_MODEL` 读取（如 `gpt-4o`），两者均为必需环境变量。
+## 7. 文件结构
 
-Agent 只需运行脚本、检查退出码、解析 stdout 输出的 JSON 摘要向用户汇报。
-
-脚本 stdout 输出格式（供 Agent 解析）：
-
-```json
-{
-  "listing_date": "2026-04-12",
-  "field": "cs.AI",
-  "output_file": "/path/to/2026-04-12-cs.AI.md",
-  "sections": {"New submissions": 45, "Cross submissions": 12, "Replacement submissions": 8},
-  "total": 65,
-  "failed_batches": 0
-}
-```
-
-## 文件结构
-
-```
-arxiv-update/                       # skill 项目目录（不写入运行时数据）
-  SKILL.md                          # skill 定义，描述触发条件和调用流程
-  arxiv_daily.py                    # 由 parse_arxiv.py 重命名而来（git mv 保留历史）
-
-~/arxiv-daily/             # --output 的上级目录（Jekyll 站点）
-  _posts/                           # --output 指向此处，存放生成的 markdown
-  data/
-    tags.json                       # 所有领域共用的 tag 列表，随运行自然增长
-
-$HOME/.cache/arxiv-update/          # 运行时缓存与日志（脚本自动创建）
-  cs.AI/
-    metadata_hash                   # 当次运行的 metadata 指纹，用于判断缓存是否有效
-    batch_001.json                  # 已完成 batch 的 LLM 结果（断点续传用）
-    batch_002.json
-    ...
-  arxiv_daily.log                   # 运行日志（含错误详情），追加写入
-```
-
-## 阶段 1：下载与解析
-
-**输入**：arxiv 领域代码，如 `cs.AI`
-
-**处理**：
-1. 用 `urllib` 下载 `https://arxiv.org/list/{field}/new` 的 HTML
-2. 从页面中解析 listing date（如 "Showing new listings for Friday, 12 April 2026"），作为输出文件名和 front matter 的日期来源。必须使用页面中的日期而非脚本执行时间，因为 arxiv 的更新周期与本地时区可能不一致
-3. 正则解析出三个 section（New / Cross / Replacement）及每篇论文的字段
-4. 从 abstract 和 comments 的 HTML 原文的 `href` 属性中提取代码仓库 URL，包括 GitHub、GitLab 及自托管 Git 实例（匹配 `github.com`、`gitlab.com` 及常见路径模式如 `/username/repo`）。arxiv 纯文本中会将链接替换为 "this https URL"，需从原始 HTML 提取
-
-**内部数据结构**：
-- metadata：论文结构化数据（id, title, authors, subjects, comments, code_urls），按 section 分组
-- abstracts：按 16 篇一组切分为多个 batch
-
-## 阶段 2：逐批调用 LLM 生成摘要 + tag
-
-**核心思路**：串行处理每个 batch，每次调用 LLM 做三件事——翻译摘要、分配 tag、识别录用状态。串行而非并行是为了避免占满 API 并发额度，将带宽留给可能同时在运行的更重要的任务。tag 列表在批次间累积传递。
-
-**处理流程**：
-
-```
-tags_path = --tags 参数指定的路径（必需参数）
-加载 tags_path → current_tags
-（若文件不存在，创建初始结构 {"updated_at": ..., "tags": []}）
-
-for each batch (按序):
-
-    构造 prompt:
-    - 系统提示: 你是论文摘要翻译和分类助手
-    - 输入: 16 篇论文的 title + abstract + comments（如有）
-    - 当前 tag 列表: current_tags（逗号分隔的字符串列表）
-    - 要求:
-      1. 为每篇论文生成 1-3 句中文摘要
-      2. 为每篇论文从 current_tags 中选择 1-3 个最匹配的 tag
-      3. 仅当现有 tag 确实无法覆盖时，才新增 tag（字符串即可）
-      4. 新增的 tag 需简洁、与已有 tag 粒度一致
-      5. 如果论文的 comments 表明已被录用，提取 venue 缩写；
-         未录用则 venue 为 null
-
-    调用 LLM API，解析响应:
-    - 每篇论文的中文摘要
-    - 每篇论文的 tag 分配（tag 字符串列表）
-    - 每篇论文的 venue（已录用则为缩写字符串，否则为 null）
-    - 新增的 tag 列表（字符串列表）
-
-    LLM 响应的期望 JSON 结构:
-    {
-      "papers": [
-        {
-          "id": "2506.12345",
-          "summary": "中文摘要...",
-          "tags": ["LLM/大语言模型", "代码生成"],
-          "venue": "ACL 2026"       // 或 null
-        },
-        ...
-      ],
-      "new_tags": ["新tag1", "新tag2"]  // 无新增则为空数组
-    }
-
-    将本 batch 结果即时写入 $HOME/.cache/arxiv-update/{field}/batch_NNN.json
-    current_tags += new_tags  // 累积传递给下一个 batch
-
-全部 batch 处理完成后，将 current_tags 回写 tags_path（更新 updated_at 时间戳）
-```
-
-**错误处理与重试**：
-- LLM API 调用失败时，按 exponential backoff 重试，最多 3 次（间隔 2s → 4s → 8s）
-- JSON 解析失败（LLM 返回格式不合规）视为调用失败，同样触发重试
-- 3 次重试均失败的 batch，跳过并继续处理后续 batch，该 batch 内论文的摘要、tag、venue 在最终输出中留空
-- 所有错误详情（含 LLM 原始响应）写入日志文件 `$HOME/.cache/arxiv-update/arxiv_daily.log`，追加写入，带时间戳
-- stderr 仅输出简要进度信息（如 `[3/7] batch_003 done` 或 `[4/7] batch_004 FAILED, see log`），不输出完整错误堆栈
-- 退出码规则：
-  - 0：全部 batch 成功，markdown 已生成，stdout 输出 JSON 摘要
-  - 1：部分 batch 失败但 markdown 已生成（含留空条目），stdout 输出 JSON 摘要（`failed_batches` > 0），stderr 提示日志路径
-  - 2：致命错误（网络失败、环境变量缺失、全部 batch 失败等），无 markdown 输出，stdout 无 JSON，stderr 输出错误信息及日志路径
-
-**断点续传**：
-- 每个 batch 处理完成后，立即将结果写入 `$HOME/.cache/arxiv-update/{field}/batch_NNN.json`（含摘要、tag、venue、当前 current_tags 快照）
-- 缓存有效性判断：对当次运行的论文 ID 有序列表计算 SHA-256，写入 `metadata_hash` 文件。重新运行时比对 hash，一致则复用已有 batch 缓存，从中恢复 current_tags 继续处理；不一致则清除旧缓存、全量重跑
-- 阶段 3 生成 markdown 成功后，清理该领域的缓存目录
-- `--no-cache` 参数可强制忽略缓存、全量重跑
-
-**tags.json 格式**：
-
-tag 文件路径由 `--tags` 参数显式指定。所有领域共用同一个文件，避免跨领域 tag 重复。
-
-```json
-{
-  "updated_at": "2026-04-12T12:00:00+08:00",
-  "tags": [
-    "LLM/大语言模型",
-    "多模态学习",
-    "强化学习"
-  ]
-}
-```
-
-tag 随每次运行自然增长，采用简洁的描述性名称，推荐"中文/English"双语命名以兼顾可读性和语义清晰度。首次运行时自动创建空文件。传入 LLM prompt 时直接序列化为逗号分隔文本（如 `LLM/大语言模型, 多模态学习, 强化学习`），减少 token 开销。
-
-**LLM prompt 关键约束**：
-- 必须优先复用已有 tag，只有确实不能表达时才新增
-- 新增 tag 应与已有 tag 粒度一致，不要过细
-- 输出严格 JSON 格式，便于脚本解析
-- venue 提取规则：
-  - 仅识别明确已录用的：accepted, published, to appear, camera-ready, appearing at, presented at
-  - 排除仅投稿的：submitted to, preprint, under review
-  - 提取为简洁的 venue 缩写 + 年份，如 "ACL 2026"、"CVPR 2026 Findings"
-  - Workshop 论文统一标注为 "{会议} {年份} Workshop"，例如：
-    - "Accepted at ICLR 2026 the 2nd Workshop on World Models" → "ICLR 2026 Workshop"
-    - "Accepted at CVPRW 2026" → "CVPR 2026 Workshop"
-    - "Accepted at EMAS @ AAMAS 2026" → "AAMAS 2026 Workshop"
-
-## 阶段 3：汇总生成 markdown
-
-**纯确定性逻辑**，无 LLM 调用。
-
-**处理**：
-
-```
-1. 建立论文全局编号（New 1..N1, Cross N1+1..N1+N2, Replace ...）
-
-2. 每个 section 内统计 tag 频次，按频次降序取 top-5 作为该 section 的主题概括
-   - 附上每个 tag 下的代表性论文标题
-
-3. 生成"整体趋势"一句话：全局统计 tag 频次 top-3 拼模板句
-
-4. 从阶段 2 输出的 venue 字段汇总已录用论文（venue 非 null 的条目）
-
-5. 从 metadata.code_urls 中识别开源论文
-
-6. 按模板拼接 markdown:
-   - YAML front matter (title, date 取自 listing_date, categories)
-   - 顶部概括 (各 section 主题 + 整体趋势)
-   - 已录用论文列表 [序号](#序号)(venue)
-   - 开源论文列表 [序号](#序号)(code_url)
-   - 各 section 论文条目 (锚点 + 标题 + arXiv + 作者 + 学科 + tag + 摘要)
-```
-
-**输出**：`{output_dir}/YYYY-MM-DD-{field}.md`
-
-## SKILL.md 中 agent 的角色
-
-Agent 不做数据处理，只负责调度：
-
-```
-1. 确认领域（如用户未指定则询问）
-2. 构造命令并运行:
-   python3 <SKILL_DIR>/arxiv_daily.py <领域> \
-     --output ~/arxiv-daily/_posts \
-     --tags ~/arxiv-daily/data/tags.json
-3. 根据退出码分支处理:
-   - 退出码 0: 解析 stdout JSON，向用户汇报论文数量、各 section 分布、输出文件路径
-   - 退出码 1: 解析 stdout JSON，汇报结果并提示有部分 batch 失败，告知日志路径
-   - 退出码 2: 告知用户运行失败（领域不存在/当天无更新/环境变量缺失等），告知日志路径
-```
+- `arxiv-update/tests/fake_llm_server.py` — 单文件，仅依赖 Python 标准库
