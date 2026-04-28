@@ -1,7 +1,6 @@
 """Shared fixtures for arxiv_daily.py tests."""
 import json
 import logging
-import socket
 import sys
 import threading
 from http.server import HTTPServer
@@ -274,23 +273,29 @@ def sample_llm_result():
 
 @pytest.fixture
 def fake_llm_server():
-    """Start fake LLM server on a random port, yield (api_url, handler_class)."""
-    # Reset class-level state
-    FakeLLMHandler.error_mode = "none"
-    FakeLLMHandler.error_sequence = []
-    FakeLLMHandler.error_rate = 0.0
-    FakeLLMHandler.request_counter = 0
+    """Start fake LLM server on a random port, yield (api_url, handler_class).
 
-    # Find free port
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
+    Each invocation creates an isolated handler subclass so that class-level
+    state (error_mode, request_counter, etc.) does not leak between tests.
+    """
+    handler_cls = type("IsolatedHandler", (FakeLLMHandler,), {
+        "error_mode": "none",
+        "error_sequence": [],
+        "error_rate": 0.0,
+        "request_counter": 0,
+        "counter_lock": threading.Lock(),
+        "timeout_sleep": 0.05,
+        "stream_delay": 0.01,
+    })
 
-    server = HTTPServer(("127.0.0.1", port), FakeLLMHandler)
+    server = HTTPServer(("127.0.0.1", 0), handler_cls)
+    port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    yield f"http://127.0.0.1:{port}/v1", FakeLLMHandler
+    yield f"http://127.0.0.1:{port}/v1", handler_cls
     server.shutdown()
+    server.server_close()
+    thread.join(timeout=5)
 
 
 @pytest.fixture

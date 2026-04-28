@@ -1,7 +1,5 @@
 """Tests for arxiv_daily.py."""
 import json
-import logging
-import re
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -195,6 +193,75 @@ class TestExtractPaper:
         paper = arxiv_daily.extract_paper(chunk)
         assert paper is not None
         assert paper["code_urls"] == ["https://github.com/org/code"]
+
+    def test_no_comments_field(self):
+        """Paper without comments div should still parse successfully."""
+        chunk = '''\
+<dt><a>arXiv:2604.22222</a></dt>
+<dd><div class="meta">
+<div class="list-title mathjax"><span class="descriptor">Title:</span> No Comments Paper</div>
+<div class="list-authors"><a href="/search/?query=Test">Test Author</a></div>
+<div class="list-subjects"><span class="descriptor">Subjects:</span>
+  <span class="primary-subject">Machine Learning (cs.LG)</span>
+</div>
+<p class="mathjax">
+  Abstract text that is long enough to be useful for testing purposes.
+</p>
+</div></dd>'''
+        paper = arxiv_daily.extract_paper(chunk)
+        assert paper is not None
+        assert paper["id"] == "2604.22222"
+        assert paper["title"] == "No Comments Paper"
+        assert "comments" not in paper
+        assert "Test Author" in paper["authors"]
+
+    def test_multiple_subject_codes(self):
+        """Paper with many subject codes should extract them all."""
+        chunk = '''\
+<dt><a>arXiv:2604.33333</a></dt>
+<dd><div class="meta">
+<div class="list-title mathjax"><span class="descriptor">Title:</span> Multi Subject</div>
+<div class="list-subjects"><span class="descriptor">Subjects:</span>
+  <span class="primary-subject">Artificial Intelligence (cs.AI)</span>; Machine Learning (cs.LG); Computation and Language (cs.CL)
+</div>
+<p class="mathjax">Abstract here.</p>
+</div></dd>'''
+        paper = arxiv_daily.extract_paper(chunk)
+        assert paper is not None
+        assert "cs.AI" in paper["subjects"]
+        assert "cs.LG" in paper["subjects"]
+        assert "cs.CL" in paper["subjects"]
+
+    def test_full_structure_assertion(self, sample_paper_chunk):
+        """Verify complete structure of parsed paper dict."""
+        paper = arxiv_daily.extract_paper(sample_paper_chunk)
+        assert paper is not None
+        assert paper["id"] == "2604.06189"
+        assert paper["title"] == "ATANT: A Test Framework for Narrative Truth"
+        assert paper["authors"] == "Alice Smith, Bob Jones"
+        assert paper["subjects"] == "cs.AI; cs.LG"
+        assert paper["comments"] == "Accepted at ACL 2026. Code at this https URL"
+        assert paper["code_urls"] == ["https://github.com/example/atant"]
+        assert "novel framework" in paper["abstract"]
+
+    @pytest.mark.xfail(reason="extract_paper regex is sensitive to class attribute order", strict=True)
+    def test_class_order_variation(self):
+        """Title with reversed class order 'mathjax list-title' should still parse."""
+        chunk = '''\
+<dt><a>arXiv:2604.44444</a></dt>
+<dd><div class="meta">
+<div class="mathjax list-title"><span class="descriptor">Title:</span> Reversed Class Order</div>
+<div class="list-authors"><a href="/search/?query=Test">Test Author</a></div>
+<div class="mathjax list-comments"><span class="descriptor">Comments:</span> Some comment</div>
+<div class="list-subjects"><span class="descriptor">Subjects:</span>
+  <span class="primary-subject">Artificial Intelligence (cs.AI)</span>
+</div>
+<p class="mathjax">Abstract with reversed class order in title and comments divs.</p>
+</div></dd>'''
+        paper = arxiv_daily.extract_paper(chunk)
+        assert paper is not None
+        assert paper["title"] == "Reversed Class Order"
+        assert paper["comments"] == "Some comment"
 
 
 # ===========================================================================
@@ -522,20 +589,34 @@ class TestRunPhase2:
         cache_dir.mkdir()
 
         # First run
-        arxiv_daily.run_phase2(
+        first_results, first_failed = arxiv_daily.run_phase2(
             sample_data, tags_file, cache_dir, no_cache=False,
             api_endpoint=api_url, api_key="test-key", model="test-model", logger=logger,
         )
+        assert first_failed == 0
+
+        # Verify results cover all papers with abstracts
+        expected_ids = {
+            p["id"] for s in sample_data["sections"] for p in s["papers"] if p.get("abstract")
+        }
+        assert set(first_results.keys()) == expected_ids
+
+        # Verify cache files were created
+        field_cache = cache_dir / sample_data["field"]
+        assert (field_cache / "metadata_hash").exists()
+        assert list(field_cache.glob("batch_*.json"))
 
         # Record request count
         count_after_first = handler_cls.request_counter
 
         # Second run - should use cache
-        results, failed = arxiv_daily.run_phase2(
+        second_results, second_failed = arxiv_daily.run_phase2(
             sample_data, tags_file, cache_dir, no_cache=False,
             api_endpoint=api_url, api_key="test-key", model="test-model", logger=logger,
         )
 
+        assert second_failed == 0
+        assert second_results == first_results
         # No additional LLM requests should have been made
         assert handler_cls.request_counter == count_after_first
 
@@ -563,15 +644,25 @@ class TestRunPhase2:
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
 
+        # Read initial tags for comparison
+        initial_tags = json.loads(tags_file.read_text(encoding="utf-8"))["tags"]
+
         arxiv_daily.run_phase2(
             sample_data, tags_file, cache_dir, no_cache=False,
             api_endpoint=api_url, api_key="test-key", model="test-model", logger=logger,
         )
 
-        # Tags file should be updated
         tags_data = json.loads(tags_file.read_text(encoding="utf-8"))
         assert "tags" in tags_data
         assert "updated_at" in tags_data
+
+        # new_tags from fake server should be added
+        assert "AI Evaluation" in tags_data["tags"]
+        # Existing tags should be preserved
+        for tag in initial_tags:
+            assert tag in tags_data["tags"]
+        # No duplicates
+        assert len(tags_data["tags"]) == len(set(tags_data["tags"]))
 
     def test_empty_sections(self, fake_llm_server, logger, tags_file, tmp_path):
         api_url, handler_cls = fake_llm_server
@@ -585,6 +676,133 @@ class TestRunPhase2:
         )
         assert results == {}
         assert failed == 0
+
+
+# ===========================================================================
+# TestCallLlmErrorModes
+# ===========================================================================
+
+class TestCallLlmErrorModes:
+    """Tests for call_llm behavior under various fake server error modes."""
+
+    def _build_single_paper_messages(self):
+        return arxiv_daily.build_prompt(
+            [{"id": "2604.00001", "title": "Test", "abstract": "Abstract text"}], [],
+        )
+
+    def test_invalid_json_raises(self, fake_llm_server, logger):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_mode = "invalid_json"
+        with pytest.raises(Exception):
+            arxiv_daily.call_llm(
+                self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+            )
+
+    def test_malformed_sse_raises(self, fake_llm_server, logger):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_mode = "malformed_sse"
+        # Current implementation does not skip bad SSE lines; json.loads raises directly
+        with pytest.raises(Exception):
+            arxiv_daily.call_llm(
+                self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+            )
+
+    def test_partial_stream_raises(self, fake_llm_server, logger):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_mode = "partial_stream"
+        with pytest.raises(Exception):
+            arxiv_daily.call_llm(
+                self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+            )
+
+    def test_http_429_retries_then_succeeds(self, fake_llm_server, logger):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_sequence = ["http_429", "http_429", "none"]
+        handler_cls.request_counter = 0
+        result, _ = arxiv_daily.call_llm(
+            self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+        )
+        assert "papers" in result
+
+    def test_connection_reset_raises(self, fake_llm_server, logger):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_mode = "connection_reset"
+        with pytest.raises(Exception):
+            arxiv_daily.call_llm(
+                self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+            )
+
+
+# ===========================================================================
+# TestRunPhase2ErrorModes
+# ===========================================================================
+
+class TestRunPhase2ErrorModes:
+    """Tests for run_phase2 behavior when fake server returns problematic data."""
+
+    def test_wrong_ids_fails_batch(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_mode = "wrong_ids"
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        _, failed = arxiv_daily.run_phase2(
+            sample_data, tags_file, cache_dir, no_cache=True,
+            api_endpoint=api_url, api_key="test-key", model="test-model", logger=logger,
+        )
+        assert failed > 0
+
+    def test_empty_papers_fails_batch(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_mode = "empty_papers"
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        _, failed = arxiv_daily.run_phase2(
+            sample_data, tags_file, cache_dir, no_cache=True,
+            api_endpoint=api_url, api_key="test-key", model="test-model", logger=logger,
+        )
+        assert failed > 0
+
+    def test_missing_fields_fails_batch(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_mode = "missing_fields"
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        _, failed = arxiv_daily.run_phase2(
+            sample_data, tags_file, cache_dir, no_cache=True,
+            api_endpoint=api_url, api_key="test-key", model="test-model", logger=logger,
+        )
+        assert failed > 0
+
+    def test_versioned_ids_succeed(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_mode = "versioned_ids"
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        results, failed = arxiv_daily.run_phase2(
+            sample_data, tags_file, cache_dir, no_cache=True,
+            api_endpoint=api_url, api_key="test-key", model="test-model", logger=logger,
+        )
+        assert len(results) > 0
+        assert failed == 0
+
+    def test_duplicate_ids_tolerated(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
+        """Duplicate IDs in LLM response should be tolerated without failure."""
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_mode = "duplicate_ids"
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        results, failed = arxiv_daily.run_phase2(
+            sample_data, tags_file, cache_dir, no_cache=True,
+            api_endpoint=api_url, api_key="test-key", model="test-model", logger=logger,
+        )
+        # Duplicate IDs are tolerated and result keys remain unique
+        assert failed == 0
+        assert len(results) > 0
+        # No duplicate keys in results (dict keys are unique by definition)
+        expected_ids = {
+            p["id"] for s in sample_data["sections"] for p in s["papers"] if p.get("abstract")
+        }
+        assert set(results.keys()) == expected_ids
 
 
 # ===========================================================================
@@ -733,6 +951,137 @@ categories: [cs.AI]
         patched = arxiv_daily.patch_markdown(md_path, results, logger)
         assert patched == 0
 
+    def test_venue_removed_when_none(self, tmp_path, logger):
+        """Existing Venue line should be removed when new result has venue=None."""
+        content = """\
+---
+title: "test"
+---
+
+<h3 id="1">[1] Test Paper</h3>
+- **arXiv**: [2604.06189](https://arxiv.org/abs/2604.06189)
+- **Authors**: Alice
+- **Subjects**: cs.AI
+- **Tags**: Old
+- **Venue**: ICML 2025
+- **Summary**: Old summary.
+
+"""
+        md_path = tmp_path / "test.md"
+        md_path.write_text(content, encoding="utf-8")
+        results = {"2604.06189": {"summary": "New summary here.", "tags": ["T"], "venue": None}}
+        arxiv_daily.patch_markdown(md_path, results, logger)
+        patched_content = md_path.read_text(encoding="utf-8")
+        assert "**Venue**" not in patched_content
+        assert "- **Summary**: New summary here." in patched_content
+
+    def test_code_line_preserved(self, tmp_path, logger):
+        """Code line should survive patch."""
+        content = """\
+---
+title: "test"
+---
+
+<h3 id="1">[1] Test Paper</h3>
+- **arXiv**: [2604.06189](https://arxiv.org/abs/2604.06189)
+- **Authors**: Alice
+- **Subjects**: cs.AI
+- **Tags**: Old
+- **Code**: [code](https://github.com/example/repo)
+- **Summary**: Old summary.
+
+"""
+        md_path = tmp_path / "test.md"
+        md_path.write_text(content, encoding="utf-8")
+        results = {"2604.06189": {"summary": "New summary.", "tags": ["New"], "venue": None}}
+        arxiv_daily.patch_markdown(md_path, results, logger)
+        patched_content = md_path.read_text(encoding="utf-8")
+        assert "github.com/example/repo" in patched_content
+        assert "- **Tags**: New" in patched_content
+
+    def test_multi_paper_patch(self, tmp_path, logger):
+        """Patch multiple papers in a single file."""
+        content = """\
+---
+title: "test"
+---
+
+<h3 id="1">[1] Paper A</h3>
+- **arXiv**: [2604.06189](https://arxiv.org/abs/2604.06189)
+- **Authors**: Alice
+- **Subjects**: cs.AI
+- **Tags**: Old A
+- **Summary**: Old A.
+
+<h3 id="2">[2] Paper B</h3>
+- **arXiv**: [2604.07001](https://arxiv.org/abs/2604.07001)
+- **Authors**: Bob
+- **Subjects**: cs.LG
+- **Tags**: Old B
+- **Summary**: Old B.
+
+"""
+        md_path = tmp_path / "test.md"
+        md_path.write_text(content, encoding="utf-8")
+        results = {
+            "2604.06189": {"summary": "New A.", "tags": ["Tag A"], "venue": None},
+            "2604.07001": {"summary": "New B.", "tags": ["Tag B"], "venue": "ACL 2026"},
+        }
+        patched = arxiv_daily.patch_markdown(md_path, results, logger)
+        assert patched == 2
+        patched_content = md_path.read_text(encoding="utf-8")
+        assert "- **Summary**: New A." in patched_content
+        assert "- **Summary**: New B." in patched_content
+        assert "- **Venue**: ACL 2026" in patched_content
+
+    def test_cross_listed_annotation_match(self, tmp_path, logger):
+        """arXiv line with (cross-listed) suffix should still be matched."""
+        content = """\
+---
+title: "test"
+---
+
+<h3 id="1">[1] Cross Paper</h3>
+- **arXiv**: [2604.08123](https://arxiv.org/abs/2604.08123) (cross-listed)
+- **Authors**: Dave
+- **Subjects**: cs.RO; cs.AI
+- **Tags**: Old
+- **Summary**: Old summary.
+
+"""
+        md_path = tmp_path / "test.md"
+        md_path.write_text(content, encoding="utf-8")
+        results = {"2604.08123": {"summary": "New cross summary.", "tags": ["New Tag"], "venue": None}}
+        patched = arxiv_daily.patch_markdown(md_path, results, logger)
+        assert patched == 1
+        patched_content = md_path.read_text(encoding="utf-8")
+        assert "- **Summary**: New cross summary." in patched_content
+        assert "(cross-listed)" in patched_content
+
+    def test_replaced_annotation_match(self, tmp_path, logger):
+        """arXiv line with (replaced) suffix should still be matched."""
+        content = """\
+---
+title: "test"
+---
+
+<h3 id="1">[1] Replaced Paper</h3>
+- **arXiv**: [2603.01234](https://arxiv.org/abs/2603.01234) (replaced)
+- **Authors**: Frank
+- **Subjects**: cs.CV; cs.AI
+- **Tags**: Old
+- **Summary**: Old summary.
+
+"""
+        md_path = tmp_path / "test.md"
+        md_path.write_text(content, encoding="utf-8")
+        results = {"2603.01234": {"summary": "New replaced summary.", "tags": ["New Tag"], "venue": None}}
+        patched = arxiv_daily.patch_markdown(md_path, results, logger)
+        assert patched == 1
+        patched_content = md_path.read_text(encoding="utf-8")
+        assert "- **Summary**: New replaced summary." in patched_content
+        assert "(replaced)" in patched_content
+
 
 # ===========================================================================
 # TestMainCli
@@ -749,7 +1098,7 @@ class TestMainCli:
             arxiv_daily.main()
         assert exc_info.value.code == 2
 
-    def test_normal_run(self, monkeypatch, fake_llm_server, tmp_path, sample_listing_html):
+    def test_normal_run(self, monkeypatch, fake_llm_server, tmp_path, sample_listing_html, capsys):
         api_url, handler_cls = fake_llm_server
         output_dir = tmp_path / "output"
         output_dir.mkdir()
@@ -782,3 +1131,70 @@ class TestMainCli:
         md_files = list(output_dir.glob("*.md"))
         assert len(md_files) == 1
         assert "2025-04-11-cs.AI.md" in md_files[0].name
+
+        # Verify stdout JSON summary
+        captured = capsys.readouterr()
+        summary = json.loads(captured.out)
+        assert summary["listing_date"] == "2025-04-11"
+        assert summary["field"] == "cs.AI"
+        assert summary["output_file"] == str(md_files[0])
+        assert summary["total"] > 0
+        assert summary["failed_batches"] == 0
+        assert "sections" in summary
+
+    def test_date_html_missing(self, monkeypatch, tmp_path):
+        """--date with no saved HTML should exit with code 2."""
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        monkeypatch.setenv("ARXIV_UPDATE_KEY", "test-key")
+        monkeypatch.setenv("ARXIV_UPDATE_API", "http://127.0.0.1:1/v1")
+        monkeypatch.setenv("ARXIV_UPDATE_MODEL", "test-model")
+        monkeypatch.setattr("sys.argv", [
+            "arxiv_daily.py", "cs.AI",
+            "--output", str(tmp_path / "output"),
+            "--tags", str(tmp_path / "tags.json"),
+            "--date", "2099-01-01",
+            "--cache-dir", str(cache_dir),
+        ])
+        with pytest.raises(SystemExit) as exc_info:
+            arxiv_daily.main()
+        assert exc_info.value.code == 2
+
+    def test_date_mismatch(self, monkeypatch, tmp_path, sample_listing_html):
+        """Page date != --date should exit with code 2."""
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        pages_dir = cache_dir / "pages" / "cs.AI"
+        pages_dir.mkdir(parents=True)
+        # sample_listing_html contains date 2025-04-11, but we pass --date 2025-04-12
+        (pages_dir / "2025-04-12.html").write_text(sample_listing_html, encoding="utf-8")
+
+        monkeypatch.setenv("ARXIV_UPDATE_KEY", "test-key")
+        monkeypatch.setenv("ARXIV_UPDATE_API", "http://127.0.0.1:1/v1")
+        monkeypatch.setenv("ARXIV_UPDATE_MODEL", "test-model")
+        monkeypatch.setattr("sys.argv", [
+            "arxiv_daily.py", "cs.AI",
+            "--output", str(tmp_path / "output"),
+            "--tags", str(tmp_path / "tags.json"),
+            "--date", "2025-04-12",
+            "--cache-dir", str(cache_dir),
+        ])
+        with pytest.raises(SystemExit) as exc_info:
+            arxiv_daily.main()
+        assert exc_info.value.code == 2
+
+    def test_patch_without_date(self, monkeypatch, tmp_path):
+        """--patch without --date should exit with code 2."""
+        monkeypatch.setenv("ARXIV_UPDATE_KEY", "test-key")
+        monkeypatch.setenv("ARXIV_UPDATE_API", "http://127.0.0.1:1/v1")
+        monkeypatch.setenv("ARXIV_UPDATE_MODEL", "test-model")
+        monkeypatch.setattr("sys.argv", [
+            "arxiv_daily.py", "cs.AI",
+            "--output", str(tmp_path / "output"),
+            "--tags", str(tmp_path / "tags.json"),
+            "--patch", "2604.06189",
+            "--cache-dir", str(tmp_path / "cache"),
+        ])
+        with pytest.raises(SystemExit) as exc_info:
+            arxiv_daily.main()
+        assert exc_info.value.code == 2

@@ -40,10 +40,10 @@ def generate_normal_response(paper_ids: list[str]) -> dict:
         papers.append({
             "id": pid,
             "summary": f"这是一篇关于人工智能领域的研究论文，提出了一种新的方法来解决现有技术中的关键问题，并在多个基准数据集上取得了显著的性能提升。",
-            "tags": ["LLM Reasoning", "AI Safety"],
+            "tags": ["LLM Reasoning", "AI Evaluation"],
             "venue": None,
         })
-    return {"papers": papers, "new_tags": []}
+    return {"papers": papers, "new_tags": ["AI Evaluation"]}
 
 
 def make_sse_chunks(content_json: str, model: str = "fake-model") -> list[str]:
@@ -129,9 +129,8 @@ def handle_http_429(handler, paper_ids, model):
 
 def handle_timeout(handler, paper_ids, model):
     """Accept connection but never respond (hang until client times out)."""
-    # Sleep for a long time to simulate timeout; client has 300s timeout
     try:
-        time.sleep(600)
+        time.sleep(type(handler).timeout_sleep)
     except (BrokenPipeError, ConnectionResetError):
         pass
 
@@ -191,7 +190,7 @@ def handle_wrong_ids(handler, paper_ids, model):
         papers.append({
             "id": fake_id,
             "summary": f"这是一篇关于人工智能领域的研究论文，提出了一种新的方法来解决现有技术中的关键问题，并在多个基准数据集上取得了显著的性能提升。",
-            "tags": ["LLM Reasoning", "AI Safety"],
+            "tags": ["LLM Reasoning", "Diffusion Models"],
             "venue": None,
         })
     response = {"papers": papers, "new_tags": []}
@@ -206,7 +205,7 @@ def handle_duplicate_ids(handler, paper_ids, model):
         papers.append({
             "id": pid,
             "summary": f"这是一篇关于人工智能领域的研究论文，提出了一种新的方法来解决现有技术中的关键问题，并在多个基准数据集上取得了显著的性能提升。",
-            "tags": ["LLM Reasoning", "AI Safety"],
+            "tags": ["LLM Reasoning", "Diffusion Models"],
             "venue": None,
         })
     # Duplicate the first paper
@@ -249,7 +248,7 @@ def handle_no_period(handler, paper_ids, model):
         papers.append({
             "id": pid,
             "summary": "这是一篇关于人工智能领域的研究论文，提出了一种新的方法来解决现有技术中的关键问题，并在多个基准数据集上取得了显著的性能提升",
-            "tags": ["LLM Reasoning", "AI Safety"],
+            "tags": ["LLM Reasoning", "Diffusion Models"],
             "venue": None,
         })
     response = {"papers": papers, "new_tags": []}
@@ -286,7 +285,7 @@ def handle_slow_stream(handler, paper_ids, model):
     for chunk in chunks:
         handler.wfile.write(chunk.encode("utf-8"))
         handler.wfile.flush()
-        time.sleep(2)
+        time.sleep(type(handler).stream_delay)
 
 
 def handle_versioned_ids(handler, paper_ids, model):
@@ -297,7 +296,7 @@ def handle_versioned_ids(handler, paper_ids, model):
         papers.append({
             "id": versioned_id,
             "summary": f"这是一篇关于人工智能领域的研究论文，提出了一种新的方法来解决现有技术中的关键问题，并在多个基准数据集上取得了显著的性能提升。",
-            "tags": ["LLM Reasoning", "AI Safety"],
+            "tags": ["LLM Reasoning", "Diffusion Models"],
             "venue": None,
         })
     response = {"papers": papers, "new_tags": []}
@@ -373,6 +372,8 @@ class FakeLLMHandler(BaseHTTPRequestHandler):
     error_rate: float = 0.0
     request_counter: int = 0
     counter_lock = threading.Lock()
+    timeout_sleep: float = 600
+    stream_delay: float = 2
 
     def do_POST(self):
         if not self.path.rstrip("/").endswith("/chat/completions"):
@@ -419,29 +420,31 @@ class FakeLLMHandler(BaseHTTPRequestHandler):
 
     def _resolve_error_mode(self) -> str:
         """Determine which error mode to use for the current request."""
+        cls = type(self)
+
         # Priority 1: request header
         header_mode = self.headers.get("X-Fake-Error")
         if header_mode and header_mode in ERROR_HANDLERS:
             return header_mode
 
         # Priority 2: sequence mode
-        with FakeLLMHandler.counter_lock:
-            idx = FakeLLMHandler.request_counter
-            FakeLLMHandler.request_counter += 1
+        with cls.counter_lock:
+            idx = cls.request_counter
+            cls.request_counter += 1
 
-        if FakeLLMHandler.error_sequence:
-            seq = FakeLLMHandler.error_sequence
+        if cls.error_sequence:
+            seq = cls.error_sequence
             if idx < len(seq):
                 return seq[idx]
             # After sequence exhausted, fall through to default/rate
 
         # Priority 3: rate-based random error
-        if FakeLLMHandler.error_rate > 0 and random.random() < FakeLLMHandler.error_rate:
-            return FakeLLMHandler.error_mode
+        if cls.error_rate > 0 and random.random() < cls.error_rate:
+            return cls.error_mode
 
         # Priority 4: global error mode (only if no rate is set)
-        if FakeLLMHandler.error_rate == 0:
-            return FakeLLMHandler.error_mode
+        if cls.error_rate == 0:
+            return cls.error_mode
 
         return "none"
 
