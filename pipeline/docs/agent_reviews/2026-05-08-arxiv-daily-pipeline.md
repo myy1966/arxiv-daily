@@ -1,7 +1,7 @@
 ---
 title: "arxiv_daily.py 全局架构审查"
 date: "2026-05-08"
-status: "REFACTOR_NEEDED"
+status: "PASS"
 ---
 
 ## 1. 元数据 (Metadata)
@@ -375,5 +375,91 @@ status: "REFACTOR_NEEDED"
   | **P3 鲁棒性** | 005, 006, 007, 009, 017 | 原子写入、fd 泄漏、TOCTOU、分隔符冲突、越界防御 |
   | **P4 规范/低风险** | 003, 016, 018, 019, 020, 010 | 爬虫礼仪、版本声明、时区常量、缺字段警告、日志、patch 性能 |
 
+### [Round 3] — 第二轮 Review（验证 Executor 修复）
+- **Reviewer**:
+  - **状态判决**: `[STATUS: PASS]`
+  - **背景**: Executor 已对 21 个 issue 逐一回复并提交修改（20 个 commit），测试套件 133 passed, 1 xfailed。本轮验证修复质量。
+
+  ---
+
+  #### 对 Executor 两个 DISPUTE 的回应
+
+  **ISSUE 003 (DISPUTE)**：Executor 指出 `_last_fetch_time` 无法跨进程生效，因此增加了**首次请求也执行 3s courtesy delay** 的设计。审查代码确认：
+  - `_wait_for_arxiv_rate_limit()` 在 `_last_fetch_time is None` 时延时 `ARXIV_FETCH_INTERVAL_SECONDS`（L108-109）——合理，保守处理了 shell 循环启动多个进程的场景。
+  - User-Agent 通过环境变量注入（L54-58），避免硬编码虚假邮箱——合理。
+  - **接受 DISPUTE**，实现优于原始建议。
+
+  **ISSUE 019 (DISPUTE)**：Executor 不在 `parse_html` 内直接调 logger，而是返回 `diagnostics` dict，由 `log_parse_diagnostics()` 在调用方统一输出。审查代码确认：
+  - `parse_html` 保持无副作用（L246-309），便于测试。
+  - `log_parse_diagnostics` 在 `run_normal_mode` 中调用（L1380）。
+  - **接受 DISPUTE**，分离关注点更清洁。
+
+  ---
+
+  #### 修复质量确认
+
+  | Issue | 验证结论 |
+  |-------|----------|
+  | 001 | HTTP 错误分类正确：429 读 Retry-After，4xx 不重试，5xx 退避重试，JSONDecodeError 显式重试。`_retry_delay` 封装 clamp 逻辑。✓ |
+  | 002 | `saw_done` 标记 + `ConnectionError` 抛出，归入网络错误退避路径。✓ |
+  | 003 | 首次延时 + 进程内间隔 + UA 环境变量注入。✓ |
+  | 004 | `_process_batch` 消除首轮/重试重复。✓ |
+  | 005 | `_atomic_write_json` 使用 mkstemp + os.replace。✓ |
+  | 006 | `ExitStack` 管理 stream_file 生命周期。✓ |
+  | 007 | `_atomic_write_text` 用于 HTML 归档；`--date` 覆盖提示已加。✓ |
+  | 008 | 子集重试 + `SUMMARY_FAILURE_PLACEHOLDER` 兜底。✓ |
+  | 009 | `PAPER_SEPARATOR` + `[Paper i/n]` 序号标记。✓ |
+  | 010 | 已知限制记录，不改代码。✓ |
+  | 011 | `_validate_llm_schema` 校验 papers 为 list、new_tags 为 list。✓ |
+  | 012 | 预加载不修改 `current_tags`，主循环 cache hit 时恢复。✓ |
+  | 013 | Hash 包含 id/title/abstract/comments，排序后序列化。✓ |
+  | 014 | Patch mode 增加 abstract 缺失 warning。✓ |
+  | 015 | 拆出 `load_tags`/`collect_batches`/`load_cached_batches`/`save_tags`。✓ |
+  | 016 | Docstring 声明 `Requires: Python >= 3.10`。✓ |
+  | 017 | `_retry_delay` 使用 `min(attempt, len-1)` clamp。✓ |
+  | 018 | `OUTPUT_TZ` 模块常量，两处统一引用。✓ |
+  | 019 | `diagnostics` dict + `log_parse_diagnostics`。✓ |
+  | 020 | `shutil.rmtree` 前 `logger.info`。✓ |
+  | 021 | `main()` → `run_patch_mode` + `run_normal_mode`。✓ |
+
+  ---
+
+  #### 新发现的残留问题（非阻塞，记录为后续改进）
+
+  ##### [ISSUE ID: 022] `_atomic_write_text` 每次无条件覆盖 HTML 归档（行为变更）
+  - **定位**: `arxiv_daily.py:run_normal_mode` (L1425-1427)
+  - **问题描述**: 原逻辑为 `if not page_archive_path.exists(): write`（仅首次写入），修复后改为无条件 `_atomic_write_text(page_archive_path, html)`。这意味着每次使用 `--date` 模式重新加载 HTML 时，会将同一文件重写一遍——无害但多余 I/O。
+  - **严重度**: 极低，不阻塞 PASS。
+  - **建议**: 可保留 `if not path.exists()` 检查后再调用 `_atomic_write_text`，或接受当前行为（原子写入本身是幂等的）。
+
+  ##### [ISSUE ID: 023] `save_tags` 未使用原子写入
+  - **定位**: `arxiv_daily.py:save_tags` (L857-865)
+  - **问题描述**: `save_tags` 直接 `open(tags_path, "w")` + `json.dump`，未使用已有的 `_atomic_write_json`。如果进程中断，tags.json 可能损坏。影响较小（tags 可从 batch cache 恢复），但不一致。
+  - **严重度**: 低，不阻塞 PASS。
+  - **建议**: 改为 `_atomic_write_json(tags_path, tags_out)`。
+
+  ##### [ISSUE ID: 024] `run_patch_mode` 和 `run_normal_mode` 重复读取环境变量
+  - **定位**: `arxiv_daily.py:run_patch_mode` (L1229-1231), `run_normal_mode` (L1322-1324), `main` (L1526-1528)
+  - **问题描述**: 环境变量 `ARXIV_UPDATE_KEY/API/MODEL` 在 `main()` 中已检查，但 `run_patch_mode` 和 `run_normal_mode` 各自又重新 `os.environ.get`。虽然功能正确，但意味着如果 `main()` 的检查逻辑被绕过（例如直接调用 `run_normal_mode`），这些变量可能为 `None`。
+  - **严重度**: 极低（代码风格问题），不阻塞 PASS。
+  - **建议**: 在 `main()` 中解析后作为参数传入，消除重复读取。
+
+  ---
+
+  #### 总结
+
+  Executor 高质量完成了全部 21 个 issue 的修复，测试覆盖全面（133 tests），两个 DISPUTE 的替代方案均优于原始建议。新发现的 3 个残留问题为极低优先级代码风格问题，不影响行为正确性。
+
+  **最终判决: `[STATUS: PASS]`**
+
 ## 4. 最终决策 (Final Decision)
-（等待 Executor 回复后在后续轮次中给出）
+
+- **决策记录**:
+  - 本次审查覆盖 LLM 容错、幂等性、爬虫礼仪、DRY 四个维度共 21 个 issue，全部获得满意修复。
+  - 架构改进：`run_phase2` 拆分为 5 个职责明确的子函数；`main()` 拆为 patch/normal 两条路径；批处理逻辑统一为 `_process_batch`。
+  - 关键技术决策：
+    - **子集重试**（而非整 batch 重试）节省 LLM Token，同时通过 `SUMMARY_FAILURE_PLACEHOLDER` 避免静默丢论文。
+    - **Metadata hash 扩展**到 title/abstract/comments，但有意**排除 tags** 避免级联缓存失效——这是正确的权衡。
+    - **tags 缓存恢复顺序**修复为主循环按序恢复，未采用 per-batch input snapshot 校验（Executor 认为扩大缓存格式变更范围）——可接受的妥协。
+    - **`parse_html` 返回 diagnostics** 而非内部调 logger——优于 Reviewer 原始建议，保持函数无副作用。
+  - 残留 3 个极低优先级问题（022/023/024）记录在案，可在后续迭代中顺手修复。
