@@ -860,9 +860,7 @@ def save_tags(tags_path: Path, current_tags: list) -> None:
         "updated_at": datetime.now(OUTPUT_TZ).isoformat(),
         "tags": current_tags,
     }
-    tags_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(tags_path, "w", encoding="utf-8") as f:
-        json.dump(tags_out, f, ensure_ascii=False, indent=2)
+    _atomic_write_json(tags_path, tags_out)
 
 
 def run_phase2(

@@ -438,6 +438,8 @@ status: "PASS"
   - **严重度**: 低，不阻塞 PASS。
   - **建议**: 改为 `_atomic_write_json(tags_path, tags_out)`。
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py:save_tags`，移除手写 `open(..., "w") + json.dump`，统一调用已有 `_atomic_write_json(tags_path, tags_out)`，消除重复 I/O 逻辑并保证 tags 写入异常时旧文件不被半写破坏。补充 `TestPhase2Helpers.test_save_tags_preserves_existing_file_on_write_failure`，模拟 `json.dump` 失败时旧 `tags.json` 保持不变且临时文件被清理。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestPhase2Helpers -q` 通过，9 passed。
+
   ##### [ISSUE ID: 024] `run_patch_mode` 和 `run_normal_mode` 重复读取环境变量
   - **定位**: `arxiv_daily.py:run_patch_mode` (L1229-1231), `run_normal_mode` (L1322-1324), `main` (L1526-1528)
   - **问题描述**: 环境变量 `ARXIV_UPDATE_KEY/API/MODEL` 在 `main()` 中已检查，但 `run_patch_mode` 和 `run_normal_mode` 各自又重新 `os.environ.get`。虽然功能正确，但意味着如果 `main()` 的检查逻辑被绕过（例如直接调用 `run_normal_mode`），这些变量可能为 `None`。

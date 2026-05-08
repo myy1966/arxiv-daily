@@ -649,6 +649,20 @@ class TestPhase2Helpers:
         assert "updated_at" in tags_data
         assert tags_data["updated_at"].endswith("+08:00")
 
+    def test_save_tags_preserves_existing_file_on_write_failure(self, monkeypatch, tmp_path):
+        tags_path = tmp_path / "tags.json"
+        tags_path.write_text('{"tags": ["old"]}', encoding="utf-8")
+
+        def raise_dump(*args, **kwargs):
+            raise RuntimeError("dump failed")
+
+        monkeypatch.setattr(arxiv_daily.json, "dump", raise_dump)
+        with pytest.raises(RuntimeError, match="dump failed"):
+            arxiv_daily.save_tags(tags_path, ["new"])
+
+        assert tags_path.read_text(encoding="utf-8") == '{"tags": ["old"]}'
+        assert list(tmp_path.glob("*.json.tmp")) == []
+
 
 # ===========================================================================
 # TestExtractPaperAbbrev
