@@ -235,6 +235,8 @@ status: "REFACTOR_NEEDED"
     ```
     注意：**不应**将 `current_tags` 纳入全局 hash——tags 是跨 batch 累积的，任何新增 tag 都会导致全部缓存失效。Tags 一致性应在 per-batch 级别校验（配合 ISSUE 012 方案）。
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py:compute_metadata_hash`，缓存 hash 现在基于 prompt 相关的 `id`、`title`、`abstract`、`comments` 生成，并按 `id` 排序以保持输入顺序无关；未将 `current_tags` 纳入全局 hash，避免 tag 累积导致全量缓存无谓失效。补充 `TestComputeMetadataHash.test_prompt_metadata_changes_hash`，覆盖 title/abstract/comments 变化会使缓存失效，同时更新顺序无关测试覆盖完整元数据。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestComputeMetadataHash -q` 通过，5 passed。
+
   ---
 
   #### [ISSUE ID: 014] HTML 解析脆弱，patch mode 缺少完整性检查（原 TODO#5，Medium）

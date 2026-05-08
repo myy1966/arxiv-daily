@@ -587,13 +587,18 @@ def match_llm_results(
 
 
 def compute_metadata_hash(data: dict) -> str:
-    """Compute SHA-256 of sorted paper IDs for cache validity."""
-    all_ids = []
+    """Compute SHA-256 of prompt-relevant paper metadata for cache validity."""
+    hash_input = []
     for section in data["sections"]:
         for paper in section["papers"]:
-            all_ids.append(paper["id"])
-    all_ids.sort()
-    return hashlib.sha256(json.dumps(all_ids).encode()).hexdigest()
+            hash_input.append({
+                "id": paper["id"],
+                "title": paper.get("title", ""),
+                "abstract": paper.get("abstract", ""),
+                "comments": paper.get("comments", ""),
+            })
+    hash_input.sort(key=lambda x: x["id"])
+    return hashlib.sha256(json.dumps(hash_input, sort_keys=True).encode()).hexdigest()
 
 
 def run_phase2(

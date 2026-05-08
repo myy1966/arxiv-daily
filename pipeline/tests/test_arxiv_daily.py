@@ -464,9 +464,30 @@ class TestComputeMetadataHash:
         data2["sections"][0]["papers"][0]["id"] = "9999.99999"
         assert arxiv_daily.compute_metadata_hash(sample_data) != arxiv_daily.compute_metadata_hash(data2)
 
+    def test_prompt_metadata_changes_hash(self, sample_data):
+        import copy
+        for field_name in ("title", "abstract", "comments"):
+            data2 = copy.deepcopy(sample_data)
+            data2["sections"][0]["papers"][0][field_name] = f"updated {field_name}"
+            assert arxiv_daily.compute_metadata_hash(sample_data) != arxiv_daily.compute_metadata_hash(data2)
+
     def test_order_independent(self):
-        data1 = {"sections": [{"papers": [{"id": "a"}, {"id": "b"}]}]}
-        data2 = {"sections": [{"papers": [{"id": "b"}, {"id": "a"}]}]}
+        data1 = {
+            "sections": [{
+                "papers": [
+                    {"id": "a", "title": "A", "abstract": "Abstract A", "comments": "Comment A"},
+                    {"id": "b", "title": "B", "abstract": "Abstract B", "comments": "Comment B"},
+                ],
+            }],
+        }
+        data2 = {
+            "sections": [{
+                "papers": [
+                    {"id": "b", "title": "B", "abstract": "Abstract B", "comments": "Comment B"},
+                    {"id": "a", "title": "A", "abstract": "Abstract A", "comments": "Comment A"},
+                ],
+            }],
+        }
         assert arxiv_daily.compute_metadata_hash(data1) == arxiv_daily.compute_metadata_hash(data2)
 
 
