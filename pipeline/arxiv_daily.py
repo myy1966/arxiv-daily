@@ -659,8 +659,6 @@ def run_phase2(
                             cached = json.load(f)
                         batch_idx = int(bf.stem.split("_")[1])
                         cached_batches[batch_idx] = cached
-                        if cached.get("current_tags"):
-                            current_tags = cached["current_tags"]
                     except Exception:
                         pass
             else:

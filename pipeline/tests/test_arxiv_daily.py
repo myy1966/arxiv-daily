@@ -646,6 +646,81 @@ class TestRunPhase2:
         # No additional LLM requests should have been made
         assert handler_cls.request_counter == count_after_first
 
+    def test_cache_preload_does_not_leak_future_tags(
+        self, monkeypatch, logger, tags_file, tmp_path, sample_data
+    ):
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        field_cache = cache_dir / sample_data["field"]
+        field_cache.mkdir(parents=True)
+
+        papers = [
+            {
+                "id": f"2604.{i:05d}",
+                "title": f"Paper {i}",
+                "abstract": f"Abstract {i}",
+                "comments": "",
+            }
+            for i in range(arxiv_daily.BATCH_SIZE + 1)
+        ]
+        data = {
+            "field": sample_data["field"],
+            "listing_date": sample_data["listing_date"],
+            "page_type": "new",
+            "sections": [{"name": "New submissions", "papers": papers}],
+        }
+        (field_cache / "metadata_hash").write_text(arxiv_daily.compute_metadata_hash(data), encoding="utf-8")
+        cached_paper = papers[-1]
+        long_summary = (
+            "这是一篇用于回归测试的研究论文摘要，内容足够长，可以通过质量检查，"
+            "并且不会因为摘要长度阈值导致缓存命中路径被误判为失败。"
+        )
+        cached_response = {
+            "papers": [{
+                "id": cached_paper["id"],
+                "summary": long_summary,
+                "tags": ["FutureTag"],
+                "venue": None,
+            }],
+            "new_tags": ["FutureTag"],
+            "current_tags": ["LLM Reasoning", "FutureTag"],
+        }
+        (field_cache / "batch_002.json").write_text(
+            json.dumps(cached_response, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        observed_prompt_tags = []
+
+        def fake_build_prompt(batch, current_tags):
+            observed_prompt_tags.append(list(current_tags))
+            return [{"role": "user", "content": "fake prompt"}]
+
+        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None):
+            return {
+                "papers": [
+                    {
+                        "id": paper["id"],
+                        "summary": long_summary,
+                        "tags": ["GeneratedTag"],
+                        "venue": None,
+                    }
+                    for paper in papers[:arxiv_daily.BATCH_SIZE]
+                ],
+                "new_tags": ["GeneratedTag"],
+            }, {}
+
+        monkeypatch.setattr(arxiv_daily, "build_prompt", fake_build_prompt)
+        monkeypatch.setattr(arxiv_daily, "call_llm", fake_call_llm)
+
+        _, failed = arxiv_daily.run_phase2(
+            data, tags_file, cache_dir, no_cache=False,
+            api_endpoint="http://unused", api_key="test-key", model="test-model", logger=logger,
+        )
+
+        assert failed == 0
+        assert observed_prompt_tags == [["LLM Reasoning", "Diffusion Models", "Transfer Learning", "Robotics"]]
+
     def test_no_cache_flag(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
         api_url, handler_cls = fake_llm_server
         cache_dir = tmp_path / "cache"

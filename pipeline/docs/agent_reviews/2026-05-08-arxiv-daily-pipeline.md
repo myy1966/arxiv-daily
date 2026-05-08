@@ -211,6 +211,8 @@ status: "REFACTOR_NEEDED"
     - 主循环中按顺序命中 cache 时，再从该 cache entry 恢复 `current_tags`
     - 可选增强：每个 batch cache 额外存储输入时的 `input_tags` snapshot，加载时校验一致性，不一致则该 batch 缓存失效
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py:run_phase2` 的缓存预加载逻辑：预加载阶段现在只读取 `batch_*.json` 到 `cached_batches`，不再用缓存中的 `current_tags` 覆盖当前标签状态；标签恢复仍保留在主循环的 cache hit 分支中，因此按 batch 顺序推进。未采用可选的 `input_tags` 快照校验，因为这会扩大缓存格式变更范围，属于额外一致性增强，不是本 Issue 的必要修复。补充回归测试 `test_cache_preload_does_not_leak_future_tags`，覆盖 batch 1 cache miss、batch 2 cache hit 时，batch 1 prompt 不会看到 batch 2 的未来标签。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestRunPhase2 -q` 通过，6 passed。
+
   ---
 
   #### [ISSUE ID: 013] `compute_metadata_hash` 仅含 paper ID，缓存可能复用过时 summary（原 TODO#12，Medium）
