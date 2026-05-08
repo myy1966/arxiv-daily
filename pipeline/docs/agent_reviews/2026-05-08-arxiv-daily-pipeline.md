@@ -185,6 +185,8 @@ status: "REFACTOR_NEEDED"
   - **修复指令**:
     这是低优先级问题。如果 patch 论文数通常 < 10，当前实现可接受。记录为已知限制即可。
 
+  Executor: [RESOLVED] 同意评审意见。已审查 `arxiv-update/scripts/arxiv_daily.py:patch_markdown`：当前实现对每个 `pid` 都在更新后的 `content` 上重新执行基于 arXiv ID 的精确正则搜索，并已有 `TestPatchMarkdown.test_multi_paper_patch` 覆盖同一文件多论文 patch，未发现 Reviewer 担心的错误匹配或并发模型风险。性能复杂度确实是 O(n*m)，但 patch mode 面向少量指定论文，重构为一次性分段索引会增加解析复杂度并扩大正则替换风险，不符合低优先级问题的收益。按评审指令记录为已知限制，本轮不修改源码。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestPatchMarkdown -q` 通过，8 passed。
+
 ### [Round 2] — 补充遗漏项（来源：上一次 review 存档 TODO.md）
 - **Reviewer**:
   - **状态判决**: `[STATUS: REFACTOR_NEEDED]`
