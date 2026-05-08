@@ -49,6 +49,7 @@ MIN_SUMMARY_LEN = 30
 SUMMARY_FAILURE_PLACEHOLDER = "[摘要生成失败]"
 SUMMARY_FAILURE_TAG = "未分类"
 PAPER_SEPARATOR = "\n=====PAPER_SEPARATOR=====\n"
+OUTPUT_TZ = timezone(timedelta(hours=8))
 ARXIV_FETCH_INTERVAL_SECONDS = 3.0
 ARXIV_CONTACT = os.environ.get("ARXIV_UPDATE_CONTACT", "set-ARXIV_UPDATE_CONTACT")
 ARXIV_USER_AGENT = os.environ.get(
@@ -821,7 +822,7 @@ def load_cached_batches(field_cache: Path, hash_file: Path, current_hash: str, n
 def save_tags(tags_path: Path, current_tags: list) -> None:
     """Persist the current tag list."""
     tags_out = {
-        "updated_at": datetime.now(timezone(timedelta(hours=8))).isoformat(),
+        "updated_at": datetime.now(OUTPUT_TZ).isoformat(),
         "tags": current_tags,
     }
     tags_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1039,7 +1040,7 @@ def generate_markdown(data: dict, results_by_id: dict, output_dir: Path, date_st
     lines = []
 
     # Front matter
-    now = datetime.now(timezone(timedelta(hours=8)))
+    now = datetime.now(OUTPUT_TZ)
     lines.append("---")
     lines.append(f'title: "arXiv {field} Daily Update"')
     lines.append(f"date: {now.strftime('%Y-%m-%d %H:%M:%S +0800')}")

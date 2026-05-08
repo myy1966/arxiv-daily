@@ -321,6 +321,8 @@ status: "REFACTOR_NEEDED"
     ```
     替换所有 `timezone(timedelta(hours=8))` 为 `OUTPUT_TZ`。
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py`：新增模块级 `OUTPUT_TZ = timezone(timedelta(hours=8))`，并将 `save_tags` 的 `updated_at` 和 `generate_markdown` 的 front matter 时间生成统一改为 `datetime.now(OUTPUT_TZ)`。补充测试断言 tags JSON 使用 `+08:00` ISO offset、Markdown front matter 使用 `+0800` 输出格式，避免后续重新引入散落时区。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestPhase2Helpers::test_save_tags_writes_utf8_tags tests/test_arxiv_daily.py::TestGenerateMarkdown::test_front_matter -q` 通过，2 passed。
+
   ---
 
   #### [ISSUE ID: 019] `extract_paper` 缺少关键字段时无警告（原 TODO#11，Low）

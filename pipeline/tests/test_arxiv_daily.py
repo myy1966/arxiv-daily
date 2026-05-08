@@ -615,6 +615,7 @@ class TestPhase2Helpers:
         tags_data = json.loads(tags_path.read_text(encoding="utf-8"))
         assert tags_data["tags"] == ["大模型"]
         assert "updated_at" in tags_data
+        assert tags_data["updated_at"].endswith("+08:00")
 
 
 # ===========================================================================
@@ -1246,6 +1247,7 @@ class TestGenerateMarkdown:
         assert content.startswith("---\n")
         assert "title:" in content
         assert "date:" in content
+        assert " +0800" in content
         assert "categories:" in content
 
     def test_section_headers(self, sample_data, tmp_path):
