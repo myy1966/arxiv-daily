@@ -544,6 +544,40 @@ class TestPhase2Helpers:
         assert hash_file.read_text(encoding="utf-8") == "new"
         assert not stale_cache.exists()
 
+    def test_write_batch_cache_replaces_existing_file(self, tmp_path):
+        field_cache = tmp_path / "cache"
+        field_cache.mkdir()
+        cache_path = field_cache / "batch_001.json"
+        cache_path.write_text("stale", encoding="utf-8")
+
+        arxiv_daily._write_batch_cache(
+            field_cache,
+            1,
+            {"papers": [{"id": "2604.00001"}], "new_tags": ["新标签"]},
+            ["新标签"],
+            ["旧标签", "新标签"],
+        )
+
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        assert cached["papers"] == [{"id": "2604.00001"}]
+        assert cached["new_tags"] == ["新标签"]
+        assert cached["current_tags"] == ["旧标签", "新标签"]
+        assert list(field_cache.glob("*.json.tmp")) == []
+
+    def test_atomic_json_write_cleans_temp_on_failure(self, monkeypatch, tmp_path):
+        cache_path = tmp_path / "batch_001.json"
+        cache_path.write_text('{"old": true}', encoding="utf-8")
+
+        def raise_dump(*args, **kwargs):
+            raise RuntimeError("dump failed")
+
+        monkeypatch.setattr(arxiv_daily.json, "dump", raise_dump)
+        with pytest.raises(RuntimeError, match="dump failed"):
+            arxiv_daily._atomic_write_json(cache_path, {"new": True})
+
+        assert cache_path.read_text(encoding="utf-8") == '{"old": true}'
+        assert list(tmp_path.glob("*.json.tmp")) == []
+
     def test_save_tags_writes_utf8_tags(self, tmp_path):
         tags_path = tmp_path / "tags.json"
         arxiv_daily.save_tags(tags_path, ["大模型"])

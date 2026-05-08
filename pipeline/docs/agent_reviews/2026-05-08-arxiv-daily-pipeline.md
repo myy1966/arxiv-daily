@@ -115,6 +115,8 @@ status: "REFACTOR_NEEDED"
         raise
     ```
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py` 的 batch cache 写入路径：新增 `_atomic_write_json(path, data)`，使用 `tempfile.mkstemp(dir=path.parent, suffix=".json.tmp")` 写入临时文件，再通过 `os.replace` 原子替换目标文件；异常路径会清理残留临时文件并保留旧缓存文件不变。`_write_batch_cache` 已改为调用该原子写入 helper。补充 `TestPhase2Helpers` 测试正常替换、UTF-8 内容写入、异常时清理 `.json.tmp` 且不破坏既有 cache。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestPhase2Helpers tests/test_arxiv_daily.py::TestRunPhase2 -q` 通过，15 passed。
+
   ---
 
   #### [ISSUE ID: 006] `stream_file` 在异常路径下可能泄漏文件描述符

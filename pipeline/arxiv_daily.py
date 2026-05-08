@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -643,6 +644,22 @@ def _format_usage(usage: dict) -> str:
     return f", tokens: {pt}+{ct}={tt}"
 
 
+def _atomic_write_json(path: Path, data: dict) -> None:
+    """Write JSON via temp file and atomic rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".json.tmp")
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def _write_batch_cache(field_cache: Path, batch_num: int, result: dict, new_tags: list, current_tags: list) -> None:
     cache_entry = {
         "papers": result.get("papers", []),
@@ -650,8 +667,7 @@ def _write_batch_cache(field_cache: Path, batch_num: int, result: dict, new_tags
         "current_tags": list(current_tags),
     }
     cache_path = field_cache / f"batch_{batch_num:03d}.json"
-    with open(cache_path, "w", encoding="utf-8") as f:
-        json.dump(cache_entry, f, ensure_ascii=False, indent=2)
+    _atomic_write_json(cache_path, cache_entry)
 
 
 def _process_batch(
