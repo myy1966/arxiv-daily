@@ -1015,6 +1015,12 @@ class TestCallLlmErrorModes:
             [{"id": "2604.00001", "title": "Test", "abstract": "Abstract text"}], [],
         )
 
+    def test_retry_delay_clamps_to_last_configured_delay(self, monkeypatch):
+        monkeypatch.setattr(arxiv_daily, "RETRY_DELAYS", [0.1, 0.2])
+        assert arxiv_daily._retry_delay(0) == 0.1
+        assert arxiv_daily._retry_delay(1) == 0.2
+        assert arxiv_daily._retry_delay(10) == 0.2
+
     def test_invalid_json_raises(self, fake_llm_server, logger):
         api_url, handler_cls = fake_llm_server
         handler_cls.error_mode = "invalid_json"

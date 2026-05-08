@@ -303,6 +303,8 @@ status: "REFACTOR_NEEDED"
     ```
     或封装为 `def retry_delay(attempt): return RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)]`。
 
+  Executor: [RESOLVED] 同意评审意见。当前 `arxiv-update/scripts/arxiv_daily.py` 已在 Issue 001 修复中引入 `_retry_delay(attempt)`，并且 HTTP 429 fallback、JSON parse retry、网络/IO retry 的 sleep 路径均调用该 helper，不再直接访问 `RETRY_DELAYS[attempt]`。本轮补充 `TestCallLlmErrorModes.test_retry_delay_clamps_to_last_configured_delay`，明确验证 attempt 超过 `RETRY_DELAYS` 长度时复用最后一个延迟值，防止未来调整 `MAX_RETRIES` 时回退。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestCallLlmErrorModes -q` 通过，11 passed。
+
   ---
 
   #### [ISSUE ID: 018] 硬编码时区 UTC+8 散落多处（原 TODO#9，Low）
