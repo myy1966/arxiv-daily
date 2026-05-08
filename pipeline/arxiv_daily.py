@@ -36,6 +36,9 @@ except ImportError:
 BATCH_SIZE = 16
 MAX_RETRIES = 3
 RETRY_DELAYS = [2, 4, 8]
+MIN_SUMMARY_LEN = 30
+SUMMARY_FAILURE_PLACEHOLDER = "[摘要生成失败]"
+SUMMARY_FAILURE_TAG = "未分类"
 
 
 def _retry_delay(attempt: int) -> float:
@@ -526,7 +529,6 @@ def match_llm_results(
                 )
 
     # Pass 3: quality check - remove papers with missing tags or short summary
-    MIN_SUMMARY_LEN = 50
     quality_failures: list[dict] = []
     for bid in list(results.keys()):
         r = results[bid]
@@ -601,6 +603,29 @@ def compute_metadata_hash(data: dict) -> str:
     return hashlib.sha256(json.dumps(hash_input, sort_keys=True).encode()).hexdigest()
 
 
+def _unresolved_papers(batch: list[dict], matched: dict[str, dict]) -> list[dict]:
+    """Return batch papers that still lack an accepted LLM result."""
+    return [paper for paper in batch if paper["id"] not in matched]
+
+
+def _add_summary_failure_placeholders(
+    results_by_id: dict[str, dict],
+    papers: list[dict],
+    logger: logging.Logger,
+    log_label: str,
+) -> None:
+    """Keep failed papers visible in markdown after retry paths are exhausted."""
+    if not papers:
+        return
+    failed_ids = [paper["id"] for paper in papers]
+    logger.error(f"[Phase2] {log_label}: using summary failure placeholders for {failed_ids}")
+    for paper in papers:
+        results_by_id.setdefault(
+            paper["id"],
+            {"summary": SUMMARY_FAILURE_PLACEHOLDER, "tags": [SUMMARY_FAILURE_TAG], "venue": None},
+        )
+
+
 def run_phase2(
     data: dict,
     tags_path: Path,
@@ -672,7 +697,7 @@ def run_phase2(
         hash_file.write_text(current_hash)
 
     results_by_id: dict[str, dict] = {}
-    failed_indices: list[int] = []
+    failed_batches: list[tuple[int, list[dict]]] = []
 
     for idx, batch in enumerate(batches):
         batch_num = idx + 1
@@ -687,6 +712,8 @@ def run_phase2(
                 current_tags = cached["current_tags"]
             status = "cached" if unmatched == 0 else f"cached ({unmatched} unmatched)"
             print(f"[{batch_num}/{total}] {blabel} {status}", file=sys.stderr)
+            if unmatched > 0:
+                failed_batches.append((idx, _unresolved_papers(batch, matched)))
             continue
 
         messages = build_prompt(batch, current_tags)
@@ -710,7 +737,7 @@ def run_phase2(
                 tt = usage.get("total_tokens", 0)
                 usage_str = f", tokens: {pt}+{ct}={tt}"
             if unmatched > 0:
-                failed_indices.append(idx)
+                failed_batches.append((idx, _unresolved_papers(batch, matched)))
                 print(
                     f"[{batch_num}/{total}] {blabel} FAILED ({unmatched} unmatched) ({elapsed:.1f}s{usage_str}), see log",
                     file=sys.stderr,
@@ -729,7 +756,7 @@ def run_phase2(
 
         except Exception as e:
             elapsed = time.monotonic() - t0
-            failed_indices.append(idx)
+            failed_batches.append((idx, batch))
             logger.error(f"[Phase2] {blabel} failed after all retries: {e}")
             print(
                 f"[{batch_num}/{total}] {blabel} FAILED ({elapsed:.1f}s), see log",
@@ -737,11 +764,11 @@ def run_phase2(
             )
 
     # Retry failed batches once
-    if failed_indices:
-        print(f"Retrying {len(failed_indices)} failed batch(es)...", file=sys.stderr)
+    if failed_batches:
+        print(f"Retrying {len(failed_batches)} failed batch(es)...", file=sys.stderr)
         still_failed = 0
-        for idx in failed_indices:
-            batch = batches[idx]
+        for idx, batch in failed_batches:
+            original_batch = batches[idx]
             batch_num = idx + 1
             total = len(batches)
             blabel = f"retry_{batch_prefix}_{batch_num:03d}"
@@ -768,12 +795,15 @@ def run_phase2(
                     usage_str = f", tokens: {pt}+{ct}={tt}"
                 if unmatched > 0:
                     still_failed += 1
+                    _add_summary_failure_placeholders(
+                        results_by_id, _unresolved_papers(batch, matched), logger, blabel
+                    )
                     print(
                         f"[{batch_num}/{total}] {blabel} FAILED ({unmatched} unmatched) ({elapsed:.1f}s{usage_str}), see log",
                         file=sys.stderr,
                     )
                 else:
-                    if save_cache:
+                    if save_cache and len(batch) == len(original_batch):
                         cache_entry = {
                             "papers": result.get("papers", []),
                             "new_tags": new_tags,
@@ -787,6 +817,7 @@ def run_phase2(
             except Exception as e:
                 elapsed = time.monotonic() - t0
                 still_failed += 1
+                _add_summary_failure_placeholders(results_by_id, batch, logger, blabel)
                 logger.error(f"[Phase2] {blabel} failed: {e}")
                 print(
                     f"[{batch_num}/{total}] {blabel} FAILED ({elapsed:.1f}s), see log",

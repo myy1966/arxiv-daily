@@ -387,6 +387,15 @@ class TestMatchLlmResults:
         assert len(results) == 0
         assert unmatched == 1  # quality failures are included in unmatched count
 
+    def test_summary_threshold_allows_concise_summaries(self, logger):
+        batch = [{"id": "2604.00001"}]
+        llm_papers = [
+            {"id": "2604.00001", "summary": "x" * arxiv_daily.MIN_SUMMARY_LEN, "tags": ["T1"], "venue": None},
+        ]
+        results, unmatched = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+        assert len(results) == 1
+        assert unmatched == 0
+
     def test_quality_check_missing_tags(self, logger):
         batch = [{"id": "2604.00001"}]
         llm_papers = [
@@ -741,6 +750,92 @@ class TestRunPhase2:
 
         assert failed == 0
         assert observed_prompt_tags == [["LLM Reasoning", "Diffusion Models", "Transfer Learning", "Robotics"]]
+
+    def test_retries_only_unresolved_papers(self, monkeypatch, logger, tags_file, tmp_path, sample_data):
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        long_summary = "这是一篇用于测试的论文摘要，内容足够长，可以通过质量检查并确认重试范围正确。"
+        papers = [
+            {"id": "2604.00001", "title": "Paper 1", "abstract": "Abstract 1"},
+            {"id": "2604.00002", "title": "Paper 2", "abstract": "Abstract 2"},
+        ]
+        data = {
+            "field": sample_data["field"],
+            "listing_date": sample_data["listing_date"],
+            "page_type": "new",
+            "sections": [{"name": "New submissions", "count": 2, "papers": papers}],
+        }
+        prompt_batches = []
+
+        def fake_build_prompt(batch, current_tags):
+            prompt_batches.append([paper["id"] for paper in batch])
+            return [{"role": "user", "content": "fake prompt"}]
+
+        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None):
+            if len(prompt_batches) == 1:
+                return {
+                    "papers": [
+                        {"id": "2604.00001", "summary": long_summary, "tags": ["T1"], "venue": None},
+                        {"id": "2604.00002", "summary": "short", "tags": ["T2"], "venue": None},
+                    ],
+                    "new_tags": [],
+                }, {}
+            return {
+                "papers": [
+                    {"id": "2604.00002", "summary": long_summary, "tags": ["T2"], "venue": None},
+                ],
+                "new_tags": [],
+            }, {}
+
+        monkeypatch.setattr(arxiv_daily, "build_prompt", fake_build_prompt)
+        monkeypatch.setattr(arxiv_daily, "call_llm", fake_call_llm)
+
+        results, failed = arxiv_daily.run_phase2(
+            data, tags_file, cache_dir, no_cache=True,
+            api_endpoint="http://unused", api_key="test-key", model="test-model", logger=logger,
+        )
+
+        assert failed == 0
+        assert prompt_batches == [["2604.00001", "2604.00002"], ["2604.00002"]]
+        assert set(results) == {"2604.00001", "2604.00002"}
+
+    def test_unresolved_after_retry_gets_summary_placeholder(
+        self, monkeypatch, logger, tags_file, tmp_path, sample_data
+    ):
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        papers = [{"id": "2604.00001", "title": "Paper 1", "abstract": "Abstract 1"}]
+        data = {
+            "field": sample_data["field"],
+            "listing_date": sample_data["listing_date"],
+            "page_type": "new",
+            "sections": [{"name": "New submissions", "count": 1, "papers": papers}],
+        }
+
+        monkeypatch.setattr(
+            arxiv_daily,
+            "build_prompt",
+            lambda batch, current_tags: [{"role": "user", "content": "fake prompt"}],
+        )
+
+        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None):
+            return {
+                "papers": [
+                    {"id": "2604.00001", "summary": "short", "tags": ["T1"], "venue": None},
+                ],
+                "new_tags": [],
+            }, {}
+
+        monkeypatch.setattr(arxiv_daily, "call_llm", fake_call_llm)
+
+        results, failed = arxiv_daily.run_phase2(
+            data, tags_file, cache_dir, no_cache=True,
+            api_endpoint="http://unused", api_key="test-key", model="test-model", logger=logger,
+        )
+
+        assert failed == 1
+        assert results["2604.00001"]["summary"] == arxiv_daily.SUMMARY_FAILURE_PLACEHOLDER
+        assert results["2604.00001"]["tags"] == [arxiv_daily.SUMMARY_FAILURE_TAG]
 
     def test_no_cache_flag(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
         api_url, handler_cls = fake_llm_server

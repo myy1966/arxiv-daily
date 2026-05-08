@@ -151,6 +151,8 @@ status: "REFACTOR_NEEDED"
     2. 对 `MIN_SUMMARY_LEN = 50` 添加配置项或降低阈值（中文50字符约等于25个汉字，对于短摘要论文可能过于严格）。
     3. 在最终输出中，对质量检查失败的论文仍然生成条目，但标记 summary 为 "[摘要生成失败]" 而非完全省略。
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py`：将 `MIN_SUMMARY_LEN` 提升为模块常量并下调为 30；首轮 batch 中已通过质量检查的论文立即保留在 `results_by_id`，重试阶段只重新处理未成功进入 `results` 的论文子集（包含质量失败和 ID 未匹配），避免重复消耗已成功论文的 LLM token；若重试后仍未恢复，则写入 `SUMMARY_FAILURE_PLACEHOLDER = "[摘要生成失败]"` 和 `SUMMARY_FAILURE_TAG = "未分类"`，保证最终 Markdown 不静默丢论文。为避免把子集响应误写成完整 batch 缓存，子集重试成功时不写 `batch_*.json`，只有整批重试成功才沿用原缓存写入。补充测试覆盖摘要阈值、子集重试、最终占位输出。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMatchLlmResults tests/test_arxiv_daily.py::TestRunPhase2 -q` 通过，17 passed；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestRunPhase2ErrorModes -q` 通过，5 passed。
+
   ---
 
   #### [ISSUE ID: 009] Prompt 组装中论文分隔符与内容冲突风险
