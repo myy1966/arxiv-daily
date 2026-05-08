@@ -256,6 +256,8 @@ status: "REFACTOR_NEEDED"
        ```
     2. 中期建议用 `html.parser.HTMLParser` 或 BeautifulSoup 替代正则，增强对 HTML 结构变动的鲁棒性。
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py:main` 的 patch mode：在目标论文解析完成后，立即统计并记录缺少 `abstract` 的 patch paper ID，同时向 stderr 打印 warning，避免用户只在后续 LLM/patch 失败时才间接发现 HTML 解析不完整。未在本轮替换正则 HTML parser，因为这是中期结构性改造，超出本 Issue 的最小行为修复范围。补充 `TestMainCli.test_patch_warns_for_missing_abstract`，模拟 patch mode 解析到目标论文但缺少 abstract 的场景，并断言 stderr 与日志均包含诊断。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMainCli -q` 通过，6 passed。
+
   ---
 
   #### [ISSUE ID: 015] `run_phase2` 职责过多，应拆分为独立函数（原 TODO#6，Medium）

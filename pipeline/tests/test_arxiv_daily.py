@@ -1469,3 +1469,64 @@ class TestMainCli:
         with pytest.raises(SystemExit) as exc_info:
             arxiv_daily.main()
         assert exc_info.value.code == 2
+
+    def test_patch_warns_for_missing_abstract(self, monkeypatch, tmp_path, capsys):
+        """Patch mode should diagnose parsed target papers without abstracts."""
+        cache_dir = tmp_path / "cache"
+        pages_dir = cache_dir / "pages" / "cs.AI"
+        pages_dir.mkdir(parents=True)
+        (pages_dir / "2025-04-11.html").write_text("<html></html>", encoding="utf-8")
+
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        md_path = output_dir / "2025-04-11-cs.AI.md"
+        md_path.write_text("existing", encoding="utf-8")
+        tags_path = tmp_path / "tags.json"
+        tags_path.write_text('{"tags": []}', encoding="utf-8")
+
+        monkeypatch.setenv("ARXIV_UPDATE_KEY", "test-key")
+        monkeypatch.setenv("ARXIV_UPDATE_API", "http://127.0.0.1:1/v1")
+        monkeypatch.setenv("ARXIV_UPDATE_MODEL", "test-model")
+        monkeypatch.setattr("sys.argv", [
+            "arxiv_daily.py", "cs.AI",
+            "--output", str(output_dir),
+            "--tags", str(tags_path),
+            "--date", "2025-04-11",
+            "--patch", "2604.06189",
+            "--cache-dir", str(cache_dir),
+        ])
+        monkeypatch.setattr(
+            arxiv_daily,
+            "parse_html",
+            lambda html, field: {
+                "field": field,
+                "listing_date": "2025-04-11",
+                "page_type": "new",
+                "sections": [{
+                    "name": "New submissions",
+                    "count": 1,
+                    "papers": [{"id": "2604.06189", "title": "Paper without abstract"}],
+                }],
+            },
+        )
+        monkeypatch.setattr(
+            arxiv_daily,
+            "run_phase2",
+            lambda *args, **kwargs: ({
+                "2604.06189": {
+                    "summary": "新的摘要内容",
+                    "tags": ["T"],
+                    "venue": None,
+                },
+            }, 0),
+        )
+        monkeypatch.setattr(arxiv_daily, "patch_markdown", lambda *args, **kwargs: 1)
+
+        with pytest.raises(SystemExit) as exc_info:
+            arxiv_daily.main()
+
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert "missing abstract: 2604.06189" in captured.err
+        log_text = (cache_dir / "arxiv_daily.log").read_text(encoding="utf-8")
+        assert "[Patch] 1 papers missing abstract: ['2604.06189']" in log_text

@@ -1173,6 +1173,18 @@ def main():
             print("Error: No matching papers found in saved HTML", file=sys.stderr)
             sys.exit(2)
 
+        papers_without_abstract = [p for p in patch_papers if not p.get("abstract")]
+        if papers_without_abstract:
+            missing_abstract_ids = [p["id"] for p in papers_without_abstract]
+            logger.warning(
+                f"[Patch] {len(papers_without_abstract)} papers missing abstract: {missing_abstract_ids}"
+            )
+            print(
+                f"Warning: {len(papers_without_abstract)} patch paper(s) missing abstract: "
+                f"{', '.join(missing_abstract_ids)}",
+                file=sys.stderr,
+            )
+
         print(f"Regenerating {len(patch_papers)} paper(s): {', '.join(p['id'] for p in patch_papers)}", file=sys.stderr)
 
         # Build a minimal data dict with a single section containing all patch papers
