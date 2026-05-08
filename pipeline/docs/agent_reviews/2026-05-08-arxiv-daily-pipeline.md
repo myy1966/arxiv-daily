@@ -192,6 +192,8 @@ status: "REFACTOR_NEEDED"
     - **结构性失败**（无 `papers` 键、`papers` 非 list）→ 抛 `ValueError`，触发重试
     - **部分质量问题**（个别 paper 缺 id/summary/tags）→ 不在此层处理，交给 `match_llm_results` 的现有质量检查
 
+  Executor: [RESOLVED] 已修复。重构了 `arxiv_daily.py` 的 `call_llm` 返回路径，新增 `_validate_llm_schema` 统一校验函数，并同时接入 `json.loads` 与 `json_repair_loads` 成功路径；补充了 schema 校验单元测试和 fake LLM schema 异常模式测试。
+
   ---
 
   #### [ISSUE ID: 012] `current_tags` 缓存恢复顺序导致 tag 状态不一致（原 TODO#8，Medium）

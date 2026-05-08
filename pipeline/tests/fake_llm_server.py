@@ -263,6 +263,20 @@ def handle_empty_papers(handler, paper_ids, model):
     _send_sse_response(handler, content_json, model)
 
 
+def handle_schema_missing_papers(handler, paper_ids, model):
+    """Return a JSON object without the required papers list."""
+    response = {"foo": "bar", "new_tags": []}
+    content_json = json.dumps(response, ensure_ascii=False)
+    _send_sse_response(handler, content_json, model)
+
+
+def handle_schema_bad_new_tags(handler, paper_ids, model):
+    """Return a response with invalid new_tags type."""
+    response = {"papers": [], "new_tags": "not a list"}
+    content_json = json.dumps(response, ensure_ascii=False)
+    _send_sse_response(handler, content_json, model)
+
+
 def handle_markdown_json(handler, paper_ids, model):
     """Return JSON wrapped in markdown code fences."""
     response = generate_normal_response(paper_ids)
@@ -354,6 +368,8 @@ ERROR_HANDLERS = {
     "missing_fields": handle_missing_fields,
     "no_period": handle_no_period,
     "empty_papers": handle_empty_papers,
+    "schema_missing_papers": handle_schema_missing_papers,
+    "schema_bad_new_tags": handle_schema_bad_new_tags,
     "markdown_json": handle_markdown_json,
     "slow_stream": handle_slow_stream,
     "versioned_ids": handle_versioned_ids,

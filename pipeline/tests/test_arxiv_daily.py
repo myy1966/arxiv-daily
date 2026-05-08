@@ -418,6 +418,32 @@ class TestMatchLlmResults:
 
 
 # ===========================================================================
+# TestValidateLlmSchema
+# ===========================================================================
+
+class TestValidateLlmSchema:
+    def test_valid_schema(self):
+        result = {"papers": [], "new_tags": []}
+        assert arxiv_daily._validate_llm_schema(result) is result
+
+    def test_missing_papers_raises(self):
+        with pytest.raises(ValueError, match="missing 'papers' list"):
+            arxiv_daily._validate_llm_schema({"foo": "bar"})
+
+    def test_response_must_be_object(self):
+        with pytest.raises(ValueError, match="must be a JSON object"):
+            arxiv_daily._validate_llm_schema([])
+
+    def test_papers_must_be_list(self):
+        with pytest.raises(ValueError, match="missing 'papers' list"):
+            arxiv_daily._validate_llm_schema({"papers": "not a list"})
+
+    def test_new_tags_must_be_list(self):
+        with pytest.raises(ValueError, match="'new_tags' must be list"):
+            arxiv_daily._validate_llm_schema({"papers": [], "new_tags": "not a list"})
+
+
+# ===========================================================================
 # TestComputeMetadataHash
 # ===========================================================================
 
@@ -728,6 +754,22 @@ class TestCallLlmErrorModes:
         api_url, handler_cls = fake_llm_server
         handler_cls.error_mode = "connection_reset"
         with pytest.raises(Exception):
+            arxiv_daily.call_llm(
+                self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+            )
+
+    def test_missing_papers_schema_retries_then_raises(self, fake_llm_server, logger):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_mode = "schema_missing_papers"
+        with pytest.raises(ValueError, match="missing 'papers' list"):
+            arxiv_daily.call_llm(
+                self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+            )
+
+    def test_bad_new_tags_schema_retries_then_raises(self, fake_llm_server, logger):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_mode = "schema_bad_new_tags"
+        with pytest.raises(ValueError, match="'new_tags' must be list"):
             arxiv_daily.call_llm(
                 self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
             )

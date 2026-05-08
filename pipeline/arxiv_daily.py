@@ -281,6 +281,17 @@ Respond in strict JSON format:
     ]
 
 
+def _validate_llm_schema(result: object) -> dict:
+    """Validate the top-level LLM response schema before downstream matching."""
+    if not isinstance(result, dict):
+        raise ValueError(f"LLM response must be a JSON object, got {type(result).__name__}")
+    if not isinstance(result.get("papers"), list):
+        raise ValueError(f"LLM response missing 'papers' list, got keys: {list(result.keys())}")
+    if "new_tags" in result and not isinstance(result["new_tags"], list):
+        raise ValueError(f"'new_tags' must be list, got {type(result['new_tags']).__name__}")
+    return result
+
+
 def call_llm(
     messages: list[dict],
     api_endpoint: str,
@@ -369,14 +380,14 @@ def call_llm(
                 if json_repair_loads is not None:
                     try:
                         result = json_repair_loads(content)
+                    except Exception:
+                        result = None
+                    else:
                         logger.warning(
                             f"[Phase2] {log_label} attempt {attempt + 1}: "
                             f"json.loads failed ({je}), repaired by json_repair"
                         )
-                    except Exception:
-                        result = None
-                    if isinstance(result, dict):
-                        return result, usage
+                        return _validate_llm_schema(result), usage
                 # Save debug info for JSON parse failures
                 if debug_dir is not None:
                     debug_dir.mkdir(parents=True, exist_ok=True)
@@ -393,7 +404,7 @@ def call_llm(
                 if debug_dir is not None:
                     logger.error(f"[Phase2] {log_label} JSON parse debug saved to {debug_path}")
                 raise je
-            return result, usage
+            return _validate_llm_schema(result), usage
         except Exception as e:
             last_error = e
             if not isinstance(e, json.JSONDecodeError):
