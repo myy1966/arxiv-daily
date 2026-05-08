@@ -450,22 +450,38 @@ status: "PASS"
 
   Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py`：新增 `LlmConfig` dataclass，`main()` 完成 `ARXIV_UPDATE_KEY/API/MODEL` 缺失校验后构造配置对象，并传入 `run_patch_mode(args, logger, cache_base, llm_config)` 与 `run_normal_mode(args, logger, cache_base, llm_config)`；两个 mode 函数不再直接读取 LLM 环境变量，`run_phase2` 参数均来自已校验配置。补充 `TestMainCli.test_main_passes_llm_config_to_normal_mode` 与 `test_main_passes_llm_config_to_patch_mode`，覆盖 normal/patch 分派的配置传递。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMainCli::test_main_passes_llm_config_to_normal_mode tests/test_arxiv_daily.py::TestMainCli::test_main_passes_llm_config_to_patch_mode -q` 通过，2 passed；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMainCli -q` 通过，9 passed。
 
+### [Round 4] — 第三轮 Review（验证残留 issue 022/023/024 修复）
+- **Reviewer**:
+  - **状态判决**: `[STATUS: PASS]`
+  - **背景**: Executor 修复了 Round 3 中标记为"非阻塞"的 3 个残留 issue（3 个 commit），测试套件 136 passed, 1 xfailed。
+
   ---
 
-  #### 总结
+  #### 修复质量确认
 
-  Executor 高质量完成了全部 21 个 issue 的修复，测试覆盖全面（133 tests），两个 DISPUTE 的替代方案均优于原始建议。新发现的 3 个残留问题为极低优先级代码风格问题，不影响行为正确性。
+  | Issue | 验证结论 |
+  |-------|----------|
+  | 022 | `run_normal_mode` L1427-1431：恢复 `if not page_archive_path.exists()` 检查，归档已存在时仅 log，不执行多余写入。✓ |
+  | 023 | `save_tags` L870：改为调用 `_atomic_write_json(tags_path, tags_out)`，与 batch cache 写入一致。✓ |
+  | 024 | 新增 `LlmConfig` dataclass（L70-73），`main()` 构造后传入两个 mode 函数（L1550-1556），mode 函数不再直接 `os.environ.get`。✓ |
+
+  ---
+
+  #### 无新增问题
+
+  代码已无明显残留缺陷。全部 24 个 issue 均已修复并通过测试验证。
 
   **最终判决: `[STATUS: PASS]`**
 
 ## 4. 最终决策 (Final Decision)
 
 - **决策记录**:
-  - 本次审查覆盖 LLM 容错、幂等性、爬虫礼仪、DRY 四个维度共 21 个 issue，全部获得满意修复。
-  - 架构改进：`run_phase2` 拆分为 5 个职责明确的子函数；`main()` 拆为 patch/normal 两条路径；批处理逻辑统一为 `_process_batch`。
+  - 本次审查覆盖 LLM 容错、幂等性、爬虫礼仪、DRY 四个维度共 **24 个 issue**，全部获得满意修复。
+  - 架构改进：`run_phase2` 拆分为 5 个职责明确的子函数；`main()` 拆为 patch/normal 两条路径；批处理逻辑统一为 `_process_batch`；`LlmConfig` dataclass 统一配置传递。
   - 关键技术决策：
     - **子集重试**（而非整 batch 重试）节省 LLM Token，同时通过 `SUMMARY_FAILURE_PLACEHOLDER` 避免静默丢论文。
     - **Metadata hash 扩展**到 title/abstract/comments，但有意**排除 tags** 避免级联缓存失效——这是正确的权衡。
     - **tags 缓存恢复顺序**修复为主循环按序恢复，未采用 per-batch input snapshot 校验（Executor 认为扩大缓存格式变更范围）——可接受的妥协。
     - **`parse_html` 返回 diagnostics** 而非内部调 logger——优于 Reviewer 原始建议，保持函数无副作用。
-  - 残留 3 个极低优先级问题（022/023/024）记录在案，可在后续迭代中顺手修复。
+    - **所有文件写入路径统一使用原子写入**（batch cache、tags.json、HTML archive），消除中断导致半写入的风险。
+  - 测试覆盖：136 passed, 1 xfailed，全面覆盖正常路径、错误模式、缓存行为、配置传递。
