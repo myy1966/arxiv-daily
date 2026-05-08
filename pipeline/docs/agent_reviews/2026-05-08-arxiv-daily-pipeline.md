@@ -82,6 +82,8 @@ status: "REFACTOR_NEEDED"
     1. 在 `fetch_page` 顶部加入模块级变量 `_last_fetch_time` 和至少 3 秒的间隔控制。
     2. User-Agent 改为 `arxiv-daily-bot/1.0 (contact: <your-email>)` 格式，便于 arXiv 管理员识别。
 
+  Executor: [DISPUTE] 修正评审意见。仅按建议加入 `_last_fetch_time` 无法覆盖文中提到的 shell 循环多进程场景，因为每次脚本启动都会重置内存状态，仍可能连续打到 arXiv。已修改 `arxiv-update/scripts/arxiv_daily.py:fetch_page` 周边实现：新增 `ARXIV_FETCH_INTERVAL_SECONDS = 3.0`、`ARXIV_USER_AGENT`、`_last_fetch_time` 和 `_wait_for_arxiv_rate_limit()`；首次 arXiv 请求前也执行 3 秒 courtesy delay，进程内后续请求按 `_last_fetch_time` 补足间隔。User-Agent 改为 `arxiv-daily-bot/1.0 (contact: ...)`，支持 `ARXIV_UPDATE_CONTACT` 和 `ARXIV_UPDATE_USER_AGENT` 环境变量注入真实联系信息，避免硬编码虚假邮箱。补充 `TestFetchPage` 覆盖 URL、User-Agent、首次延时和进程内延时夹取。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestFetchPage tests/test_arxiv_daily.py::TestMainCli -q` 通过，10 passed。
+
   ---
 
   #### [ISSUE ID: 004] Phase2 重试逻辑大量代码复制（DRY 违规）

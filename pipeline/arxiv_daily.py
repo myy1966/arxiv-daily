@@ -11,6 +11,10 @@ Environment variables (all required):
     ARXIV_UPDATE_KEY   - LLM API key
     ARXIV_UPDATE_API   - LLM API endpoint (e.g. https://api.openai.com/v1)
     ARXIV_UPDATE_MODEL - LLM model name (e.g. gpt-4o)
+
+Optional:
+    ARXIV_UPDATE_CONTACT    - Contact string included in the arXiv User-Agent
+    ARXIV_UPDATE_USER_AGENT - Full User-Agent override for arXiv requests
 """
 
 import argparse
@@ -43,6 +47,13 @@ MIN_SUMMARY_LEN = 30
 SUMMARY_FAILURE_PLACEHOLDER = "[摘要生成失败]"
 SUMMARY_FAILURE_TAG = "未分类"
 PAPER_SEPARATOR = "\n=====PAPER_SEPARATOR=====\n"
+ARXIV_FETCH_INTERVAL_SECONDS = 3.0
+ARXIV_CONTACT = os.environ.get("ARXIV_UPDATE_CONTACT", "set-ARXIV_UPDATE_CONTACT")
+ARXIV_USER_AGENT = os.environ.get(
+    "ARXIV_UPDATE_USER_AGENT",
+    f"arxiv-daily-bot/1.0 (contact: {ARXIV_CONTACT})",
+)
+_last_fetch_time: float | None = None
 
 
 @dataclass
@@ -87,10 +98,26 @@ def setup_logging(cache_base: Path) -> logging.Logger:
 # Phase 1: Download & Parse
 # ---------------------------------------------------------------------------
 
+def _wait_for_arxiv_rate_limit() -> None:
+    """Apply a courtesy delay before arXiv requests."""
+    global _last_fetch_time
+
+    if _last_fetch_time is None:
+        delay = ARXIV_FETCH_INTERVAL_SECONDS
+    else:
+        elapsed = time.monotonic() - _last_fetch_time
+        delay = max(0.0, ARXIV_FETCH_INTERVAL_SECONDS - elapsed)
+
+    if delay > 0:
+        time.sleep(delay)
+    _last_fetch_time = time.monotonic()
+
+
 def fetch_page(field: str) -> str:
     """Download the arxiv new listings page for the given field."""
+    _wait_for_arxiv_rate_limit()
     url = f"https://arxiv.org/list/{field}/new"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": ARXIV_USER_AGENT})
     with urllib.request.urlopen(req, timeout=60) as resp:
         return resp.read().decode("utf-8")
 

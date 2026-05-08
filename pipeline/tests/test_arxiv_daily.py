@@ -640,7 +640,11 @@ class TestExtractPaperAbbrev:
 # ===========================================================================
 
 class TestFetchPage:
-    def test_url_construction(self):
+    def test_url_construction_and_arxiv_user_agent(self, monkeypatch):
+        sleeps = []
+        monkeypatch.setattr(arxiv_daily, "_last_fetch_time", None)
+        monkeypatch.setattr(arxiv_daily.time, "sleep", sleeps.append)
+
         with patch("arxiv_daily.urllib.request.urlopen") as mock_urlopen:
             mock_resp = MagicMock()
             mock_resp.read.return_value = b"<html>test</html>"
@@ -655,8 +659,25 @@ class TestFetchPage:
             req = call_args[0][0]
             assert "cs.AI" in req.full_url
             assert "arxiv.org/list/cs.AI/new" in req.full_url
+            assert req.get_header("User-agent").startswith("arxiv-daily-bot/1.0 (contact:")
+            assert sleeps == [arxiv_daily.ARXIV_FETCH_INTERVAL_SECONDS]
 
-    def test_network_error(self):
+    def test_rate_limit_clamps_elapsed_time(self, monkeypatch):
+        sleeps = []
+        monotonic_values = iter([101.0, 103.0])
+        monkeypatch.setattr(arxiv_daily, "_last_fetch_time", 100.0)
+        monkeypatch.setattr(arxiv_daily.time, "monotonic", lambda: next(monotonic_values))
+        monkeypatch.setattr(arxiv_daily.time, "sleep", sleeps.append)
+
+        arxiv_daily._wait_for_arxiv_rate_limit()
+
+        assert sleeps == [2.0]
+        assert arxiv_daily._last_fetch_time == 103.0
+
+    def test_network_error(self, monkeypatch):
+        monkeypatch.setattr(arxiv_daily, "_last_fetch_time", None)
+        monkeypatch.setattr(arxiv_daily.time, "sleep", lambda delay: None)
+
         with patch("arxiv_daily.urllib.request.urlopen") as mock_urlopen:
             from urllib.error import URLError
             mock_urlopen.side_effect = URLError("Connection refused")
