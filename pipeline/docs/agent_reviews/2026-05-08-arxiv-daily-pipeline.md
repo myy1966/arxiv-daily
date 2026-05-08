@@ -349,6 +349,8 @@ status: "REFACTOR_NEEDED"
     shutil.rmtree(field_cache)
     ```
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py:run_normal_mode` 的成功清理路径，在 `shutil.rmtree(field_cache)` 前记录 `logger.info(f"[Cache] Removing completed cache directory: {field_cache}")`，保留原有“仅 Phase3 全成功后清理 field cache”的行为。补充 `TestMainCli.test_normal_run` 断言日志文件包含被删除的 cache 目录，便于事后排查。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMainCli::test_normal_run -q` 通过，1 passed。
+
   ---
 
   #### [ISSUE ID: 021] `main()` 函数过长，patch/normal mode 应拆分（原 TODO#14，Low）

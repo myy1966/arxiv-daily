@@ -1487,6 +1487,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path) -> None:
 
     # Clean cache on full success
     if field_cache.exists():
+        logger.info(f"[Cache] Removing completed cache directory: {field_cache}")
         shutil.rmtree(field_cache)
 
     # Build summary JSON for stdout

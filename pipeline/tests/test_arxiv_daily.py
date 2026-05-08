@@ -1590,6 +1590,8 @@ class TestMainCli:
         assert summary["total"] > 0
         assert summary["failed_batches"] == 0
         assert "sections" in summary
+        log_text = (cache_dir / "arxiv_daily.log").read_text(encoding="utf-8")
+        assert f"[Cache] Removing completed cache directory: {cache_dir / 'cs.AI'}" in log_text
 
     def test_date_mode_warns_when_overwriting_output(
         self, monkeypatch, tmp_path, sample_listing_html, capsys
