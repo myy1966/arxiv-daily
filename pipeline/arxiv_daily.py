@@ -252,6 +252,7 @@ def parse_html(html: str, field: str) -> dict:
             "page_type": "new" or "catchup" or "unknown",
             "field": field,
             "sections": [{"name": ..., "count": ..., "papers": [...]}],
+            "diagnostics": {"missing_title_ids": [...], "missing_abstract_ids": [...]},
         }
     Papers include: id, title, authors, subjects, comments, code_urls, abstract
     """
@@ -259,7 +260,13 @@ def parse_html(html: str, field: str) -> dict:
     sections = parse_sections(html)
 
     if not sections:
-        return {"listing_date": listing_date, "page_type": page_type, "field": field, "sections": []}
+        return {
+            "listing_date": listing_date,
+            "page_type": page_type,
+            "field": field,
+            "sections": [],
+            "diagnostics": {"missing_title_ids": [], "missing_abstract_ids": []},
+        }
 
     dt_pattern = re.compile(r"<dt>\s*<a name=['\"]item(\d+)['\"]", re.DOTALL)
     all_items = list(dt_pattern.finditer(html))
@@ -287,7 +294,35 @@ def parse_html(html: str, field: str) -> dict:
         papers = section_papers.get(name, [])
         result_sections.append({"name": name, "count": count, "papers": papers})
 
-    return {"listing_date": listing_date, "page_type": page_type, "field": field, "sections": result_sections}
+    all_papers = [paper for section in result_sections for paper in section["papers"]]
+    diagnostics = {
+        "missing_title_ids": [p["id"] for p in all_papers if not p.get("title")],
+        "missing_abstract_ids": [p["id"] for p in all_papers if not p.get("abstract")],
+    }
+
+    return {
+        "listing_date": listing_date,
+        "page_type": page_type,
+        "field": field,
+        "sections": result_sections,
+        "diagnostics": diagnostics,
+    }
+
+
+def log_parse_diagnostics(data: dict, logger: logging.Logger) -> None:
+    """Log warnings for partially parsed papers."""
+    diagnostics = data.get("diagnostics", {})
+    missing_title_ids = diagnostics.get("missing_title_ids") or []
+    missing_abstract_ids = diagnostics.get("missing_abstract_ids") or []
+
+    if missing_title_ids:
+        logger.warning(
+            f"[Phase1] {len(missing_title_ids)} papers missing title: {missing_title_ids[:5]}"
+        )
+    if missing_abstract_ids:
+        logger.warning(
+            f"[Phase1] {len(missing_abstract_ids)} papers missing abstract: {missing_abstract_ids[:5]}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1342,6 +1377,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path) -> None:
         print("Error: No papers could be parsed. Page format may be unsupported.", file=sys.stderr)
         print(f"Log: {log_path}", file=sys.stderr)
         sys.exit(2)
+    log_parse_diagnostics(data, logger)
     if papers_with_abstract == 0:
         logger.error(f"[Phase1] {parsed_papers} papers parsed but none have abstracts")
         print(f"Error: {parsed_papers} papers parsed but no abstracts extracted. Page format may be unsupported.", file=sys.stderr)

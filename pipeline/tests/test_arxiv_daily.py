@@ -306,6 +306,38 @@ class TestParseHtml:
         assert "2604.08123" in ids
         assert "2603.01234" in ids
 
+    def test_diagnostics_track_missing_title_and_abstract(self):
+        html = """\
+<p>Showing new listings for Friday, 11 April 2025</p>
+<h3>New submissions (showing 2 of 2 entries)</h3>
+<dt><a name="item1">[1]</a> <a>arXiv:2604.00001</a></dt>
+<dd><div class="meta">
+<div class="list-title mathjax"><span class="descriptor">Title:</span> Complete Paper</div>
+<p class="mathjax">A complete abstract.</p>
+</div></dd>
+<dt><a name="item2">[2]</a> <a>arXiv:2604.00002</a></dt>
+<dd><div class="meta">
+<div class="list-authors"><a href="/search/?query=Test">Test Author</a></div>
+</div></dd>
+"""
+        data = arxiv_daily.parse_html(html, "cs.AI")
+
+        assert data["diagnostics"]["missing_title_ids"] == ["2604.00002"]
+        assert data["diagnostics"]["missing_abstract_ids"] == ["2604.00002"]
+
+    def test_log_parse_diagnostics_warns_for_missing_fields(self, caplog):
+        data = {
+            "diagnostics": {
+                "missing_title_ids": ["2604.00002"],
+                "missing_abstract_ids": ["2604.00002", "2604.00003"],
+            }
+        }
+
+        arxiv_daily.log_parse_diagnostics(data, arxiv_daily.logging.getLogger("arxiv_daily.test"))
+
+        assert "[Phase1] 1 papers missing title: ['2604.00002']" in caplog.text
+        assert "[Phase1] 2 papers missing abstract: ['2604.00002', '2604.00003']" in caplog.text
+
 
 # ===========================================================================
 # TestBuildPrompt

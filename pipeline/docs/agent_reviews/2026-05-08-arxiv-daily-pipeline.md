@@ -336,6 +336,8 @@ status: "REFACTOR_NEEDED"
         logger.warning(f"[Phase1] {len(missing_abstract)} papers missing abstract: {missing_abstract[:5]}...")
     ```
 
+  Executor: [DISPUTE] 修正评审意见。直接在 `parse_html` 内调用 logger 会让解析函数产生日志副作用，并扩大调用方耦合；我采用更清晰的替代方案：`parse_html` 负责统计并返回 `diagnostics.missing_title_ids` 与 `diagnostics.missing_abstract_ids`，新增 `log_parse_diagnostics(data, logger)` 在 normal mode 的 Phase1 校验阶段统一输出 warning。已修改 `arxiv-update/scripts/arxiv_daily.py:parse_html`、`log_parse_diagnostics` 和 `run_normal_mode`，对部分缺 title/abstract 的页面记录逐条诊断，同时保留既有“全部无 abstract 则失败”的保护。补充 `TestParseHtml` 覆盖缺字段统计与 `[Phase1]` warning 输出。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestParseHtml -q` 通过，5 passed；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMainCli -q` 通过，7 passed。
+
   ---
 
   #### [ISSUE ID: 020] `shutil.rmtree(field_cache)` 静默删除无日志（原 TODO#13，Low）
