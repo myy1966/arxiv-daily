@@ -1421,8 +1421,11 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path) -> None:
 
     # Save HTML to pages archive (keyed by listing date)
     page_archive_path = pages_dir / f"{date_str}.html"
-    _atomic_write_text(page_archive_path, html)
-    logger.info(f"[Phase1] Saved HTML to {page_archive_path}")
+    if not page_archive_path.exists():
+        _atomic_write_text(page_archive_path, html)
+        logger.info(f"[Phase1] Saved HTML to {page_archive_path}")
+    else:
+        logger.info(f"[Phase1] HTML archive already exists: {page_archive_path}")
 
     # Check if this listing date has already been processed
     output_dir = Path(args.output)

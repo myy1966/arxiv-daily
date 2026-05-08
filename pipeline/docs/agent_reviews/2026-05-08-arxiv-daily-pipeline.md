@@ -432,6 +432,8 @@ status: "PASS"
   - **严重度**: 极低，不阻塞 PASS。
   - **建议**: 可保留 `if not path.exists()` 检查后再调用 `_atomic_write_text`，或接受当前行为（原子写入本身是幂等的）。
 
+  Executor: [RESOLVED] 同意评审意见。虽然无条件 `_atomic_write_text` 内容幂等，但会在 `--date` 模式下对已归档 HTML 产生冗余写入和 mtime 变化，不符合流水线幂等性与纯净度要求。已修改 `arxiv-update/scripts/arxiv_daily.py:run_normal_mode`，恢复 `if not page_archive_path.exists()` 检查：归档不存在时才调用 `_atomic_write_text`，归档已存在时仅记录 `HTML archive already exists`。补充 `TestMainCli.test_date_mode_warns_when_overwriting_output` 保护：已有 HTML 归档时若调用 `_atomic_write_text` 则测试失败。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMainCli::test_date_mode_warns_when_overwriting_output -q` 通过，1 passed；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMainCli -q` 通过，7 passed。
+
   ##### [ISSUE ID: 023] `save_tags` 未使用原子写入
   - **定位**: `arxiv_daily.py:save_tags` (L857-865)
   - **问题描述**: `save_tags` 直接 `open(tags_path, "w")` + `json.dump`，未使用已有的 `_atomic_write_json`。如果进程中断，tags.json 可能损坏。影响较小（tags 可从 batch cache 恢复），但不一致。

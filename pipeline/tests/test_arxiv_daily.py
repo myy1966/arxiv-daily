@@ -1658,6 +1658,11 @@ class TestMainCli:
                 },
             }, 0),
         )
+        monkeypatch.setattr(
+            arxiv_daily,
+            "_atomic_write_text",
+            lambda *args, **kwargs: pytest.fail("existing HTML archive should not be rewritten"),
+        )
 
         with pytest.raises(SystemExit) as exc_info:
             arxiv_daily.main()
