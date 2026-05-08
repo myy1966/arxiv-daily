@@ -2,6 +2,8 @@
 """
 arxiv_daily.py - Download arxiv daily listings, generate LLM summaries, and produce markdown.
 
+Requires: Python >= 3.10
+
 Usage:
     python3 arxiv_daily.py cs.AI \\
       --output ~/arxiv-daily/_posts \\

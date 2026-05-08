@@ -293,6 +293,8 @@ status: "REFACTOR_NEEDED"
   - **修复指令**:
     在 `SKILL.md` 或脚本头部 docstring 中明确声明 `Requires: Python >= 3.10`。如需兼容 3.9，改用 `from __future__ import annotations` 或 `Optional[str]` 形式。
 
+  Executor: [RESOLVED] 同意评审意见。仓库根部无 `pyproject.toml`、`setup.cfg` 或根级 `SKILL.md` 可声明运行版本；当前代码已大量使用 PEP 604 和内建泛型注解，强行改写兼容 Python 3.9 会扩大无谓改动面。已在 `arxiv-update/scripts/arxiv_daily.py` 头部 docstring 明确追加 `Requires: Python >= 3.10`，并补充 `TestModuleMetadata.test_python_version_requirement_is_declared` 固定该声明，避免后续误删。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestModuleMetadata -q` 通过，1 passed。
+
   ---
 
   #### [ISSUE ID: 017] `RETRY_DELAYS` 与 `MAX_RETRIES` 耦合，修改一方可能越界（原 TODO#2，Low）
