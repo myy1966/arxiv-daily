@@ -127,6 +127,8 @@ status: "REFACTOR_NEEDED"
   - **修复指令**:
     将 stream_file 的生命周期管理统一到内层 try/finally 中，或使用 `contextlib.ExitStack`。
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py:call_llm`，使用 `contextlib.ExitStack` 管理可选的 stream debug 文件句柄，文件打开、SSE 读取和异常退出均处于同一上下文生命周期内，消除手写 `stream_file = None` + 外层 `finally` 的脆弱模式。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestCallLlm tests/test_arxiv_daily.py::TestCallLlmErrorModes -q` 通过，15 passed。
+
   ---
 
   #### [ISSUE ID: 007] 幂等性风险：HTML 保存逻辑有条件竞争窗口

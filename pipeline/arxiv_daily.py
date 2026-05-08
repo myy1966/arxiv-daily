@@ -25,6 +25,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from html import unescape
@@ -362,13 +363,12 @@ def call_llm(
         try:
             req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
             # Set up live stream debug file
-            stream_path = None
-            stream_file = None
-            if debug_dir is not None:
-                debug_dir.mkdir(parents=True, exist_ok=True)
-                stream_path = debug_dir / f"{label}_stream_attempt{attempt + 1}.txt"
-                stream_file = open(stream_path, "w", encoding="utf-8")
-            try:
+            with ExitStack() as stack:
+                stream_file = None
+                if debug_dir is not None:
+                    debug_dir.mkdir(parents=True, exist_ok=True)
+                    stream_path = debug_dir / f"{label}_stream_attempt{attempt + 1}.txt"
+                    stream_file = stack.enter_context(open(stream_path, "w", encoding="utf-8"))
                 with urllib.request.urlopen(req, timeout=300) as resp:
                     content_parts = []
                     usage = {}
@@ -402,9 +402,6 @@ def call_llm(
                             "(possible network interruption)"
                         )
                         raise ConnectionError("SSE stream incomplete: no [DONE] marker received")
-            finally:
-                if stream_file is not None:
-                    stream_file.close()
 
             content = "".join(content_parts).strip()
             if content.startswith("```"):
