@@ -1128,133 +1128,105 @@ def patch_markdown(md_path: Path, results_by_id: dict[str, dict], logger: loggin
 # Main
 # ---------------------------------------------------------------------------
 
-def main():
-    parser = argparse.ArgumentParser(description="arxiv daily listing summarizer")
-    parser.add_argument("field", help="arXiv field, e.g. cs.AI, cs.CL")
-    parser.add_argument("--output", required=True, help="Output directory for markdown files")
-    parser.add_argument("--tags", required=True, help="Path to tags.json")
-    parser.add_argument("--no-cache", action="store_true", help="Ignore cache, full re-run")
-    parser.add_argument("--date", help="Use saved HTML for this date (YYYY-MM-DD) instead of fetching")
-    parser.add_argument("--patch", nargs="+", metavar="ID", help="Re-generate specific paper IDs and patch into existing md (requires --date)")
-    parser.add_argument("--cache-dir", help="Cache directory (default: ~/.cache/arxiv-update)")
-    args = parser.parse_args()
-
-    cache_base = Path(args.cache_dir) if args.cache_dir else Path.home() / ".cache" / "arxiv-update"
-    log_path = cache_base / "arxiv_daily.log"
-
-    # Check env vars
+def run_patch_mode(args, logger: logging.Logger, cache_base: Path) -> None:
     api_key = os.environ.get("ARXIV_UPDATE_KEY")
     api_endpoint = os.environ.get("ARXIV_UPDATE_API")
     model = os.environ.get("ARXIV_UPDATE_MODEL")
 
-    missing = []
-    if not api_key:
-        missing.append("ARXIV_UPDATE_KEY")
-    if not api_endpoint:
-        missing.append("ARXIV_UPDATE_API")
-    if not model:
-        missing.append("ARXIV_UPDATE_MODEL")
-
-    if missing:
-        print(
-            f"Error: Missing environment variables: {', '.join(missing)}",
-            file=sys.stderr,
-        )
-        print(f"Log: {log_path}", file=sys.stderr)
+    if not args.date:
+        print("Error: --patch requires --date", file=sys.stderr)
         sys.exit(2)
 
-    logger = setup_logging(cache_base)
+    logger.info(f"[Patch] Starting patch for field={args.field} date={args.date} ids={args.patch}")
 
-    # --- Patch mode ---
-    if args.patch:
-        if not args.date:
-            print("Error: --patch requires --date", file=sys.stderr)
-            sys.exit(2)
+    # Load saved HTML
+    pages_dir = cache_base / "pages" / args.field
+    saved_path = pages_dir / f"{args.date}.html"
+    if not saved_path.exists():
+        print(f"Error: No saved HTML for date {args.date} at {saved_path}", file=sys.stderr)
+        sys.exit(2)
+    html = saved_path.read_text(encoding="utf-8")
+    full_data = parse_html(html, args.field)
 
-        logger.info(f"[Patch] Starting patch for field={args.field} date={args.date} ids={args.patch}")
+    # Find requested papers and build a minimal data dict for run_phase2
+    patch_ids = set(args.patch)
+    patch_papers = []
+    for section in full_data["sections"]:
+        for paper in section["papers"]:
+            if paper["id"] in patch_ids:
+                patch_papers.append(paper)
+    found_ids = {p["id"] for p in patch_papers}
+    missing_ids = patch_ids - found_ids
+    if missing_ids:
+        print(f"Warning: Papers not found in HTML: {', '.join(sorted(missing_ids))}", file=sys.stderr)
+    if not patch_papers:
+        print("Error: No matching papers found in saved HTML", file=sys.stderr)
+        sys.exit(2)
 
-        # Load saved HTML
-        pages_dir = cache_base / "pages" / args.field
-        saved_path = pages_dir / f"{args.date}.html"
-        if not saved_path.exists():
-            print(f"Error: No saved HTML for date {args.date} at {saved_path}", file=sys.stderr)
-            sys.exit(2)
-        html = saved_path.read_text(encoding="utf-8")
-        full_data = parse_html(html, args.field)
-
-        # Find requested papers and build a minimal data dict for run_phase2
-        patch_ids = set(args.patch)
-        patch_papers = []
-        for section in full_data["sections"]:
-            for paper in section["papers"]:
-                if paper["id"] in patch_ids:
-                    patch_papers.append(paper)
-        found_ids = {p["id"] for p in patch_papers}
-        missing_ids = patch_ids - found_ids
-        if missing_ids:
-            print(f"Warning: Papers not found in HTML: {', '.join(sorted(missing_ids))}", file=sys.stderr)
-        if not patch_papers:
-            print("Error: No matching papers found in saved HTML", file=sys.stderr)
-            sys.exit(2)
-
-        papers_without_abstract = [p for p in patch_papers if not p.get("abstract")]
-        if papers_without_abstract:
-            missing_abstract_ids = [p["id"] for p in papers_without_abstract]
-            logger.warning(
-                f"[Patch] {len(papers_without_abstract)} papers missing abstract: {missing_abstract_ids}"
-            )
-            print(
-                f"Warning: {len(papers_without_abstract)} patch paper(s) missing abstract: "
-                f"{', '.join(missing_abstract_ids)}",
-                file=sys.stderr,
-            )
-
-        print(f"Regenerating {len(patch_papers)} paper(s): {', '.join(p['id'] for p in patch_papers)}", file=sys.stderr)
-
-        # Build a minimal data dict with a single section containing all patch papers
-        patch_data = {
-            "field": args.field,
-            "listing_date": args.date,
-            "page_type": "patch",
-            "sections": [{"name": "Patch", "count": len(patch_papers), "papers": patch_papers}],
-        }
-
-        tags_path = Path(args.tags)
-        results_by_id, failed_batches = run_phase2(
-            patch_data, tags_path, cache_base, no_cache=True,
-            api_endpoint=api_endpoint, api_key=api_key, model=model, logger=logger,
-            batch_prefix="patch_batch", save_cache=False,
+    papers_without_abstract = [p for p in patch_papers if not p.get("abstract")]
+    if papers_without_abstract:
+        missing_abstract_ids = [p["id"] for p in papers_without_abstract]
+        logger.warning(
+            f"[Patch] {len(papers_without_abstract)} papers missing abstract: {missing_abstract_ids}"
+        )
+        print(
+            f"Warning: {len(papers_without_abstract)} patch paper(s) missing abstract: "
+            f"{', '.join(missing_abstract_ids)}",
+            file=sys.stderr,
         )
 
-        if not results_by_id:
-            print("Error: No papers successfully matched from LLM response", file=sys.stderr)
-            sys.exit(1)
+    print(f"Regenerating {len(patch_papers)} paper(s): {', '.join(p['id'] for p in patch_papers)}", file=sys.stderr)
 
-        # Patch markdown
-        output_dir = Path(args.output)
-        md_path = output_dir / f"{args.date}-{args.field}.md"
-        if not md_path.exists():
-            print(f"Error: Markdown file not found: {md_path}", file=sys.stderr)
-            sys.exit(2)
+    # Build a minimal data dict with a single section containing all patch papers
+    patch_data = {
+        "field": args.field,
+        "listing_date": args.date,
+        "page_type": "patch",
+        "sections": [{"name": "Patch", "count": len(patch_papers), "papers": patch_papers}],
+    }
 
-        patched = patch_markdown(md_path, results_by_id, logger)
-        total_failed = len(patch_ids) - len(results_by_id)
-        print(f"Patched {patched}/{len(patch_ids)} paper(s) in {md_path}", file=sys.stderr)
-        logger.info(f"[Patch] Completed: patched {patched} paper(s)")
+    tags_path = Path(args.tags)
+    results_by_id, failed_batches = run_phase2(
+        patch_data, tags_path, cache_base, no_cache=True,
+        api_endpoint=api_endpoint, api_key=api_key, model=model, logger=logger,
+        batch_prefix="patch_batch", save_cache=False,
+    )
 
-        summary = {
-            "mode": "patch",
-            "listing_date": args.date,
-            "field": args.field,
-            "output_file": str(md_path),
-            "requested": len(patch_ids),
-            "patched": patched,
-            "failed": total_failed,
-        }
-        print(json.dumps(summary, ensure_ascii=False))
-        sys.exit(0 if total_failed == 0 else 1)
+    if not results_by_id:
+        print("Error: No papers successfully matched from LLM response", file=sys.stderr)
+        sys.exit(1)
 
-    # --- Normal mode ---
+    # Patch markdown
+    output_dir = Path(args.output)
+    md_path = output_dir / f"{args.date}-{args.field}.md"
+    if not md_path.exists():
+        print(f"Error: Markdown file not found: {md_path}", file=sys.stderr)
+        sys.exit(2)
+
+    patched = patch_markdown(md_path, results_by_id, logger)
+    total_failed = len(patch_ids) - len(results_by_id)
+    print(f"Patched {patched}/{len(patch_ids)} paper(s) in {md_path}", file=sys.stderr)
+    logger.info(f"[Patch] Completed: patched {patched} paper(s)")
+
+    summary = {
+        "mode": "patch",
+        "listing_date": args.date,
+        "field": args.field,
+        "output_file": str(md_path),
+        "requested": len(patch_ids),
+        "patched": patched,
+        "failed": total_failed,
+    }
+    print(json.dumps(summary, ensure_ascii=False))
+    sys.exit(0 if total_failed == 0 else 1)
+
+
+def run_normal_mode(args, logger: logging.Logger, cache_base: Path) -> None:
+    api_key = os.environ.get("ARXIV_UPDATE_KEY")
+    api_endpoint = os.environ.get("ARXIV_UPDATE_API")
+    model = os.environ.get("ARXIV_UPDATE_MODEL")
+    log_path = cache_base / "arxiv_daily.log"
+
     logger.info(f"[Phase1] Starting run for field={args.field}")
 
     # Phase 1: Download and parse
@@ -1434,6 +1406,48 @@ def main():
     logger.info(f"[Phase3] Run completed successfully. Output: {output_file}")
     sys.exit(0)
 
+
+def main():
+    parser = argparse.ArgumentParser(description="arxiv daily listing summarizer")
+    parser.add_argument("field", help="arXiv field, e.g. cs.AI, cs.CL")
+    parser.add_argument("--output", required=True, help="Output directory for markdown files")
+    parser.add_argument("--tags", required=True, help="Path to tags.json")
+    parser.add_argument("--no-cache", action="store_true", help="Ignore cache, full re-run")
+    parser.add_argument("--date", help="Use saved HTML for this date (YYYY-MM-DD) instead of fetching")
+    parser.add_argument("--patch", nargs="+", metavar="ID", help="Re-generate specific paper IDs and patch into existing md (requires --date)")
+    parser.add_argument("--cache-dir", help="Cache directory (default: ~/.cache/arxiv-update)")
+    args = parser.parse_args()
+
+    cache_base = Path(args.cache_dir) if args.cache_dir else Path.home() / ".cache" / "arxiv-update"
+    log_path = cache_base / "arxiv_daily.log"
+
+    # Check env vars
+    api_key = os.environ.get("ARXIV_UPDATE_KEY")
+    api_endpoint = os.environ.get("ARXIV_UPDATE_API")
+    model = os.environ.get("ARXIV_UPDATE_MODEL")
+
+    missing = []
+    if not api_key:
+        missing.append("ARXIV_UPDATE_KEY")
+    if not api_endpoint:
+        missing.append("ARXIV_UPDATE_API")
+    if not model:
+        missing.append("ARXIV_UPDATE_MODEL")
+
+    if missing:
+        print(
+            f"Error: Missing environment variables: {', '.join(missing)}",
+            file=sys.stderr,
+        )
+        print(f"Log: {log_path}", file=sys.stderr)
+        sys.exit(2)
+
+    logger = setup_logging(cache_base)
+
+    if args.patch:
+        run_patch_mode(args, logger, cache_base)
+    else:
+        run_normal_mode(args, logger, cache_base)
 
 if __name__ == "__main__":
     main()

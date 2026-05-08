@@ -339,6 +339,8 @@ status: "REFACTOR_NEEDED"
   - **修复指令**:
     拆为 `run_patch_mode(args, logger, cache_base)` 和 `run_normal_mode(args, logger, cache_base)`。建议在行为正确性修复全部完成后再执行此重构。
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py`：新增 `run_patch_mode(args, logger, cache_base)` 和 `run_normal_mode(args, logger, cache_base)`，分别承接原 patch mode 与 normal mode 流程；`main()` 现在只负责 argparse、环境变量校验、logger 初始化和 mode 分派。保留原有 sys.exit、stdout JSON、stderr 提示和日志行为；未顺手处理 Issue 020 的 cache 删除日志。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMainCli tests/test_arxiv_daily.py::TestGenerateMarkdown tests/test_arxiv_daily.py::TestPatchMarkdown -q` 通过，23 passed；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，123 passed, 1 xfailed。
+
   ---
 
   #### 综合优先级排序（合并 Round 1 + Round 2 全部 21 个 issue）
