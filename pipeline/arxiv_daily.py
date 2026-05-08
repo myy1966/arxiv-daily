@@ -66,6 +66,13 @@ class BatchProcessResult:
     failed: bool
 
 
+@dataclass(frozen=True)
+class LlmConfig:
+    api_key: str
+    api_endpoint: str
+    model: str
+
+
 def _retry_delay(attempt: int) -> float:
     """Return the configured retry delay for an attempt index."""
     return RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)]
@@ -1223,11 +1230,7 @@ def patch_markdown(md_path: Path, results_by_id: dict[str, dict], logger: loggin
 # Main
 # ---------------------------------------------------------------------------
 
-def run_patch_mode(args, logger: logging.Logger, cache_base: Path) -> None:
-    api_key = os.environ.get("ARXIV_UPDATE_KEY")
-    api_endpoint = os.environ.get("ARXIV_UPDATE_API")
-    model = os.environ.get("ARXIV_UPDATE_MODEL")
-
+def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: LlmConfig) -> None:
     if not args.date:
         print("Error: --patch requires --date", file=sys.stderr)
         sys.exit(2)
@@ -1283,7 +1286,10 @@ def run_patch_mode(args, logger: logging.Logger, cache_base: Path) -> None:
     tags_path = Path(args.tags)
     results_by_id, failed_batches = run_phase2(
         patch_data, tags_path, cache_base, no_cache=True,
-        api_endpoint=api_endpoint, api_key=api_key, model=model, logger=logger,
+        api_endpoint=llm_config.api_endpoint,
+        api_key=llm_config.api_key,
+        model=llm_config.model,
+        logger=logger,
         batch_prefix="patch_batch", save_cache=False,
     )
 
@@ -1316,10 +1322,7 @@ def run_patch_mode(args, logger: logging.Logger, cache_base: Path) -> None:
     sys.exit(0 if total_failed == 0 else 1)
 
 
-def run_normal_mode(args, logger: logging.Logger, cache_base: Path) -> None:
-    api_key = os.environ.get("ARXIV_UPDATE_KEY")
-    api_endpoint = os.environ.get("ARXIV_UPDATE_API")
-    model = os.environ.get("ARXIV_UPDATE_MODEL")
+def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: LlmConfig) -> None:
     log_path = cache_base / "arxiv_daily.log"
 
     logger.info(f"[Phase1] Starting run for field={args.field}")
@@ -1455,9 +1458,9 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path) -> None:
         tags_path,
         cache_base,
         args.no_cache,
-        api_endpoint,
-        api_key,
-        model,
+        llm_config.api_endpoint,
+        llm_config.api_key,
+        llm_config.model,
         logger,
     )
 
@@ -1544,12 +1547,13 @@ def main():
         print(f"Log: {log_path}", file=sys.stderr)
         sys.exit(2)
 
+    llm_config = LlmConfig(api_key=api_key, api_endpoint=api_endpoint, model=model)
     logger = setup_logging(cache_base)
 
     if args.patch:
-        run_patch_mode(args, logger, cache_base)
+        run_patch_mode(args, logger, cache_base, llm_config)
     else:
-        run_normal_mode(args, logger, cache_base)
+        run_normal_mode(args, logger, cache_base, llm_config)
 
 if __name__ == "__main__":
     main()

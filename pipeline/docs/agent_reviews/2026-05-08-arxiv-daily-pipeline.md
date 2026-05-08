@@ -448,6 +448,8 @@ status: "PASS"
   - **严重度**: 极低（代码风格问题），不阻塞 PASS。
   - **建议**: 在 `main()` 中解析后作为参数传入，消除重复读取。
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py`：新增 `LlmConfig` dataclass，`main()` 完成 `ARXIV_UPDATE_KEY/API/MODEL` 缺失校验后构造配置对象，并传入 `run_patch_mode(args, logger, cache_base, llm_config)` 与 `run_normal_mode(args, logger, cache_base, llm_config)`；两个 mode 函数不再直接读取 LLM 环境变量，`run_phase2` 参数均来自已校验配置。补充 `TestMainCli.test_main_passes_llm_config_to_normal_mode` 与 `test_main_passes_llm_config_to_patch_mode`，覆盖 normal/patch 分派的配置传递。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMainCli::test_main_passes_llm_config_to_normal_mode tests/test_arxiv_daily.py::TestMainCli::test_main_passes_llm_config_to_patch_mode -q` 通过，2 passed；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMainCli -q` 通过，9 passed。
+
   ---
 
   #### 总结

@@ -1561,6 +1561,58 @@ class TestMainCli:
             arxiv_daily.main()
         assert exc_info.value.code == 2
 
+    def test_main_passes_llm_config_to_normal_mode(self, monkeypatch, tmp_path):
+        captured = {}
+        monkeypatch.setenv("ARXIV_UPDATE_KEY", "test-key")
+        monkeypatch.setenv("ARXIV_UPDATE_API", "http://127.0.0.1:1/v1")
+        monkeypatch.setenv("ARXIV_UPDATE_MODEL", "test-model")
+        monkeypatch.setattr("sys.argv", [
+            "arxiv_daily.py", "cs.AI",
+            "--output", str(tmp_path / "output"),
+            "--tags", str(tmp_path / "tags.json"),
+            "--cache-dir", str(tmp_path / "cache"),
+        ])
+
+        def fake_run_normal_mode(args, logger, cache_base, llm_config):
+            captured["llm_config"] = llm_config
+
+        monkeypatch.setattr(arxiv_daily, "run_normal_mode", fake_run_normal_mode)
+
+        arxiv_daily.main()
+
+        assert captured["llm_config"] == arxiv_daily.LlmConfig(
+            api_key="test-key",
+            api_endpoint="http://127.0.0.1:1/v1",
+            model="test-model",
+        )
+
+    def test_main_passes_llm_config_to_patch_mode(self, monkeypatch, tmp_path):
+        captured = {}
+        monkeypatch.setenv("ARXIV_UPDATE_KEY", "test-key")
+        monkeypatch.setenv("ARXIV_UPDATE_API", "http://127.0.0.1:1/v1")
+        monkeypatch.setenv("ARXIV_UPDATE_MODEL", "test-model")
+        monkeypatch.setattr("sys.argv", [
+            "arxiv_daily.py", "cs.AI",
+            "--output", str(tmp_path / "output"),
+            "--tags", str(tmp_path / "tags.json"),
+            "--date", "2025-04-11",
+            "--patch", "2604.06189",
+            "--cache-dir", str(tmp_path / "cache"),
+        ])
+
+        def fake_run_patch_mode(args, logger, cache_base, llm_config):
+            captured["llm_config"] = llm_config
+
+        monkeypatch.setattr(arxiv_daily, "run_patch_mode", fake_run_patch_mode)
+
+        arxiv_daily.main()
+
+        assert captured["llm_config"] == arxiv_daily.LlmConfig(
+            api_key="test-key",
+            api_endpoint="http://127.0.0.1:1/v1",
+            model="test-model",
+        )
+
     def test_normal_run(self, monkeypatch, fake_llm_server, tmp_path, sample_listing_html, capsys):
         api_url, handler_cls = fake_llm_server
         output_dir = tmp_path / "output"
