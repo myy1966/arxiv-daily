@@ -145,6 +145,8 @@ status: "REFACTOR_NEEDED"
     1. HTML 写入使用原子 rename 模式（同 ISSUE 005）。
     2. 在 `--date` 模式下，如果 output 已存在且未指定 `--no-cache`，打印提示并询问是否跳过，或至少在日志中明确记录 "overwriting existing output"。
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py:run_normal_mode`：新增 `_atomic_write_text(path, text)`，HTML 页面归档现在通过临时文件写入后 `os.replace` 原子替换，避免直接 `write_text` 中断造成半写入文件；`--date` 模式下如果目标 markdown 已存在且未指定 `--no-cache`，会同时向日志和 stderr 记录 `--date mode overwriting existing output`，明确本次会重跑 Phase2 并覆盖输出。补充测试覆盖原子文本写入和 `--date` 覆盖提示。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestPhase2Helpers tests/test_arxiv_daily.py::TestMainCli -q` 通过，15 passed。
+
   ---
 
   #### [ISSUE ID: 008] `match_llm_results` 质量检查删除结果后无恢复路径

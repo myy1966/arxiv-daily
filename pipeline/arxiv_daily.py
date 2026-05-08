@@ -657,6 +657,22 @@ def _atomic_write_json(path: Path, data: dict) -> None:
         raise
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write UTF-8 text via temp file and atomic rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def _write_batch_cache(field_cache: Path, batch_num: int, result: dict, new_tags: list, current_tags: list) -> None:
     cache_entry = {
         "papers": result.get("papers", []),
@@ -1338,9 +1354,8 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path) -> None:
 
     # Save HTML to pages archive (keyed by listing date)
     page_archive_path = pages_dir / f"{date_str}.html"
-    if not page_archive_path.exists():
-        page_archive_path.write_text(html, encoding="utf-8")
-        logger.info(f"[Phase1] Saved HTML to {page_archive_path}")
+    _atomic_write_text(page_archive_path, html)
+    logger.info(f"[Phase1] Saved HTML to {page_archive_path}")
 
     # Check if this listing date has already been processed
     output_dir = Path(args.output)
@@ -1359,6 +1374,9 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path) -> None:
         }
         print(json.dumps(summary, ensure_ascii=False))
         sys.exit(0)
+    if expected_output.exists() and args.date and not args.no_cache:
+        logger.info(f"[Phase1] --date mode overwriting existing output: {expected_output}")
+        print(f"Warning: --date mode overwriting existing output: {expected_output}", file=sys.stderr)
 
     # Phase 2: LLM summarization
     tags_path = Path(args.tags)

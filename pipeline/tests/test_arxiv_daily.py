@@ -578,6 +578,15 @@ class TestPhase2Helpers:
         assert cache_path.read_text(encoding="utf-8") == '{"old": true}'
         assert list(tmp_path.glob("*.json.tmp")) == []
 
+    def test_atomic_text_write_replaces_existing_file(self, tmp_path):
+        text_path = tmp_path / "page.html"
+        text_path.write_text("old", encoding="utf-8")
+
+        arxiv_daily._atomic_write_text(text_path, "新 HTML")
+
+        assert text_path.read_text(encoding="utf-8") == "新 HTML"
+        assert list(tmp_path.glob("*.tmp")) == []
+
     def test_save_tags_writes_utf8_tags(self, tmp_path):
         tags_path = tmp_path / "tags.json"
         arxiv_daily.save_tags(tags_path, ["大模型"])
@@ -1498,6 +1507,67 @@ class TestMainCli:
         assert summary["total"] > 0
         assert summary["failed_batches"] == 0
         assert "sections" in summary
+
+    def test_date_mode_warns_when_overwriting_output(
+        self, monkeypatch, tmp_path, sample_listing_html, capsys
+    ):
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        existing_output = output_dir / "2025-04-11-cs.AI.md"
+        existing_output.write_text("old markdown", encoding="utf-8")
+        tags_path = tmp_path / "tags.json"
+        tags_path.write_text('{"tags": ["LLM Reasoning"]}', encoding="utf-8")
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        pages_dir = cache_dir / "pages" / "cs.AI"
+        pages_dir.mkdir(parents=True)
+        (pages_dir / "2025-04-11.html").write_text(sample_listing_html, encoding="utf-8")
+
+        monkeypatch.setenv("ARXIV_UPDATE_KEY", "test-key")
+        monkeypatch.setenv("ARXIV_UPDATE_API", "http://127.0.0.1:1/v1")
+        monkeypatch.setenv("ARXIV_UPDATE_MODEL", "test-model")
+        monkeypatch.setattr("sys.argv", [
+            "arxiv_daily.py", "cs.AI",
+            "--output", str(output_dir),
+            "--tags", str(tags_path),
+            "--date", "2025-04-11",
+            "--cache-dir", str(cache_dir),
+        ])
+        monkeypatch.setattr(
+            arxiv_daily,
+            "run_phase2",
+            lambda *args, **kwargs: ({
+                "2604.06189": {
+                    "summary": "这是一篇用于测试覆盖输出覆盖提示的摘要，内容足够长。",
+                    "tags": ["LLM Reasoning"],
+                    "venue": None,
+                },
+                "2604.07001": {
+                    "summary": "这是一篇用于测试覆盖输出覆盖提示的摘要，内容足够长。",
+                    "tags": ["Diffusion Models"],
+                    "venue": None,
+                },
+                "2604.08123": {
+                    "summary": "这是一篇用于测试覆盖输出覆盖提示的摘要，内容足够长。",
+                    "tags": ["Transfer Learning"],
+                    "venue": None,
+                },
+                "2603.01234": {
+                    "summary": "这是一篇用于测试覆盖输出覆盖提示的摘要，内容足够长。",
+                    "tags": ["Vision Transformer"],
+                    "venue": None,
+                },
+            }, 0),
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            arxiv_daily.main()
+
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert "--date mode overwriting existing output" in captured.err
+        log_text = (cache_dir / "arxiv_daily.log").read_text(encoding="utf-8")
+        assert "--date mode overwriting existing output" in log_text
 
     def test_date_html_missing(self, monkeypatch, tmp_path):
         """--date with no saved HTML should exit with code 2."""
