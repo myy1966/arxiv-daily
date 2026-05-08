@@ -319,6 +319,19 @@ class TestBuildPrompt:
         content = messages[1]["content"]
         assert "2604.00001" in content
         assert "2604.00002" in content
+        assert "[Paper 1/2]" in content
+        assert "[Paper 2/2]" in content
+
+    def test_uses_explicit_separator_not_markdown_rule(self):
+        papers = [
+            {"id": "2604.00001", "title": "T1", "abstract": "A1 --- includes markdown rule"},
+            {"id": "2604.00002", "title": "T2", "abstract": "A2"},
+        ]
+        messages = arxiv_daily.build_prompt(papers, [])
+        content = messages[1]["content"]
+        assert arxiv_daily.PAPER_SEPARATOR.strip() in content
+        assert "\n---\n" not in content
+        assert "A1 --- includes markdown rule" in content
 
     def test_empty_tags(self):
         papers = [{"id": "2604.00001", "title": "T", "abstract": "A"}]

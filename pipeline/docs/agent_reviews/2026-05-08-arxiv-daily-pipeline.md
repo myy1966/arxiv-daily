@@ -173,6 +173,8 @@ status: "REFACTOR_NEEDED"
   - **修复指令**:
     使用更不常见的分隔符，例如 `\n=====PAPER_SEPARATOR=====\n`，或为每篇论文添加明确的序号标记（`[Paper 1/16]`, `[Paper 2/16]`），这样即使没有分隔符 LLM 也能正确识别边界。
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py:build_prompt`：新增 `PAPER_SEPARATOR = "\n=====PAPER_SEPARATOR=====\n"`，移除 prompt 中用于边界的裸 `---`，并为每篇论文添加 `[Paper i/n]` 显式序号标记；abstract 内部若包含 `---` 会作为正文保留，不再与论文边界混淆。补充 `TestBuildPrompt` 覆盖显式序号和非 Markdown 分隔符。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestBuildPrompt tests/test_arxiv_daily.py::TestCallLlm::test_normal_response -q` 通过，8 passed。
+
   ---
 
   #### [ISSUE ID: 010] `patch_markdown` 正则替换不支持多次 patch 同一文件

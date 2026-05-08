@@ -42,6 +42,7 @@ RETRY_DELAYS = [2, 4, 8]
 MIN_SUMMARY_LEN = 30
 SUMMARY_FAILURE_PLACEHOLDER = "[摘要生成失败]"
 SUMMARY_FAILURE_TAG = "未分类"
+PAPER_SEPARATOR = "\n=====PAPER_SEPARATOR=====\n"
 
 
 @dataclass
@@ -267,8 +268,12 @@ def build_prompt(batch_papers: list[dict], current_tags: list[str]) -> list[dict
     """Build chat messages for LLM API call."""
     tags_str = ", ".join(current_tags) if current_tags else "(empty)"
     papers_text = []
-    for p in batch_papers:
-        entry = f"ID: {p['id']}\nTitle: {p.get('title', 'N/A')}\nAbstract: {p.get('abstract', 'N/A')}"
+    total_papers = len(batch_papers)
+    for idx, p in enumerate(batch_papers, start=1):
+        entry = (
+            f"[Paper {idx}/{total_papers}]\n"
+            f"ID: {p['id']}\nTitle: {p.get('title', 'N/A')}\nAbstract: {p.get('abstract', 'N/A')}"
+        )
         if p.get("comments"):
             entry += f"\nComments: {p['comments']}"
         papers_text.append(entry)
@@ -287,9 +292,7 @@ def build_prompt(batch_papers: list[dict], current_tags: list[str]) -> list[dict
 Current tag list: {tags_str}
 
 Papers:
----
-{"---".join(papers_text)}
----
+{PAPER_SEPARATOR.join(papers_text)}
 
 Respond in strict JSON format:
 {{
