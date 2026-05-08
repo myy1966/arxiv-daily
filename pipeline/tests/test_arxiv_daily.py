@@ -736,10 +736,22 @@ class TestCallLlmErrorModes:
     def test_partial_stream_raises(self, fake_llm_server, logger):
         api_url, handler_cls = fake_llm_server
         handler_cls.error_mode = "partial_stream"
-        with pytest.raises(Exception):
+        with pytest.raises(ConnectionError, match="SSE stream incomplete"):
             arxiv_daily.call_llm(
                 self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
             )
+
+    def test_partial_stream_retries_then_succeeds(self, fake_llm_server, logger):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_sequence = ["partial_stream", "none"]
+        handler_cls.request_counter = 0
+
+        result, _ = arxiv_daily.call_llm(
+            self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+        )
+
+        assert "papers" in result
+        assert handler_cls.request_counter == 2
 
     def test_http_429_retries_then_succeeds(self, fake_llm_server, logger):
         api_url, handler_cls = fake_llm_server

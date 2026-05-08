@@ -360,6 +360,7 @@ def call_llm(
                 with urllib.request.urlopen(req, timeout=300) as resp:
                     content_parts = []
                     usage = {}
+                    saw_done = False
                     for raw_line in resp:
                         line = raw_line.decode("utf-8").strip()
                         if not line:
@@ -371,6 +372,7 @@ def call_llm(
                             continue
                         data_str = line[6:]
                         if data_str == "[DONE]":
+                            saw_done = True
                             break
                         chunk = json.loads(data_str)
                         # Extract usage from the final chunk
@@ -382,6 +384,12 @@ def call_llm(
                             delta = choices[0].get("delta", {})
                             if delta.get("content"):
                                 content_parts.append(delta["content"])
+                    if not saw_done:
+                        logger.warning(
+                            f"[Phase2] {log_label} stream ended without [DONE] marker "
+                            "(possible network interruption)"
+                        )
+                        raise ConnectionError("SSE stream incomplete: no [DONE] marker received")
             finally:
                 if stream_file is not None:
                     stream_file.close()

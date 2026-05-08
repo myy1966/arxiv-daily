@@ -68,6 +68,8 @@ status: "REFACTOR_NEEDED"
         raise ConnectionError("SSE stream incomplete: no [DONE] marker received")
     ```
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py:call_llm` 的 SSE 读取逻辑，新增 `saw_done` 状态追踪；当流迭代结束但未收到 `[DONE]` marker 时，记录明确 warning 并抛出 `ConnectionError("SSE stream incomplete: no [DONE] marker received")`，避免截断内容继续进入 `json.loads` 或 `json_repair` 造成静默数据丢失。该异常会沿用 Issue 001 已拆分的网络错误退避路径进行重试。补充测试：永久 partial stream 断言抛出明确 `ConnectionError`，短暂 partial stream 断言重试后成功。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestCallLlmErrorModes -q` 通过，10 passed。
+
   ---
 
   #### [ISSUE ID: 003] `fetch_page` 无爬虫礼仪延时，多字段串行运行也无 rate limit
