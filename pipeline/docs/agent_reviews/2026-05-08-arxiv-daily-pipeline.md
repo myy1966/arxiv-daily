@@ -46,6 +46,8 @@ status: "REFACTOR_NEEDED"
         time.sleep(RETRY_DELAYS[attempt])
     ```
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py:call_llm` 的异常分派：HTTP 429 读取 `Retry-After` 后再退避，HTTP 400/401 等非 429 客户端错误直接失败不重试，HTTP 5xx/网络错误继续按退避策略重试，`json.JSONDecodeError` 单独记录为“请求 LLM 重新生成 JSON”的显式重试路径。补充 `_retry_delay` 与 `_retry_after_delay`，避免退避参数解析散落在异常块中；新增 fake LLM 的 HTTP 400/可配置 Retry-After 模式，并补充 429 遵守 Retry-After、400 不重试的测试用例。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/fake_llm_server.py arxiv-update/scripts/tests/test_arxiv_daily.py arxiv-update/scripts/tests/conftest.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestCallLlmErrorModes -q` 通过，9 passed。
+
   ---
 
   #### [ISSUE ID: 002] 流式读取未处理 SSE 中途断流（Partial Stream）

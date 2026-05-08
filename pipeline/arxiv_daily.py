@@ -22,6 +22,7 @@ import re
 import shutil
 import sys
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone, timedelta
 from html import unescape
@@ -35,6 +36,22 @@ except ImportError:
 BATCH_SIZE = 16
 MAX_RETRIES = 3
 RETRY_DELAYS = [2, 4, 8]
+
+
+def _retry_delay(attempt: int) -> float:
+    """Return the configured retry delay for an attempt index."""
+    return RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)]
+
+
+def _retry_after_delay(headers, fallback: float) -> float:
+    """Parse Retry-After seconds, falling back when absent or malformed."""
+    retry_after = headers.get("Retry-After") if headers is not None else None
+    if retry_after is None:
+        return fallback
+    try:
+        return max(0.0, float(retry_after))
+    except (TypeError, ValueError):
+        return fallback
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -405,17 +422,38 @@ def call_llm(
                     logger.error(f"[Phase2] {log_label} JSON parse debug saved to {debug_path}")
                 raise je
             return _validate_llm_schema(result), usage
-        except Exception as e:
+        except urllib.error.HTTPError as e:
             last_error = e
-            if not isinstance(e, json.JSONDecodeError):
-                logger.error(f"[Phase2] {log_label} LLM call attempt {attempt + 1} failed: {e}")
-            if hasattr(e, "read"):
-                try:
-                    logger.error(f"[Phase2] {log_label} response body: {e.read().decode('utf-8')}")
-                except Exception:
-                    pass
+            logger.error(
+                f"[Phase2] {log_label} LLM call attempt {attempt + 1} HTTP {e.code}: {e.reason}"
+            )
+            try:
+                logger.error(f"[Phase2] {log_label} response body: {e.read().decode('utf-8')}")
+            except Exception:
+                pass
+            if 400 <= e.code < 500 and e.code != 429:
+                raise
             if attempt < MAX_RETRIES - 1:
-                time.sleep(RETRY_DELAYS[attempt])
+                fallback_delay = _retry_delay(attempt)
+                if e.code == 429:
+                    delay = _retry_after_delay(e.headers, fallback_delay)
+                    logger.warning(f"[Phase2] {log_label} rate limited, waiting {delay:g}s")
+                else:
+                    delay = fallback_delay
+                time.sleep(delay)
+        except json.JSONDecodeError as e:
+            last_error = e
+            logger.warning(
+                f"[Phase2] {log_label} LLM returned invalid JSON on attempt {attempt + 1}; "
+                "retrying to request a fresh JSON response"
+            )
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(_retry_delay(attempt))
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
+            last_error = e
+            logger.error(f"[Phase2] {log_label} LLM call attempt {attempt + 1} failed: {e}")
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(_retry_delay(attempt))
 
     raise last_error  # type: ignore[misc]
 

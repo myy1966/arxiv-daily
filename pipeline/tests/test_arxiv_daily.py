@@ -750,6 +750,32 @@ class TestCallLlmErrorModes:
         )
         assert "papers" in result
 
+    def test_http_429_uses_retry_after(self, fake_llm_server, logger, monkeypatch):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_sequence = ["http_429", "none"]
+        handler_cls.retry_after_header = "7"
+        sleeps = []
+        monkeypatch.setattr(arxiv_daily.time, "sleep", sleeps.append)
+
+        result, _ = arxiv_daily.call_llm(
+            self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+        )
+
+        assert "papers" in result
+        assert sleeps == [7.0]
+
+    def test_http_400_does_not_retry(self, fake_llm_server, logger):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_mode = "http_400"
+        handler_cls.request_counter = 0
+        with pytest.raises(arxiv_daily.urllib.error.HTTPError) as exc_info:
+            arxiv_daily.call_llm(
+                self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+            )
+
+        assert exc_info.value.code == 400
+        assert handler_cls.request_counter == 1
+
     def test_connection_reset_raises(self, fake_llm_server, logger):
         api_url, handler_cls = fake_llm_server
         handler_cls.error_mode = "connection_reset"

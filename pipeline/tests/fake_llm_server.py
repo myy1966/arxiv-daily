@@ -117,11 +117,20 @@ def handle_http_500(handler, paper_ids, model):
     handler.wfile.write(body.encode("utf-8"))
 
 
+def handle_http_400(handler, paper_ids, model):
+    """Return 400 Bad Request."""
+    handler.send_response(400)
+    handler.send_header("Content-Type", "application/json")
+    handler.end_headers()
+    body = json.dumps({"error": {"message": "Bad request", "type": "invalid_request_error"}})
+    handler.wfile.write(body.encode("utf-8"))
+
+
 def handle_http_429(handler, paper_ids, model):
     """Return 429 Too Many Requests with Retry-After header."""
     handler.send_response(429)
     handler.send_header("Content-Type", "application/json")
-    handler.send_header("Retry-After", "2")
+    handler.send_header("Retry-After", type(handler).retry_after_header)
     handler.end_headers()
     body = json.dumps({"error": {"message": "Rate limit exceeded", "type": "rate_limit_error"}})
     handler.wfile.write(body.encode("utf-8"))
@@ -358,6 +367,7 @@ def _send_sse_response(handler, content: str, model: str):
 ERROR_HANDLERS = {
     "none": handle_none,
     "http_500": handle_http_500,
+    "http_400": handle_http_400,
     "http_429": handle_http_429,
     "timeout": handle_timeout,
     "connection_reset": handle_connection_reset,
@@ -390,6 +400,7 @@ class FakeLLMHandler(BaseHTTPRequestHandler):
     counter_lock = threading.Lock()
     timeout_sleep: float = 600
     stream_delay: float = 2
+    retry_after_header: str = "2"
 
     def do_POST(self):
         if not self.path.rstrip("/").endswith("/chat/completions"):
