@@ -94,6 +94,8 @@ status: "REFACTOR_NEEDED"
   - **修复指令**:
     抽取 `_process_batch(batch, idx, total, current_tags, ..., label_prefix) -> (matched, new_tags, success)` 辅助函数，主循环和重试循环只需分别调用此函数。
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py:run_phase2`，抽取 `_process_batch` 统一执行 `build_prompt -> call_llm -> match_llm_results -> 更新 current_tags -> 打印状态 -> 可选写缓存`，并补充 `BatchProcessResult`、`_format_usage`、`_write_batch_cache` 等小型辅助结构。首轮处理和 retry 处理现在调用同一批处理函数，仅通过 `label_prefix`、`cache_allowed` 和异常日志文案表达差异；Issue 008 引入的子集重试仍保留“不写完整 batch cache”的约束。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestRunPhase2 tests/test_arxiv_daily.py::TestRunPhase2ErrorModes -q` 通过，13 passed；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，118 passed, 1 xfailed。
+
   ---
 
   #### [ISSUE ID: 005] 缓存写入非原子操作，进程中断可能生成损坏的 JSON 缓存文件

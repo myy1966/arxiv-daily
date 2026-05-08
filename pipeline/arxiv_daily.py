@@ -24,6 +24,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from html import unescape
 from pathlib import Path
@@ -39,6 +40,13 @@ RETRY_DELAYS = [2, 4, 8]
 MIN_SUMMARY_LEN = 30
 SUMMARY_FAILURE_PLACEHOLDER = "[摘要生成失败]"
 SUMMARY_FAILURE_TAG = "未分类"
+
+
+@dataclass
+class BatchProcessResult:
+    matched: dict[str, dict]
+    unresolved: list[dict]
+    failed: bool
 
 
 def _retry_delay(attempt: int) -> float:
@@ -626,6 +634,84 @@ def _add_summary_failure_placeholders(
         )
 
 
+def _format_usage(usage: dict) -> str:
+    if not usage:
+        return ""
+    pt = usage.get("prompt_tokens", 0)
+    ct = usage.get("completion_tokens", 0)
+    tt = usage.get("total_tokens", 0)
+    return f", tokens: {pt}+{ct}={tt}"
+
+
+def _write_batch_cache(field_cache: Path, batch_num: int, result: dict, new_tags: list, current_tags: list) -> None:
+    cache_entry = {
+        "papers": result.get("papers", []),
+        "new_tags": new_tags,
+        "current_tags": list(current_tags),
+    }
+    cache_path = field_cache / f"batch_{batch_num:03d}.json"
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump(cache_entry, f, ensure_ascii=False, indent=2)
+
+
+def _process_batch(
+    batch: list[dict],
+    idx: int,
+    total: int,
+    current_tags: list,
+    api_endpoint: str,
+    api_key: str,
+    model: str,
+    logger: logging.Logger,
+    debug_dir: Path,
+    field_cache: Path,
+    label_prefix: str,
+    save_cache: bool,
+    cache_allowed: bool,
+    exception_status: str,
+) -> BatchProcessResult:
+    batch_num = idx + 1
+    blabel = f"{label_prefix}_{batch_num:03d}"
+    t0 = time.monotonic()
+    try:
+        messages = build_prompt(batch, current_tags)
+        result, usage = call_llm(
+            messages, api_endpoint, api_key, model, logger, batch_num, debug_dir, batch_label=blabel
+        )
+
+        matched, unmatched = match_llm_results(
+            batch, result.get("papers", []), logger, batch_num, result, debug_dir, batch_label=blabel
+        )
+
+        new_tags = result.get("new_tags", [])
+        for tag in new_tags:
+            if tag not in current_tags:
+                current_tags.append(tag)
+
+        elapsed = time.monotonic() - t0
+        usage_str = _format_usage(usage)
+        if unmatched > 0:
+            print(
+                f"[{batch_num}/{total}] {blabel} FAILED ({unmatched} unmatched) ({elapsed:.1f}s{usage_str}), see log",
+                file=sys.stderr,
+            )
+            return BatchProcessResult(matched, _unresolved_papers(batch, matched), True)
+
+        if save_cache and cache_allowed:
+            _write_batch_cache(field_cache, batch_num, result, new_tags, current_tags)
+        print(f"[{batch_num}/{total}] {blabel} done ({elapsed:.1f}s{usage_str})", file=sys.stderr)
+        return BatchProcessResult(matched, [], False)
+
+    except Exception as e:
+        elapsed = time.monotonic() - t0
+        logger.error(f"[Phase2] {blabel} {exception_status}: {e}")
+        print(
+            f"[{batch_num}/{total}] {blabel} FAILED ({elapsed:.1f}s), see log",
+            file=sys.stderr,
+        )
+        return BatchProcessResult({}, batch, True)
+
+
 def run_phase2(
     data: dict,
     tags_path: Path,
@@ -716,52 +802,15 @@ def run_phase2(
                 failed_batches.append((idx, _unresolved_papers(batch, matched)))
             continue
 
-        messages = build_prompt(batch, current_tags)
-        t0 = time.monotonic()
-        try:
-            result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num, debug_dir, batch_label=blabel)
-
-            matched, unmatched = match_llm_results(batch, result.get("papers", []), logger, batch_num, result, debug_dir, batch_label=blabel)
-            results_by_id.update(matched)
-
-            new_tags = result.get("new_tags", [])
-            for t in new_tags:
-                if t not in current_tags:
-                    current_tags.append(t)
-
-            elapsed = time.monotonic() - t0
-            usage_str = ""
-            if usage:
-                pt = usage.get("prompt_tokens", 0)
-                ct = usage.get("completion_tokens", 0)
-                tt = usage.get("total_tokens", 0)
-                usage_str = f", tokens: {pt}+{ct}={tt}"
-            if unmatched > 0:
-                failed_batches.append((idx, _unresolved_papers(batch, matched)))
-                print(
-                    f"[{batch_num}/{total}] {blabel} FAILED ({unmatched} unmatched) ({elapsed:.1f}s{usage_str}), see log",
-                    file=sys.stderr,
-                )
-            else:
-                if save_cache:
-                    cache_entry = {
-                        "papers": result.get("papers", []),
-                        "new_tags": new_tags,
-                        "current_tags": list(current_tags),
-                    }
-                    cache_path = field_cache / f"batch_{batch_num:03d}.json"
-                    with open(cache_path, "w", encoding="utf-8") as f:
-                        json.dump(cache_entry, f, ensure_ascii=False, indent=2)
-                print(f"[{batch_num}/{total}] {blabel} done ({elapsed:.1f}s{usage_str})", file=sys.stderr)
-
-        except Exception as e:
-            elapsed = time.monotonic() - t0
-            failed_batches.append((idx, batch))
-            logger.error(f"[Phase2] {blabel} failed after all retries: {e}")
-            print(
-                f"[{batch_num}/{total}] {blabel} FAILED ({elapsed:.1f}s), see log",
-                file=sys.stderr,
-            )
+        processed = _process_batch(
+            batch, idx, total, current_tags,
+            api_endpoint, api_key, model, logger, debug_dir, field_cache,
+            batch_prefix, save_cache, cache_allowed=True,
+            exception_status="failed after all retries",
+        )
+        results_by_id.update(processed.matched)
+        if processed.failed:
+            failed_batches.append((idx, processed.unresolved))
 
     # Retry failed batches once
     if failed_batches:
@@ -773,56 +822,17 @@ def run_phase2(
             total = len(batches)
             blabel = f"retry_{batch_prefix}_{batch_num:03d}"
 
-            messages = build_prompt(batch, current_tags)
-            t0 = time.monotonic()
-            try:
-                result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num, debug_dir, batch_label=blabel)
-
-                matched, unmatched = match_llm_results(batch, result.get("papers", []), logger, batch_num, result, debug_dir, batch_label=blabel)
-                results_by_id.update(matched)
-
-                new_tags = result.get("new_tags", [])
-                for t in new_tags:
-                    if t not in current_tags:
-                        current_tags.append(t)
-
-                elapsed = time.monotonic() - t0
-                usage_str = ""
-                if usage:
-                    pt = usage.get("prompt_tokens", 0)
-                    ct = usage.get("completion_tokens", 0)
-                    tt = usage.get("total_tokens", 0)
-                    usage_str = f", tokens: {pt}+{ct}={tt}"
-                if unmatched > 0:
-                    still_failed += 1
-                    _add_summary_failure_placeholders(
-                        results_by_id, _unresolved_papers(batch, matched), logger, blabel
-                    )
-                    print(
-                        f"[{batch_num}/{total}] {blabel} FAILED ({unmatched} unmatched) ({elapsed:.1f}s{usage_str}), see log",
-                        file=sys.stderr,
-                    )
-                else:
-                    if save_cache and len(batch) == len(original_batch):
-                        cache_entry = {
-                            "papers": result.get("papers", []),
-                            "new_tags": new_tags,
-                            "current_tags": list(current_tags),
-                        }
-                        cache_path = field_cache / f"batch_{batch_num:03d}.json"
-                        with open(cache_path, "w", encoding="utf-8") as f:
-                            json.dump(cache_entry, f, ensure_ascii=False, indent=2)
-                    print(f"[{batch_num}/{total}] {blabel} done ({elapsed:.1f}s{usage_str})", file=sys.stderr)
-
-            except Exception as e:
-                elapsed = time.monotonic() - t0
+            processed = _process_batch(
+                batch, idx, total, current_tags,
+                api_endpoint, api_key, model, logger, debug_dir, field_cache,
+                f"retry_{batch_prefix}", save_cache,
+                cache_allowed=len(batch) == len(original_batch),
+                exception_status="failed",
+            )
+            results_by_id.update(processed.matched)
+            if processed.failed:
                 still_failed += 1
-                _add_summary_failure_placeholders(results_by_id, batch, logger, blabel)
-                logger.error(f"[Phase2] {blabel} failed: {e}")
-                print(
-                    f"[{batch_num}/{total}] {blabel} FAILED ({elapsed:.1f}s), see log",
-                    file=sys.stderr,
-                )
+                _add_summary_failure_placeholders(results_by_id, processed.unresolved, logger, blabel)
 
         failed_batches = still_failed
     else:
