@@ -712,6 +712,62 @@ def _process_batch(
         return BatchProcessResult({}, batch, True)
 
 
+def load_tags(tags_path: Path) -> list[str]:
+    """Load existing tag names, normalizing legacy object-shaped entries."""
+    if not tags_path.exists():
+        tags_path.parent.mkdir(parents=True, exist_ok=True)
+        return []
+
+    with open(tags_path, "r", encoding="utf-8") as f:
+        tags_data = json.load(f)
+    current_tags = tags_data.get("tags", [])
+    if current_tags and isinstance(current_tags[0], dict):
+        return [tag.get("name", str(tag)) for tag in current_tags]
+    return current_tags
+
+
+def collect_batches(data: dict, batch_size: int) -> list[list[dict]]:
+    """Collect papers with abstracts into fixed-size LLM batches."""
+    all_papers = []
+    for section in data["sections"]:
+        for paper in section["papers"]:
+            if paper.get("abstract"):
+                all_papers.append(paper)
+    return [all_papers[i : i + batch_size] for i in range(0, len(all_papers), batch_size)]
+
+
+def load_cached_batches(field_cache: Path, hash_file: Path, current_hash: str, no_cache: bool) -> dict[int, dict]:
+    """Load valid per-batch cache entries and refresh the metadata hash file."""
+    cached_batches: dict[int, dict] = {}
+    if not no_cache and hash_file.exists():
+        old_hash = hash_file.read_text().strip()
+        if old_hash == current_hash:
+            for bf in sorted(field_cache.glob("batch_*.json")):
+                try:
+                    with open(bf, "r", encoding="utf-8") as f:
+                        cached = json.load(f)
+                    batch_idx = int(bf.stem.split("_")[1])
+                    cached_batches[batch_idx] = cached
+                except Exception:
+                    pass
+        else:
+            for bf in field_cache.glob("batch_*.json"):
+                bf.unlink()
+    hash_file.write_text(current_hash)
+    return cached_batches
+
+
+def save_tags(tags_path: Path, current_tags: list) -> None:
+    """Persist the current tag list."""
+    tags_out = {
+        "updated_at": datetime.now(timezone(timedelta(hours=8))).isoformat(),
+        "tags": current_tags,
+    }
+    tags_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(tags_path, "w", encoding="utf-8") as f:
+        json.dump(tags_out, f, ensure_ascii=False, indent=2)
+
+
 def run_phase2(
     data: dict,
     tags_path: Path,
@@ -730,28 +786,8 @@ def run_phase2(
         (results_by_id, failed_batches_count)
         results_by_id: {paper_id: {"summary": ..., "tags": [...], "venue": ...}}
     """
-    # Load tags
-    if tags_path.exists():
-        with open(tags_path, "r", encoding="utf-8") as f:
-            tags_data = json.load(f)
-        current_tags = tags_data.get("tags", [])
-        # Handle old format where tags might be objects
-        if current_tags and isinstance(current_tags[0], dict):
-            current_tags = [t.get("name", str(t)) for t in current_tags]
-    else:
-        tags_path.parent.mkdir(parents=True, exist_ok=True)
-        current_tags = []
-
-    # Collect all papers with abstracts into batches
-    all_papers = []
-    for section in data["sections"]:
-        for paper in section["papers"]:
-            if paper.get("abstract"):
-                all_papers.append(paper)
-
-    batches = []
-    for i in range(0, len(all_papers), BATCH_SIZE):
-        batches.append(all_papers[i : i + BATCH_SIZE])
+    current_tags = load_tags(tags_path)
+    batches = collect_batches(data, BATCH_SIZE)
 
     if not batches:
         return {}, 0
@@ -761,26 +797,11 @@ def run_phase2(
     field_cache.mkdir(parents=True, exist_ok=True)
     debug_dir = cache_dir / "debug" / data["field"]
 
-    # Check cache validity
     cached_batches: dict[int, dict] = {}
     if save_cache:
         current_hash = compute_metadata_hash(data)
         hash_file = field_cache / "metadata_hash"
-        if not no_cache and hash_file.exists():
-            old_hash = hash_file.read_text().strip()
-            if old_hash == current_hash:
-                for bf in sorted(field_cache.glob("batch_*.json")):
-                    try:
-                        with open(bf, "r", encoding="utf-8") as f:
-                            cached = json.load(f)
-                        batch_idx = int(bf.stem.split("_")[1])
-                        cached_batches[batch_idx] = cached
-                    except Exception:
-                        pass
-            else:
-                for bf in field_cache.glob("batch_*.json"):
-                    bf.unlink()
-        hash_file.write_text(current_hash)
+        cached_batches = load_cached_batches(field_cache, hash_file, current_hash, no_cache)
 
     results_by_id: dict[str, dict] = {}
     failed_batches: list[tuple[int, list[dict]]] = []
@@ -838,14 +859,7 @@ def run_phase2(
     else:
         failed_batches = 0
 
-    # Save updated tags
-    tags_out = {
-        "updated_at": datetime.now(timezone(timedelta(hours=8))).isoformat(),
-        "tags": current_tags,
-    }
-    tags_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(tags_path, "w", encoding="utf-8") as f:
-        json.dump(tags_out, f, ensure_ascii=False, indent=2)
+    save_tags(tags_path, current_tags)
 
     return results_by_id, failed_batches
 

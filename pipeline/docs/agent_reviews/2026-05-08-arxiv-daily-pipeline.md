@@ -273,6 +273,8 @@ status: "REFACTOR_NEEDED"
     - `process_batch(batch, idx, total, current_tags, ...) -> BatchResult`
     - `save_tags(tags_path, current_tags)`
 
+  Executor: [RESOLVED] 同意评审意见。已修改 `arxiv-update/scripts/arxiv_daily.py:run_phase2` 的职责边界：新增 `load_tags`、`collect_batches`、`load_cached_batches`、`save_tags`，将标签加载/保存、batch 构建、metadata hash 校验和 batch cache 预加载从主流程中拆出；Issue 004 已抽出的 `_process_batch` 继续承担单批 LLM 调用与匹配处理。`run_phase2` 现在主要负责流程编排、cache hit 恢复、失败队列与 retry 协调。补充 `TestPhase2Helpers` 覆盖 legacy tag 格式归一、缺文件目录创建、仅收集有 abstract 的论文、stale cache 清理和 UTF-8 tag 保存。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestPhase2Helpers tests/test_arxiv_daily.py::TestRunPhase2 tests/test_arxiv_daily.py::TestRunPhase2ErrorModes -q` 通过，18 passed；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，123 passed, 1 xfailed。
+
   ---
 
   #### [ISSUE ID: 016] Python 版本兼容性未声明（原 TODO#15，Medium）

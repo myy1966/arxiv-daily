@@ -501,6 +501,58 @@ class TestComputeMetadataHash:
 
 
 # ===========================================================================
+# TestPhase2Helpers
+# ===========================================================================
+
+class TestPhase2Helpers:
+    def test_load_tags_normalizes_legacy_objects(self, tmp_path):
+        tags_path = tmp_path / "tags.json"
+        tags_path.write_text(
+            json.dumps({"tags": [{"name": "LLM Reasoning"}, {"name": "Diffusion"}]}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        assert arxiv_daily.load_tags(tags_path) == ["LLM Reasoning", "Diffusion"]
+
+    def test_load_tags_creates_parent_for_missing_file(self, tmp_path):
+        tags_path = tmp_path / "nested" / "tags.json"
+        assert arxiv_daily.load_tags(tags_path) == []
+        assert tags_path.parent.exists()
+
+    def test_collect_batches_filters_missing_abstracts(self):
+        data = {
+            "sections": [{
+                "papers": [
+                    {"id": "a", "abstract": "A"},
+                    {"id": "b", "abstract": ""},
+                    {"id": "c", "abstract": "C"},
+                ],
+            }],
+        }
+        assert arxiv_daily.collect_batches(data, 1) == [[{"id": "a", "abstract": "A"}], [{"id": "c", "abstract": "C"}]]
+
+    def test_load_cached_batches_deletes_stale_cache(self, tmp_path):
+        field_cache = tmp_path / "cache"
+        field_cache.mkdir()
+        hash_file = field_cache / "metadata_hash"
+        hash_file.write_text("old", encoding="utf-8")
+        stale_cache = field_cache / "batch_001.json"
+        stale_cache.write_text(json.dumps({"papers": []}), encoding="utf-8")
+
+        cached = arxiv_daily.load_cached_batches(field_cache, hash_file, "new", no_cache=False)
+
+        assert cached == {}
+        assert hash_file.read_text(encoding="utf-8") == "new"
+        assert not stale_cache.exists()
+
+    def test_save_tags_writes_utf8_tags(self, tmp_path):
+        tags_path = tmp_path / "tags.json"
+        arxiv_daily.save_tags(tags_path, ["大模型"])
+        tags_data = json.loads(tags_path.read_text(encoding="utf-8"))
+        assert tags_data["tags"] == ["大模型"]
+        assert "updated_at" in tags_data
+
+
+# ===========================================================================
 # TestExtractPaperAbbrev
 # ===========================================================================
 
