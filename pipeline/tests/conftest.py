@@ -286,6 +286,7 @@ def fake_llm_server():
         "counter_lock": threading.Lock(),
         "timeout_sleep": 0.05,
         "stream_delay": 0.01,
+        "retry_after_header": "0",
     })
 
     server = HTTPServer(("127.0.0.1", 0), handler_cls)

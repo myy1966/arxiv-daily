@@ -2,6 +2,8 @@
 """
 arxiv_daily.py - Download arxiv daily listings, generate LLM summaries, and produce markdown.
 
+Requires: Python >= 3.10
+
 Usage:
     python3 arxiv_daily.py cs.AI \\
       --output ~/arxiv-daily/_posts \\
@@ -11,6 +13,10 @@ Environment variables (all required):
     ARXIV_UPDATE_KEY   - LLM API key
     ARXIV_UPDATE_API   - LLM API endpoint (e.g. https://api.openai.com/v1)
     ARXIV_UPDATE_MODEL - LLM model name (e.g. gpt-4o)
+
+Optional:
+    ARXIV_UPDATE_CONTACT    - Contact string included in the arXiv User-Agent
+    ARXIV_UPDATE_USER_AGENT - Full User-Agent override for arXiv requests
 """
 
 import argparse
@@ -21,8 +27,12 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import time
+import urllib.error
 import urllib.request
+from contextlib import ExitStack
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from html import unescape
 from pathlib import Path
@@ -35,6 +45,48 @@ except ImportError:
 BATCH_SIZE = 16
 MAX_RETRIES = 3
 RETRY_DELAYS = [2, 4, 8]
+MIN_SUMMARY_LEN = 30
+SUMMARY_FAILURE_PLACEHOLDER = "[摘要生成失败]"
+SUMMARY_FAILURE_TAG = "未分类"
+PAPER_SEPARATOR = "\n=====PAPER_SEPARATOR=====\n"
+OUTPUT_TZ = timezone(timedelta(hours=8))
+ARXIV_FETCH_INTERVAL_SECONDS = 3.0
+ARXIV_CONTACT = os.environ.get("ARXIV_UPDATE_CONTACT", "set-ARXIV_UPDATE_CONTACT")
+ARXIV_USER_AGENT = os.environ.get(
+    "ARXIV_UPDATE_USER_AGENT",
+    f"arxiv-daily-bot/1.0 (contact: {ARXIV_CONTACT})",
+)
+_last_fetch_time: float | None = None
+
+
+@dataclass
+class BatchProcessResult:
+    matched: dict[str, dict]
+    unresolved: list[dict]
+    failed: bool
+
+
+@dataclass(frozen=True)
+class LlmConfig:
+    api_key: str
+    api_endpoint: str
+    model: str
+
+
+def _retry_delay(attempt: int) -> float:
+    """Return the configured retry delay for an attempt index."""
+    return RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)]
+
+
+def _retry_after_delay(headers, fallback: float) -> float:
+    """Parse Retry-After seconds, falling back when absent or malformed."""
+    retry_after = headers.get("Retry-After") if headers is not None else None
+    if retry_after is None:
+        return fallback
+    try:
+        return max(0.0, float(retry_after))
+    except (TypeError, ValueError):
+        return fallback
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -56,10 +108,26 @@ def setup_logging(cache_base: Path) -> logging.Logger:
 # Phase 1: Download & Parse
 # ---------------------------------------------------------------------------
 
+def _wait_for_arxiv_rate_limit() -> None:
+    """Apply a courtesy delay before arXiv requests."""
+    global _last_fetch_time
+
+    if _last_fetch_time is None:
+        delay = ARXIV_FETCH_INTERVAL_SECONDS
+    else:
+        elapsed = time.monotonic() - _last_fetch_time
+        delay = max(0.0, ARXIV_FETCH_INTERVAL_SECONDS - elapsed)
+
+    if delay > 0:
+        time.sleep(delay)
+    _last_fetch_time = time.monotonic()
+
+
 def fetch_page(field: str) -> str:
     """Download the arxiv new listings page for the given field."""
+    _wait_for_arxiv_rate_limit()
     url = f"https://arxiv.org/list/{field}/new"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": ARXIV_USER_AGENT})
     with urllib.request.urlopen(req, timeout=60) as resp:
         return resp.read().decode("utf-8")
 
@@ -191,6 +259,7 @@ def parse_html(html: str, field: str) -> dict:
             "page_type": "new" or "catchup" or "unknown",
             "field": field,
             "sections": [{"name": ..., "count": ..., "papers": [...]}],
+            "diagnostics": {"missing_title_ids": [...], "missing_abstract_ids": [...]},
         }
     Papers include: id, title, authors, subjects, comments, code_urls, abstract
     """
@@ -198,7 +267,13 @@ def parse_html(html: str, field: str) -> dict:
     sections = parse_sections(html)
 
     if not sections:
-        return {"listing_date": listing_date, "page_type": page_type, "field": field, "sections": []}
+        return {
+            "listing_date": listing_date,
+            "page_type": page_type,
+            "field": field,
+            "sections": [],
+            "diagnostics": {"missing_title_ids": [], "missing_abstract_ids": []},
+        }
 
     dt_pattern = re.compile(r"<dt>\s*<a name=['\"]item(\d+)['\"]", re.DOTALL)
     all_items = list(dt_pattern.finditer(html))
@@ -226,7 +301,35 @@ def parse_html(html: str, field: str) -> dict:
         papers = section_papers.get(name, [])
         result_sections.append({"name": name, "count": count, "papers": papers})
 
-    return {"listing_date": listing_date, "page_type": page_type, "field": field, "sections": result_sections}
+    all_papers = [paper for section in result_sections for paper in section["papers"]]
+    diagnostics = {
+        "missing_title_ids": [p["id"] for p in all_papers if not p.get("title")],
+        "missing_abstract_ids": [p["id"] for p in all_papers if not p.get("abstract")],
+    }
+
+    return {
+        "listing_date": listing_date,
+        "page_type": page_type,
+        "field": field,
+        "sections": result_sections,
+        "diagnostics": diagnostics,
+    }
+
+
+def log_parse_diagnostics(data: dict, logger: logging.Logger) -> None:
+    """Log warnings for partially parsed papers."""
+    diagnostics = data.get("diagnostics", {})
+    missing_title_ids = diagnostics.get("missing_title_ids") or []
+    missing_abstract_ids = diagnostics.get("missing_abstract_ids") or []
+
+    if missing_title_ids:
+        logger.warning(
+            f"[Phase1] {len(missing_title_ids)} papers missing title: {missing_title_ids[:5]}"
+        )
+    if missing_abstract_ids:
+        logger.warning(
+            f"[Phase1] {len(missing_abstract_ids)} papers missing abstract: {missing_abstract_ids[:5]}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -237,8 +340,12 @@ def build_prompt(batch_papers: list[dict], current_tags: list[str]) -> list[dict
     """Build chat messages for LLM API call."""
     tags_str = ", ".join(current_tags) if current_tags else "(empty)"
     papers_text = []
-    for p in batch_papers:
-        entry = f"ID: {p['id']}\nTitle: {p.get('title', 'N/A')}\nAbstract: {p.get('abstract', 'N/A')}"
+    total_papers = len(batch_papers)
+    for idx, p in enumerate(batch_papers, start=1):
+        entry = (
+            f"[Paper {idx}/{total_papers}]\n"
+            f"ID: {p['id']}\nTitle: {p.get('title', 'N/A')}\nAbstract: {p.get('abstract', 'N/A')}"
+        )
         if p.get("comments"):
             entry += f"\nComments: {p['comments']}"
         papers_text.append(entry)
@@ -257,9 +364,7 @@ def build_prompt(batch_papers: list[dict], current_tags: list[str]) -> list[dict
 Current tag list: {tags_str}
 
 Papers:
----
-{"---".join(papers_text)}
----
+{PAPER_SEPARATOR.join(papers_text)}
 
 Respond in strict JSON format:
 {{
@@ -279,6 +384,17 @@ Respond in strict JSON format:
         },
         {"role": "user", "content": user_content},
     ]
+
+
+def _validate_llm_schema(result: object) -> dict:
+    """Validate the top-level LLM response schema before downstream matching."""
+    if not isinstance(result, dict):
+        raise ValueError(f"LLM response must be a JSON object, got {type(result).__name__}")
+    if not isinstance(result.get("papers"), list):
+        raise ValueError(f"LLM response missing 'papers' list, got keys: {list(result.keys())}")
+    if "new_tags" in result and not isinstance(result["new_tags"], list):
+        raise ValueError(f"'new_tags' must be list, got {type(result['new_tags']).__name__}")
+    return result
 
 
 def call_llm(
@@ -322,16 +438,16 @@ def call_llm(
         try:
             req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
             # Set up live stream debug file
-            stream_path = None
-            stream_file = None
-            if debug_dir is not None:
-                debug_dir.mkdir(parents=True, exist_ok=True)
-                stream_path = debug_dir / f"{label}_stream_attempt{attempt + 1}.txt"
-                stream_file = open(stream_path, "w", encoding="utf-8")
-            try:
+            with ExitStack() as stack:
+                stream_file = None
+                if debug_dir is not None:
+                    debug_dir.mkdir(parents=True, exist_ok=True)
+                    stream_path = debug_dir / f"{label}_stream_attempt{attempt + 1}.txt"
+                    stream_file = stack.enter_context(open(stream_path, "w", encoding="utf-8"))
                 with urllib.request.urlopen(req, timeout=300) as resp:
                     content_parts = []
                     usage = {}
+                    saw_done = False
                     for raw_line in resp:
                         line = raw_line.decode("utf-8").strip()
                         if not line:
@@ -343,6 +459,7 @@ def call_llm(
                             continue
                         data_str = line[6:]
                         if data_str == "[DONE]":
+                            saw_done = True
                             break
                         chunk = json.loads(data_str)
                         # Extract usage from the final chunk
@@ -354,9 +471,12 @@ def call_llm(
                             delta = choices[0].get("delta", {})
                             if delta.get("content"):
                                 content_parts.append(delta["content"])
-            finally:
-                if stream_file is not None:
-                    stream_file.close()
+                    if not saw_done:
+                        logger.warning(
+                            f"[Phase2] {log_label} stream ended without [DONE] marker "
+                            "(possible network interruption)"
+                        )
+                        raise ConnectionError("SSE stream incomplete: no [DONE] marker received")
 
             content = "".join(content_parts).strip()
             if content.startswith("```"):
@@ -369,14 +489,14 @@ def call_llm(
                 if json_repair_loads is not None:
                     try:
                         result = json_repair_loads(content)
+                    except Exception:
+                        result = None
+                    else:
                         logger.warning(
                             f"[Phase2] {log_label} attempt {attempt + 1}: "
                             f"json.loads failed ({je}), repaired by json_repair"
                         )
-                    except Exception:
-                        result = None
-                    if isinstance(result, dict):
-                        return result, usage
+                        return _validate_llm_schema(result), usage
                 # Save debug info for JSON parse failures
                 if debug_dir is not None:
                     debug_dir.mkdir(parents=True, exist_ok=True)
@@ -393,18 +513,39 @@ def call_llm(
                 if debug_dir is not None:
                     logger.error(f"[Phase2] {log_label} JSON parse debug saved to {debug_path}")
                 raise je
-            return result, usage
-        except Exception as e:
+            return _validate_llm_schema(result), usage
+        except urllib.error.HTTPError as e:
             last_error = e
-            if not isinstance(e, json.JSONDecodeError):
-                logger.error(f"[Phase2] {log_label} LLM call attempt {attempt + 1} failed: {e}")
-            if hasattr(e, "read"):
-                try:
-                    logger.error(f"[Phase2] {log_label} response body: {e.read().decode('utf-8')}")
-                except Exception:
-                    pass
+            logger.error(
+                f"[Phase2] {log_label} LLM call attempt {attempt + 1} HTTP {e.code}: {e.reason}"
+            )
+            try:
+                logger.error(f"[Phase2] {log_label} response body: {e.read().decode('utf-8')}")
+            except Exception:
+                pass
+            if 400 <= e.code < 500 and e.code != 429:
+                raise
             if attempt < MAX_RETRIES - 1:
-                time.sleep(RETRY_DELAYS[attempt])
+                fallback_delay = _retry_delay(attempt)
+                if e.code == 429:
+                    delay = _retry_after_delay(e.headers, fallback_delay)
+                    logger.warning(f"[Phase2] {log_label} rate limited, waiting {delay:g}s")
+                else:
+                    delay = fallback_delay
+                time.sleep(delay)
+        except json.JSONDecodeError as e:
+            last_error = e
+            logger.warning(
+                f"[Phase2] {log_label} LLM returned invalid JSON on attempt {attempt + 1}; "
+                "retrying to request a fresh JSON response"
+            )
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(_retry_delay(attempt))
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
+            last_error = e
+            logger.error(f"[Phase2] {log_label} LLM call attempt {attempt + 1} failed: {e}")
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(_retry_delay(attempt))
 
     raise last_error  # type: ignore[misc]
 
@@ -469,7 +610,6 @@ def match_llm_results(
                 )
 
     # Pass 3: quality check - remove papers with missing tags or short summary
-    MIN_SUMMARY_LEN = 50
     quality_failures: list[dict] = []
     for bid in list(results.keys()):
         r = results[bid]
@@ -530,13 +670,204 @@ def match_llm_results(
 
 
 def compute_metadata_hash(data: dict) -> str:
-    """Compute SHA-256 of sorted paper IDs for cache validity."""
-    all_ids = []
+    """Compute SHA-256 of prompt-relevant paper metadata for cache validity."""
+    hash_input = []
     for section in data["sections"]:
         for paper in section["papers"]:
-            all_ids.append(paper["id"])
-    all_ids.sort()
-    return hashlib.sha256(json.dumps(all_ids).encode()).hexdigest()
+            hash_input.append({
+                "id": paper["id"],
+                "title": paper.get("title", ""),
+                "abstract": paper.get("abstract", ""),
+                "comments": paper.get("comments", ""),
+            })
+    hash_input.sort(key=lambda x: x["id"])
+    return hashlib.sha256(json.dumps(hash_input, sort_keys=True).encode()).hexdigest()
+
+
+def _unresolved_papers(batch: list[dict], matched: dict[str, dict]) -> list[dict]:
+    """Return batch papers that still lack an accepted LLM result."""
+    return [paper for paper in batch if paper["id"] not in matched]
+
+
+def _add_summary_failure_placeholders(
+    results_by_id: dict[str, dict],
+    papers: list[dict],
+    logger: logging.Logger,
+    log_label: str,
+) -> None:
+    """Keep failed papers visible in markdown after retry paths are exhausted."""
+    if not papers:
+        return
+    failed_ids = [paper["id"] for paper in papers]
+    logger.error(f"[Phase2] {log_label}: using summary failure placeholders for {failed_ids}")
+    for paper in papers:
+        results_by_id.setdefault(
+            paper["id"],
+            {"summary": SUMMARY_FAILURE_PLACEHOLDER, "tags": [SUMMARY_FAILURE_TAG], "venue": None},
+        )
+
+
+def _format_usage(usage: dict) -> str:
+    if not usage:
+        return ""
+    pt = usage.get("prompt_tokens", 0)
+    ct = usage.get("completion_tokens", 0)
+    tt = usage.get("total_tokens", 0)
+    return f", tokens: {pt}+{ct}={tt}"
+
+
+def _atomic_write_json(path: Path, data: dict) -> None:
+    """Write JSON via temp file and atomic rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".json.tmp")
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write UTF-8 text via temp file and atomic rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _write_batch_cache(field_cache: Path, batch_num: int, result: dict, new_tags: list, current_tags: list) -> None:
+    cache_entry = {
+        "papers": result.get("papers", []),
+        "new_tags": new_tags,
+        "current_tags": list(current_tags),
+    }
+    cache_path = field_cache / f"batch_{batch_num:03d}.json"
+    _atomic_write_json(cache_path, cache_entry)
+
+
+def _process_batch(
+    batch: list[dict],
+    idx: int,
+    total: int,
+    current_tags: list,
+    api_endpoint: str,
+    api_key: str,
+    model: str,
+    logger: logging.Logger,
+    debug_dir: Path,
+    field_cache: Path,
+    label_prefix: str,
+    save_cache: bool,
+    cache_allowed: bool,
+    exception_status: str,
+) -> BatchProcessResult:
+    batch_num = idx + 1
+    blabel = f"{label_prefix}_{batch_num:03d}"
+    t0 = time.monotonic()
+    try:
+        messages = build_prompt(batch, current_tags)
+        result, usage = call_llm(
+            messages, api_endpoint, api_key, model, logger, batch_num, debug_dir, batch_label=blabel
+        )
+
+        matched, unmatched = match_llm_results(
+            batch, result.get("papers", []), logger, batch_num, result, debug_dir, batch_label=blabel
+        )
+
+        new_tags = result.get("new_tags", [])
+        for tag in new_tags:
+            if tag not in current_tags:
+                current_tags.append(tag)
+
+        elapsed = time.monotonic() - t0
+        usage_str = _format_usage(usage)
+        if unmatched > 0:
+            print(
+                f"[{batch_num}/{total}] {blabel} FAILED ({unmatched} unmatched) ({elapsed:.1f}s{usage_str}), see log",
+                file=sys.stderr,
+            )
+            return BatchProcessResult(matched, _unresolved_papers(batch, matched), True)
+
+        if save_cache and cache_allowed:
+            _write_batch_cache(field_cache, batch_num, result, new_tags, current_tags)
+        print(f"[{batch_num}/{total}] {blabel} done ({elapsed:.1f}s{usage_str})", file=sys.stderr)
+        return BatchProcessResult(matched, [], False)
+
+    except Exception as e:
+        elapsed = time.monotonic() - t0
+        logger.error(f"[Phase2] {blabel} {exception_status}: {e}")
+        print(
+            f"[{batch_num}/{total}] {blabel} FAILED ({elapsed:.1f}s), see log",
+            file=sys.stderr,
+        )
+        return BatchProcessResult({}, batch, True)
+
+
+def load_tags(tags_path: Path) -> list[str]:
+    """Load existing tag names, normalizing legacy object-shaped entries."""
+    if not tags_path.exists():
+        tags_path.parent.mkdir(parents=True, exist_ok=True)
+        return []
+
+    with open(tags_path, "r", encoding="utf-8") as f:
+        tags_data = json.load(f)
+    current_tags = tags_data.get("tags", [])
+    if current_tags and isinstance(current_tags[0], dict):
+        return [tag.get("name", str(tag)) for tag in current_tags]
+    return current_tags
+
+
+def collect_batches(data: dict, batch_size: int) -> list[list[dict]]:
+    """Collect papers with abstracts into fixed-size LLM batches."""
+    all_papers = []
+    for section in data["sections"]:
+        for paper in section["papers"]:
+            if paper.get("abstract"):
+                all_papers.append(paper)
+    return [all_papers[i : i + batch_size] for i in range(0, len(all_papers), batch_size)]
+
+
+def load_cached_batches(field_cache: Path, hash_file: Path, current_hash: str, no_cache: bool) -> dict[int, dict]:
+    """Load valid per-batch cache entries and refresh the metadata hash file."""
+    cached_batches: dict[int, dict] = {}
+    if not no_cache and hash_file.exists():
+        old_hash = hash_file.read_text().strip()
+        if old_hash == current_hash:
+            for bf in sorted(field_cache.glob("batch_*.json")):
+                try:
+                    with open(bf, "r", encoding="utf-8") as f:
+                        cached = json.load(f)
+                    batch_idx = int(bf.stem.split("_")[1])
+                    cached_batches[batch_idx] = cached
+                except Exception:
+                    pass
+        else:
+            for bf in field_cache.glob("batch_*.json"):
+                bf.unlink()
+    hash_file.write_text(current_hash)
+    return cached_batches
+
+
+def save_tags(tags_path: Path, current_tags: list) -> None:
+    """Persist the current tag list."""
+    tags_out = {
+        "updated_at": datetime.now(OUTPUT_TZ).isoformat(),
+        "tags": current_tags,
+    }
+    _atomic_write_json(tags_path, tags_out)
 
 
 def run_phase2(
@@ -557,28 +888,8 @@ def run_phase2(
         (results_by_id, failed_batches_count)
         results_by_id: {paper_id: {"summary": ..., "tags": [...], "venue": ...}}
     """
-    # Load tags
-    if tags_path.exists():
-        with open(tags_path, "r", encoding="utf-8") as f:
-            tags_data = json.load(f)
-        current_tags = tags_data.get("tags", [])
-        # Handle old format where tags might be objects
-        if current_tags and isinstance(current_tags[0], dict):
-            current_tags = [t.get("name", str(t)) for t in current_tags]
-    else:
-        tags_path.parent.mkdir(parents=True, exist_ok=True)
-        current_tags = []
-
-    # Collect all papers with abstracts into batches
-    all_papers = []
-    for section in data["sections"]:
-        for paper in section["papers"]:
-            if paper.get("abstract"):
-                all_papers.append(paper)
-
-    batches = []
-    for i in range(0, len(all_papers), BATCH_SIZE):
-        batches.append(all_papers[i : i + BATCH_SIZE])
+    current_tags = load_tags(tags_path)
+    batches = collect_batches(data, BATCH_SIZE)
 
     if not batches:
         return {}, 0
@@ -588,31 +899,14 @@ def run_phase2(
     field_cache.mkdir(parents=True, exist_ok=True)
     debug_dir = cache_dir / "debug" / data["field"]
 
-    # Check cache validity
     cached_batches: dict[int, dict] = {}
     if save_cache:
         current_hash = compute_metadata_hash(data)
         hash_file = field_cache / "metadata_hash"
-        if not no_cache and hash_file.exists():
-            old_hash = hash_file.read_text().strip()
-            if old_hash == current_hash:
-                for bf in sorted(field_cache.glob("batch_*.json")):
-                    try:
-                        with open(bf, "r", encoding="utf-8") as f:
-                            cached = json.load(f)
-                        batch_idx = int(bf.stem.split("_")[1])
-                        cached_batches[batch_idx] = cached
-                        if cached.get("current_tags"):
-                            current_tags = cached["current_tags"]
-                    except Exception:
-                        pass
-            else:
-                for bf in field_cache.glob("batch_*.json"):
-                    bf.unlink()
-        hash_file.write_text(current_hash)
+        cached_batches = load_cached_batches(field_cache, hash_file, current_hash, no_cache)
 
     results_by_id: dict[str, dict] = {}
-    failed_indices: list[int] = []
+    failed_batches: list[tuple[int, list[dict]]] = []
 
     for idx, batch in enumerate(batches):
         batch_num = idx + 1
@@ -627,124 +921,47 @@ def run_phase2(
                 current_tags = cached["current_tags"]
             status = "cached" if unmatched == 0 else f"cached ({unmatched} unmatched)"
             print(f"[{batch_num}/{total}] {blabel} {status}", file=sys.stderr)
+            if unmatched > 0:
+                failed_batches.append((idx, _unresolved_papers(batch, matched)))
             continue
 
-        messages = build_prompt(batch, current_tags)
-        t0 = time.monotonic()
-        try:
-            result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num, debug_dir, batch_label=blabel)
-
-            matched, unmatched = match_llm_results(batch, result.get("papers", []), logger, batch_num, result, debug_dir, batch_label=blabel)
-            results_by_id.update(matched)
-
-            new_tags = result.get("new_tags", [])
-            for t in new_tags:
-                if t not in current_tags:
-                    current_tags.append(t)
-
-            elapsed = time.monotonic() - t0
-            usage_str = ""
-            if usage:
-                pt = usage.get("prompt_tokens", 0)
-                ct = usage.get("completion_tokens", 0)
-                tt = usage.get("total_tokens", 0)
-                usage_str = f", tokens: {pt}+{ct}={tt}"
-            if unmatched > 0:
-                failed_indices.append(idx)
-                print(
-                    f"[{batch_num}/{total}] {blabel} FAILED ({unmatched} unmatched) ({elapsed:.1f}s{usage_str}), see log",
-                    file=sys.stderr,
-                )
-            else:
-                if save_cache:
-                    cache_entry = {
-                        "papers": result.get("papers", []),
-                        "new_tags": new_tags,
-                        "current_tags": list(current_tags),
-                    }
-                    cache_path = field_cache / f"batch_{batch_num:03d}.json"
-                    with open(cache_path, "w", encoding="utf-8") as f:
-                        json.dump(cache_entry, f, ensure_ascii=False, indent=2)
-                print(f"[{batch_num}/{total}] {blabel} done ({elapsed:.1f}s{usage_str})", file=sys.stderr)
-
-        except Exception as e:
-            elapsed = time.monotonic() - t0
-            failed_indices.append(idx)
-            logger.error(f"[Phase2] {blabel} failed after all retries: {e}")
-            print(
-                f"[{batch_num}/{total}] {blabel} FAILED ({elapsed:.1f}s), see log",
-                file=sys.stderr,
-            )
+        processed = _process_batch(
+            batch, idx, total, current_tags,
+            api_endpoint, api_key, model, logger, debug_dir, field_cache,
+            batch_prefix, save_cache, cache_allowed=True,
+            exception_status="failed after all retries",
+        )
+        results_by_id.update(processed.matched)
+        if processed.failed:
+            failed_batches.append((idx, processed.unresolved))
 
     # Retry failed batches once
-    if failed_indices:
-        print(f"Retrying {len(failed_indices)} failed batch(es)...", file=sys.stderr)
+    if failed_batches:
+        print(f"Retrying {len(failed_batches)} failed batch(es)...", file=sys.stderr)
         still_failed = 0
-        for idx in failed_indices:
-            batch = batches[idx]
+        for idx, batch in failed_batches:
+            original_batch = batches[idx]
             batch_num = idx + 1
             total = len(batches)
             blabel = f"retry_{batch_prefix}_{batch_num:03d}"
 
-            messages = build_prompt(batch, current_tags)
-            t0 = time.monotonic()
-            try:
-                result, usage = call_llm(messages, api_endpoint, api_key, model, logger, batch_num, debug_dir, batch_label=blabel)
-
-                matched, unmatched = match_llm_results(batch, result.get("papers", []), logger, batch_num, result, debug_dir, batch_label=blabel)
-                results_by_id.update(matched)
-
-                new_tags = result.get("new_tags", [])
-                for t in new_tags:
-                    if t not in current_tags:
-                        current_tags.append(t)
-
-                elapsed = time.monotonic() - t0
-                usage_str = ""
-                if usage:
-                    pt = usage.get("prompt_tokens", 0)
-                    ct = usage.get("completion_tokens", 0)
-                    tt = usage.get("total_tokens", 0)
-                    usage_str = f", tokens: {pt}+{ct}={tt}"
-                if unmatched > 0:
-                    still_failed += 1
-                    print(
-                        f"[{batch_num}/{total}] {blabel} FAILED ({unmatched} unmatched) ({elapsed:.1f}s{usage_str}), see log",
-                        file=sys.stderr,
-                    )
-                else:
-                    if save_cache:
-                        cache_entry = {
-                            "papers": result.get("papers", []),
-                            "new_tags": new_tags,
-                            "current_tags": list(current_tags),
-                        }
-                        cache_path = field_cache / f"batch_{batch_num:03d}.json"
-                        with open(cache_path, "w", encoding="utf-8") as f:
-                            json.dump(cache_entry, f, ensure_ascii=False, indent=2)
-                    print(f"[{batch_num}/{total}] {blabel} done ({elapsed:.1f}s{usage_str})", file=sys.stderr)
-
-            except Exception as e:
-                elapsed = time.monotonic() - t0
+            processed = _process_batch(
+                batch, idx, total, current_tags,
+                api_endpoint, api_key, model, logger, debug_dir, field_cache,
+                f"retry_{batch_prefix}", save_cache,
+                cache_allowed=len(batch) == len(original_batch),
+                exception_status="failed",
+            )
+            results_by_id.update(processed.matched)
+            if processed.failed:
                 still_failed += 1
-                logger.error(f"[Phase2] {blabel} failed: {e}")
-                print(
-                    f"[{batch_num}/{total}] {blabel} FAILED ({elapsed:.1f}s), see log",
-                    file=sys.stderr,
-                )
+                _add_summary_failure_placeholders(results_by_id, processed.unresolved, logger, blabel)
 
         failed_batches = still_failed
     else:
         failed_batches = 0
 
-    # Save updated tags
-    tags_out = {
-        "updated_at": datetime.now(timezone(timedelta(hours=8))).isoformat(),
-        "tags": current_tags,
-    }
-    tags_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(tags_path, "w", encoding="utf-8") as f:
-        json.dump(tags_out, f, ensure_ascii=False, indent=2)
+    save_tags(tags_path, current_tags)
 
     return results_by_id, failed_batches
 
@@ -863,7 +1080,7 @@ def generate_markdown(data: dict, results_by_id: dict, output_dir: Path, date_st
     lines = []
 
     # Front matter
-    now = datetime.now(timezone(timedelta(hours=8)))
+    now = datetime.now(OUTPUT_TZ)
     lines.append("---")
     lines.append(f'title: "arXiv {field} Daily Update"')
     lines.append(f"date: {now.strftime('%Y-%m-%d %H:%M:%S +0800')}")
@@ -1013,121 +1230,101 @@ def patch_markdown(md_path: Path, results_by_id: dict[str, dict], logger: loggin
 # Main
 # ---------------------------------------------------------------------------
 
-def main():
-    parser = argparse.ArgumentParser(description="arxiv daily listing summarizer")
-    parser.add_argument("field", help="arXiv field, e.g. cs.AI, cs.CL")
-    parser.add_argument("--output", required=True, help="Output directory for markdown files")
-    parser.add_argument("--tags", required=True, help="Path to tags.json")
-    parser.add_argument("--no-cache", action="store_true", help="Ignore cache, full re-run")
-    parser.add_argument("--date", help="Use saved HTML for this date (YYYY-MM-DD) instead of fetching")
-    parser.add_argument("--patch", nargs="+", metavar="ID", help="Re-generate specific paper IDs and patch into existing md (requires --date)")
-    parser.add_argument("--cache-dir", help="Cache directory (default: ~/.cache/arxiv-update)")
-    args = parser.parse_args()
-
-    cache_base = Path(args.cache_dir) if args.cache_dir else Path.home() / ".cache" / "arxiv-update"
-    log_path = cache_base / "arxiv_daily.log"
-
-    # Check env vars
-    api_key = os.environ.get("ARXIV_UPDATE_KEY")
-    api_endpoint = os.environ.get("ARXIV_UPDATE_API")
-    model = os.environ.get("ARXIV_UPDATE_MODEL")
-
-    missing = []
-    if not api_key:
-        missing.append("ARXIV_UPDATE_KEY")
-    if not api_endpoint:
-        missing.append("ARXIV_UPDATE_API")
-    if not model:
-        missing.append("ARXIV_UPDATE_MODEL")
-
-    if missing:
-        print(
-            f"Error: Missing environment variables: {', '.join(missing)}",
-            file=sys.stderr,
-        )
-        print(f"Log: {log_path}", file=sys.stderr)
+def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: LlmConfig) -> None:
+    if not args.date:
+        print("Error: --patch requires --date", file=sys.stderr)
         sys.exit(2)
 
-    logger = setup_logging(cache_base)
+    logger.info(f"[Patch] Starting patch for field={args.field} date={args.date} ids={args.patch}")
 
-    # --- Patch mode ---
-    if args.patch:
-        if not args.date:
-            print("Error: --patch requires --date", file=sys.stderr)
-            sys.exit(2)
+    # Load saved HTML
+    pages_dir = cache_base / "pages" / args.field
+    saved_path = pages_dir / f"{args.date}.html"
+    if not saved_path.exists():
+        print(f"Error: No saved HTML for date {args.date} at {saved_path}", file=sys.stderr)
+        sys.exit(2)
+    html = saved_path.read_text(encoding="utf-8")
+    full_data = parse_html(html, args.field)
 
-        logger.info(f"[Patch] Starting patch for field={args.field} date={args.date} ids={args.patch}")
+    # Find requested papers and build a minimal data dict for run_phase2
+    patch_ids = set(args.patch)
+    patch_papers = []
+    for section in full_data["sections"]:
+        for paper in section["papers"]:
+            if paper["id"] in patch_ids:
+                patch_papers.append(paper)
+    found_ids = {p["id"] for p in patch_papers}
+    missing_ids = patch_ids - found_ids
+    if missing_ids:
+        print(f"Warning: Papers not found in HTML: {', '.join(sorted(missing_ids))}", file=sys.stderr)
+    if not patch_papers:
+        print("Error: No matching papers found in saved HTML", file=sys.stderr)
+        sys.exit(2)
 
-        # Load saved HTML
-        pages_dir = cache_base / "pages" / args.field
-        saved_path = pages_dir / f"{args.date}.html"
-        if not saved_path.exists():
-            print(f"Error: No saved HTML for date {args.date} at {saved_path}", file=sys.stderr)
-            sys.exit(2)
-        html = saved_path.read_text(encoding="utf-8")
-        full_data = parse_html(html, args.field)
-
-        # Find requested papers and build a minimal data dict for run_phase2
-        patch_ids = set(args.patch)
-        patch_papers = []
-        for section in full_data["sections"]:
-            for paper in section["papers"]:
-                if paper["id"] in patch_ids:
-                    patch_papers.append(paper)
-        found_ids = {p["id"] for p in patch_papers}
-        missing_ids = patch_ids - found_ids
-        if missing_ids:
-            print(f"Warning: Papers not found in HTML: {', '.join(sorted(missing_ids))}", file=sys.stderr)
-        if not patch_papers:
-            print("Error: No matching papers found in saved HTML", file=sys.stderr)
-            sys.exit(2)
-
-        print(f"Regenerating {len(patch_papers)} paper(s): {', '.join(p['id'] for p in patch_papers)}", file=sys.stderr)
-
-        # Build a minimal data dict with a single section containing all patch papers
-        patch_data = {
-            "field": args.field,
-            "listing_date": args.date,
-            "page_type": "patch",
-            "sections": [{"name": "Patch", "count": len(patch_papers), "papers": patch_papers}],
-        }
-
-        tags_path = Path(args.tags)
-        results_by_id, failed_batches = run_phase2(
-            patch_data, tags_path, cache_base, no_cache=True,
-            api_endpoint=api_endpoint, api_key=api_key, model=model, logger=logger,
-            batch_prefix="patch_batch", save_cache=False,
+    papers_without_abstract = [p for p in patch_papers if not p.get("abstract")]
+    if papers_without_abstract:
+        missing_abstract_ids = [p["id"] for p in papers_without_abstract]
+        logger.warning(
+            f"[Patch] {len(papers_without_abstract)} papers missing abstract: {missing_abstract_ids}"
+        )
+        print(
+            f"Warning: {len(papers_without_abstract)} patch paper(s) missing abstract: "
+            f"{', '.join(missing_abstract_ids)}",
+            file=sys.stderr,
         )
 
-        if not results_by_id:
-            print("Error: No papers successfully matched from LLM response", file=sys.stderr)
-            sys.exit(1)
+    print(f"Regenerating {len(patch_papers)} paper(s): {', '.join(p['id'] for p in patch_papers)}", file=sys.stderr)
 
-        # Patch markdown
-        output_dir = Path(args.output)
-        md_path = output_dir / f"{args.date}-{args.field}.md"
-        if not md_path.exists():
-            print(f"Error: Markdown file not found: {md_path}", file=sys.stderr)
-            sys.exit(2)
+    # Build a minimal data dict with a single section containing all patch papers
+    patch_data = {
+        "field": args.field,
+        "listing_date": args.date,
+        "page_type": "patch",
+        "sections": [{"name": "Patch", "count": len(patch_papers), "papers": patch_papers}],
+    }
 
-        patched = patch_markdown(md_path, results_by_id, logger)
-        total_failed = len(patch_ids) - len(results_by_id)
-        print(f"Patched {patched}/{len(patch_ids)} paper(s) in {md_path}", file=sys.stderr)
-        logger.info(f"[Patch] Completed: patched {patched} paper(s)")
+    tags_path = Path(args.tags)
+    results_by_id, failed_batches = run_phase2(
+        patch_data, tags_path, cache_base, no_cache=True,
+        api_endpoint=llm_config.api_endpoint,
+        api_key=llm_config.api_key,
+        model=llm_config.model,
+        logger=logger,
+        batch_prefix="patch_batch", save_cache=False,
+    )
 
-        summary = {
-            "mode": "patch",
-            "listing_date": args.date,
-            "field": args.field,
-            "output_file": str(md_path),
-            "requested": len(patch_ids),
-            "patched": patched,
-            "failed": total_failed,
-        }
-        print(json.dumps(summary, ensure_ascii=False))
-        sys.exit(0 if total_failed == 0 else 1)
+    if not results_by_id:
+        print("Error: No papers successfully matched from LLM response", file=sys.stderr)
+        sys.exit(1)
 
-    # --- Normal mode ---
+    # Patch markdown
+    output_dir = Path(args.output)
+    md_path = output_dir / f"{args.date}-{args.field}.md"
+    if not md_path.exists():
+        print(f"Error: Markdown file not found: {md_path}", file=sys.stderr)
+        sys.exit(2)
+
+    patched = patch_markdown(md_path, results_by_id, logger)
+    total_failed = len(patch_ids) - len(results_by_id)
+    print(f"Patched {patched}/{len(patch_ids)} paper(s) in {md_path}", file=sys.stderr)
+    logger.info(f"[Patch] Completed: patched {patched} paper(s)")
+
+    summary = {
+        "mode": "patch",
+        "listing_date": args.date,
+        "field": args.field,
+        "output_file": str(md_path),
+        "requested": len(patch_ids),
+        "patched": patched,
+        "failed": total_failed,
+    }
+    print(json.dumps(summary, ensure_ascii=False))
+    sys.exit(0 if total_failed == 0 else 1)
+
+
+def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: LlmConfig) -> None:
+    log_path = cache_base / "arxiv_daily.log"
+
     logger.info(f"[Phase1] Starting run for field={args.field}")
 
     # Phase 1: Download and parse
@@ -1181,6 +1378,7 @@ def main():
         print("Error: No papers could be parsed. Page format may be unsupported.", file=sys.stderr)
         print(f"Log: {log_path}", file=sys.stderr)
         sys.exit(2)
+    log_parse_diagnostics(data, logger)
     if papers_with_abstract == 0:
         logger.error(f"[Phase1] {parsed_papers} papers parsed but none have abstracts")
         print(f"Error: {parsed_papers} papers parsed but no abstracts extracted. Page format may be unsupported.", file=sys.stderr)
@@ -1227,8 +1425,10 @@ def main():
     # Save HTML to pages archive (keyed by listing date)
     page_archive_path = pages_dir / f"{date_str}.html"
     if not page_archive_path.exists():
-        page_archive_path.write_text(html, encoding="utf-8")
+        _atomic_write_text(page_archive_path, html)
         logger.info(f"[Phase1] Saved HTML to {page_archive_path}")
+    else:
+        logger.info(f"[Phase1] HTML archive already exists: {page_archive_path}")
 
     # Check if this listing date has already been processed
     output_dir = Path(args.output)
@@ -1247,6 +1447,9 @@ def main():
         }
         print(json.dumps(summary, ensure_ascii=False))
         sys.exit(0)
+    if expected_output.exists() and args.date and not args.no_cache:
+        logger.info(f"[Phase1] --date mode overwriting existing output: {expected_output}")
+        print(f"Warning: --date mode overwriting existing output: {expected_output}", file=sys.stderr)
 
     # Phase 2: LLM summarization
     tags_path = Path(args.tags)
@@ -1255,9 +1458,9 @@ def main():
         tags_path,
         cache_base,
         args.no_cache,
-        api_endpoint,
-        api_key,
-        model,
+        llm_config.api_endpoint,
+        llm_config.api_key,
+        llm_config.model,
         logger,
     )
 
@@ -1288,6 +1491,7 @@ def main():
 
     # Clean cache on full success
     if field_cache.exists():
+        logger.info(f"[Cache] Removing completed cache directory: {field_cache}")
         shutil.rmtree(field_cache)
 
     # Build summary JSON for stdout
@@ -1307,6 +1511,49 @@ def main():
     logger.info(f"[Phase3] Run completed successfully. Output: {output_file}")
     sys.exit(0)
 
+
+def main():
+    parser = argparse.ArgumentParser(description="arxiv daily listing summarizer")
+    parser.add_argument("field", help="arXiv field, e.g. cs.AI, cs.CL")
+    parser.add_argument("--output", required=True, help="Output directory for markdown files")
+    parser.add_argument("--tags", required=True, help="Path to tags.json")
+    parser.add_argument("--no-cache", action="store_true", help="Ignore cache, full re-run")
+    parser.add_argument("--date", help="Use saved HTML for this date (YYYY-MM-DD) instead of fetching")
+    parser.add_argument("--patch", nargs="+", metavar="ID", help="Re-generate specific paper IDs and patch into existing md (requires --date)")
+    parser.add_argument("--cache-dir", help="Cache directory (default: ~/.cache/arxiv-update)")
+    args = parser.parse_args()
+
+    cache_base = Path(args.cache_dir) if args.cache_dir else Path.home() / ".cache" / "arxiv-update"
+    log_path = cache_base / "arxiv_daily.log"
+
+    # Check env vars
+    api_key = os.environ.get("ARXIV_UPDATE_KEY")
+    api_endpoint = os.environ.get("ARXIV_UPDATE_API")
+    model = os.environ.get("ARXIV_UPDATE_MODEL")
+
+    missing = []
+    if not api_key:
+        missing.append("ARXIV_UPDATE_KEY")
+    if not api_endpoint:
+        missing.append("ARXIV_UPDATE_API")
+    if not model:
+        missing.append("ARXIV_UPDATE_MODEL")
+
+    if missing:
+        print(
+            f"Error: Missing environment variables: {', '.join(missing)}",
+            file=sys.stderr,
+        )
+        print(f"Log: {log_path}", file=sys.stderr)
+        sys.exit(2)
+
+    llm_config = LlmConfig(api_key=api_key, api_endpoint=api_endpoint, model=model)
+    logger = setup_logging(cache_base)
+
+    if args.patch:
+        run_patch_mode(args, logger, cache_base, llm_config)
+    else:
+        run_normal_mode(args, logger, cache_base, llm_config)
 
 if __name__ == "__main__":
     main()

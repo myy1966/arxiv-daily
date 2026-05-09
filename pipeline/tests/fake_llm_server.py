@@ -117,11 +117,20 @@ def handle_http_500(handler, paper_ids, model):
     handler.wfile.write(body.encode("utf-8"))
 
 
+def handle_http_400(handler, paper_ids, model):
+    """Return 400 Bad Request."""
+    handler.send_response(400)
+    handler.send_header("Content-Type", "application/json")
+    handler.end_headers()
+    body = json.dumps({"error": {"message": "Bad request", "type": "invalid_request_error"}})
+    handler.wfile.write(body.encode("utf-8"))
+
+
 def handle_http_429(handler, paper_ids, model):
     """Return 429 Too Many Requests with Retry-After header."""
     handler.send_response(429)
     handler.send_header("Content-Type", "application/json")
-    handler.send_header("Retry-After", "2")
+    handler.send_header("Retry-After", type(handler).retry_after_header)
     handler.end_headers()
     body = json.dumps({"error": {"message": "Rate limit exceeded", "type": "rate_limit_error"}})
     handler.wfile.write(body.encode("utf-8"))
@@ -263,6 +272,20 @@ def handle_empty_papers(handler, paper_ids, model):
     _send_sse_response(handler, content_json, model)
 
 
+def handle_schema_missing_papers(handler, paper_ids, model):
+    """Return a JSON object without the required papers list."""
+    response = {"foo": "bar", "new_tags": []}
+    content_json = json.dumps(response, ensure_ascii=False)
+    _send_sse_response(handler, content_json, model)
+
+
+def handle_schema_bad_new_tags(handler, paper_ids, model):
+    """Return a response with invalid new_tags type."""
+    response = {"papers": [], "new_tags": "not a list"}
+    content_json = json.dumps(response, ensure_ascii=False)
+    _send_sse_response(handler, content_json, model)
+
+
 def handle_markdown_json(handler, paper_ids, model):
     """Return JSON wrapped in markdown code fences."""
     response = generate_normal_response(paper_ids)
@@ -344,6 +367,7 @@ def _send_sse_response(handler, content: str, model: str):
 ERROR_HANDLERS = {
     "none": handle_none,
     "http_500": handle_http_500,
+    "http_400": handle_http_400,
     "http_429": handle_http_429,
     "timeout": handle_timeout,
     "connection_reset": handle_connection_reset,
@@ -354,6 +378,8 @@ ERROR_HANDLERS = {
     "missing_fields": handle_missing_fields,
     "no_period": handle_no_period,
     "empty_papers": handle_empty_papers,
+    "schema_missing_papers": handle_schema_missing_papers,
+    "schema_bad_new_tags": handle_schema_bad_new_tags,
     "markdown_json": handle_markdown_json,
     "slow_stream": handle_slow_stream,
     "versioned_ids": handle_versioned_ids,
@@ -374,6 +400,7 @@ class FakeLLMHandler(BaseHTTPRequestHandler):
     counter_lock = threading.Lock()
     timeout_sleep: float = 600
     stream_delay: float = 2
+    retry_after_header: str = "2"
 
     def do_POST(self):
         if not self.path.rstrip("/").endswith("/chat/completions"):
