@@ -740,9 +740,9 @@ def match_llm_results(
             logger.error(f"[Phase2] {log_label} quality debug saved to {debug_path}")
 
     # Pass 5: write ID mismatch debug info
-    unmatched_batch = missing_ids + duplicate_ids
-    if unmatched_batch:
-        unmatched_llm_ids = [
+    id_mismatch_batch_ids = missing_ids + duplicate_ids
+    if id_mismatch_batch_ids:
+        remaining_llm_ids = [
             llm_papers[i].get("id", "?") for i in range(len(llm_papers)) if i not in used_llm_indices
         ]
         if debug_dir is not None and raw_result is not None:
@@ -755,8 +755,8 @@ def match_llm_results(
                     for p in batch
                 ],
                 "llm_response": raw_result,
-                "unmatched_batch_ids": unmatched_batch,
-                "unmatched_llm_ids": unmatched_llm_ids,
+                "unmatched_batch_ids": id_mismatch_batch_ids,
+                "unmatched_llm_ids": remaining_llm_ids,
                 "diagnostics": {
                     "missing_ids": diagnostics.missing_ids,
                     "duplicate_ids": diagnostics.duplicate_ids,

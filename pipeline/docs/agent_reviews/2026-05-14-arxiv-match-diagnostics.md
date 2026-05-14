@@ -139,7 +139,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/tests/test_arxiv_daily.py`：将 `TestMatchLlmResults` 中旧的 `(results, unmatched)` 断言迁移为 `(results, diagnostics)`；新增 `test_match_duplicate_id`、`test_match_missing_id`、`test_match_quality_failed`，覆盖重复 ID、缺失 ID、质量失败三类诊断，并验证 `total_failed` 与 `all_failed_ids`；将旧的 `test_duplicate_ids_tolerated` 更新为 `test_duplicate_ids_are_rejected`，匹配 ADR 明确要求的“重复 ID 直接拒绝匹配”新行为。验证：`python3 -m py_compile arxiv_daily.py tests/test_arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMatchLlmResults tests/test_arxiv_daily.py::TestRunPhase2ErrorModes::test_duplicate_ids_are_rejected -q` 通过，13 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，139 passed, 1 xfailed。
 
-#### [TASK ID: 006] [状态: OPEN]
+#### [TASK ID: 006] [状态: RESOLVED]
 - **定位**: 全文验证
 - **目标描述**: 确认无回归，无遗漏的旧接口引用
 - **前置依赖**: TASK 003, TASK 004, TASK 005
@@ -147,6 +147,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
   1. `grep -n "unmatched" arxiv_daily.py` 确认无残留的旧变量名（日志消息中可保留 "unmatched" 一词作为自然语言描述，但变量/判断逻辑应使用 `diagnostics`）
   2. `python3 -m py_compile arxiv_daily.py` 通过
   3. 全量测试通过
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。验证时发现 `match_llm_results` 中仍有 `unmatched_batch` / `unmatched_llm_ids` 局部变量名残留；已将局部变量改为 `id_mismatch_batch_ids` 和 `remaining_llm_ids`，保留 debug JSON 的 `unmatched_batch_ids` / `unmatched_llm_ids` 字段以满足 TASK 002 的兼容性要求。`grep -n "unmatched" arxiv_daily.py` 现在仅返回这两个兼容 debug JSON 字段；旧变量名、解构和判断逻辑均已迁移到 `diagnostics`。验证：`python3 -m py_compile arxiv_daily.py tests/test_arxiv_daily.py` 通过；`rg -n "matched, unmatched|unmatched =|unmatched >|unmatched ==|unmatched_count|unmatched_batch|unmatched_llm" arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 仅返回兼容 JSON 字段；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，139 passed, 1 xfailed。
 
 ## 4. 最终决策 (Final Decision)
 
