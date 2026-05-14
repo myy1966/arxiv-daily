@@ -785,8 +785,15 @@ def compute_metadata_hash(data: dict) -> str:
     return hashlib.sha256(json.dumps(hash_input, sort_keys=True).encode()).hexdigest()
 
 
-def _unresolved_papers(batch: list[dict], matched: dict[str, dict]) -> list[dict]:
+def _unresolved_papers(
+    batch: list[dict],
+    matched: dict[str, dict],
+    failed_ids: list[str] | None = None,
+) -> list[dict]:
     """Return batch papers that still lack an accepted LLM result."""
+    if failed_ids is not None:
+        failed_id_set = set(failed_ids)
+        return [paper for paper in batch if paper["id"] in failed_id_set]
     return [paper for paper in batch if paper["id"] not in matched]
 
 
@@ -815,6 +822,17 @@ def _format_usage(usage: dict) -> str:
     ct = usage.get("completion_tokens", 0)
     tt = usage.get("total_tokens", 0)
     return f", tokens: {pt}+{ct}={tt}"
+
+
+def _format_match_failures(diagnostics: MatchDiagnostics) -> str:
+    parts = []
+    if diagnostics.missing_ids:
+        parts.append(f"{len(diagnostics.missing_ids)} missing")
+    if diagnostics.duplicate_ids:
+        parts.append(f"{len(diagnostics.duplicate_ids)} duplicate")
+    if diagnostics.quality_failed:
+        parts.append(f"{len(diagnostics.quality_failed)} quality")
+    return ", ".join(parts)
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:
@@ -884,7 +902,7 @@ def _process_batch(
             messages, api_endpoint, api_key, model, logger, batch_num, debug_dir, batch_label=blabel
         )
 
-        matched, unmatched = match_llm_results(
+        matched, diagnostics = match_llm_results(
             batch, result.get("papers", []), logger, batch_num, result, debug_dir, batch_label=blabel
         )
 
@@ -895,12 +913,17 @@ def _process_batch(
 
         elapsed = time.monotonic() - t0
         usage_str = _format_usage(usage)
-        if unmatched > 0:
+        if diagnostics.total_failed > 0:
+            failure_summary = _format_match_failures(diagnostics)
             print(
-                f"[{batch_num}/{total}] {blabel} FAILED ({unmatched} unmatched) ({elapsed:.1f}s{usage_str}), see log",
+                f"[{batch_num}/{total}] {blabel} FAILED ({failure_summary}) ({elapsed:.1f}s{usage_str}), see log",
                 file=sys.stderr,
             )
-            return BatchProcessResult(matched, _unresolved_papers(batch, matched), True)
+            return BatchProcessResult(
+                matched,
+                _unresolved_papers(batch, matched, diagnostics.all_failed_ids),
+                True,
+            )
 
         if save_cache and cache_allowed:
             _write_batch_cache(field_cache, batch_num, result, new_tags, current_tags)

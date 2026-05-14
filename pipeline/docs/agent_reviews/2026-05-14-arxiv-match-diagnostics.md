@@ -101,7 +101,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已重构 `arxiv-update/scripts/arxiv_daily.py:match_llm_results`：返回类型改为 `(matched, MatchDiagnostics)`；构建 LLM ID 计数并将重复 ID 从精确/归一化索引中排除，避免重复 ID 被字典覆盖为“最后一个胜出”；重复 ID 对应的 batch paper 直接归入 `diagnostics.duplicate_ids`，不做启发式选择；质量失败归入 `diagnostics.quality_failed`；其余未匹配归入 `diagnostics.missing_ids`。日志已按 missing、duplicate、quality 三类分别输出；ID mismatch debug JSON 保留 `unmatched_batch_ids` 字段并新增 `diagnostics` 字段，quality debug JSON 也包含同一诊断结构。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证 missing/duplicate/quality 三类诊断、`total_failed`、`all_failed_ids` 和归一化重复 ID 判定通过；`python3 - <<'PY' ... PY` 直接验证 debug JSON 保留 `unmatched_batch_ids` 并新增 `diagnostics` 通过。未运行全量 pytest，因为 TASK 003/004/005 尚未适配旧调用方和旧测试，当前处于接口迁移中间态。
 
-#### [TASK ID: 003] [状态: OPEN]
+#### [TASK ID: 003] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `_process_batch` 函数
 - **目标描述**: 适配 `match_llm_results` 新返回类型
 - **前置依赖**: TASK 002
@@ -112,6 +112,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
      - `FAILED (2 missing, 1 duplicate)` 而非 `FAILED (3 unmatched)`
      - 若仅有一种类型：`FAILED (3 quality)`
   4. `_unresolved_papers` 调用使用 `diagnostics.all_failed_ids` 过滤
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py:_process_batch`：将 `match_llm_results` 返回值解构为 `matched, diagnostics`；使用 `diagnostics.total_failed` 判断失败；新增 `_format_match_failures(diagnostics)` 生成仅包含非零分类的 stderr 失败摘要；`_unresolved_papers` 增加可选 `failed_ids` 参数，并在 `_process_batch` 中使用 `diagnostics.all_failed_ids` 过滤 unresolved paper，保持旧调用兼容。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证 `_process_batch` 在 missing/duplicate/quality 混合失败时输出 `FAILED (1 missing, 1 duplicate, 1 quality)`，且 unresolved 仅包含诊断失败 ID 通过。未运行全量 pytest，因为 TASK 004/005 尚未适配缓存路径和旧测试，当前仍处于接口迁移中间态。
 
 #### [TASK ID: 004] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `run_phase2` 中对 cached batch 的 `match_llm_results` 调用
