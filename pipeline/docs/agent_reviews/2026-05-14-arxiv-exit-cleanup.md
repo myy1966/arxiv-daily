@@ -86,6 +86,8 @@ def main() -> int:
   2. 新增 `RunResult` dataclass（字段：`summary: dict`, `exit_code: int = 0`）
   3. 不要修改任何现有代码，仅新增定义
 
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py` 的 `BATCH_SIZE` 常量之前新增 `ArxivDailyError`、`ConfigError`、`FetchError`、`ParseError`、`PipelineError` 异常层级，以及 `RunResult(summary: dict, exit_code: int = 0)` dataclass；未修改任何现有逻辑。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过。
+
 #### [TASK ID: 002] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `run_patch_mode` 函数
 - **目标描述**: 将 `run_patch_mode` 中的 4 处 `sys.exit()` 替换为 raise 或 return

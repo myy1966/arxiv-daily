@@ -42,6 +42,43 @@ try:
 except ImportError:
     json_repair_loads = None
 
+
+class ArxivDailyError(Exception):
+    """Base exception for arxiv_daily pipeline errors."""
+
+    exit_code: int = 1
+
+
+class ConfigError(ArxivDailyError):
+    """Missing environment variables or invalid CLI arguments."""
+
+    exit_code = 2
+
+
+class FetchError(ArxivDailyError):
+    """Network or HTML fetch failure."""
+
+    exit_code = 2
+
+
+class ParseError(ArxivDailyError):
+    """HTML parsing yielded no usable data."""
+
+    exit_code = 2
+
+
+class PipelineError(ArxivDailyError):
+    """LLM or markdown generation pipeline failure."""
+
+    exit_code = 1
+
+
+@dataclass
+class RunResult:
+    summary: dict
+    exit_code: int = 0
+
+
 BATCH_SIZE = 16
 MAX_RETRIES = 3
 RETRY_DELAYS = [2, 4, 8]
