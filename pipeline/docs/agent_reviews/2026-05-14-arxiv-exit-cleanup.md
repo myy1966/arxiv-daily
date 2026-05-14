@@ -195,7 +195,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 > **本项目无 AGENTS.md 规范文件，以通用最佳实践为准。** Issue 001 基于 Python 异常链最佳实践（PEP 3134），非项目强制约定。
 
-#### [TASK ID: 006] [状态: PENDING]
+#### [TASK ID: 006] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py:run_normal_mode` L1379-1381
 - **目标描述**: 为 `raise FetchError(...)` 补充异常链（`from e`），保留原始异常的 traceback
 - **前置依赖**: 无
@@ -204,6 +204,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
   2. 检查全文件是否有其他 `except ... as e:` + `raise XxxError(...)` 的模式遗漏了 `from e`，如有一并补上
   3. 运行 `python3 -m py_compile arxiv_daily.py` 确认无语法错误
   4. 运行测试确认无回归
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py:run_normal_mode`，将 fetch 失败路径改为 `raise FetchError(f"Failed to fetch arxiv page: {e}") from e`，保留原始异常 traceback。已检查全文 `except ... as e:` 模式：仅该处存在捕获后包装为自定义 `ArxivDailyError` 且需要补充异常链；LLM 重试循环不会包装为自定义异常，`main()` 仅捕获不重抛。验证：`python3 -m py_compile arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMainCli -q` 通过，9 passed；直接断言 `FetchError.__cause__` 保留原始异常通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，136 passed, 1 xfailed。
 
 ## 4. 最终决策 (Final Decision)
 

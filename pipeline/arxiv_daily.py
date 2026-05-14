@@ -1378,7 +1378,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
             html = fetch_page(args.field)
         except Exception as e:
             logger.error(f"[Phase1] Failed to fetch page: {e}")
-            raise FetchError(f"Failed to fetch arxiv page: {e}")
+            raise FetchError(f"Failed to fetch arxiv page: {e}") from e
 
     data = parse_html(html, args.field)
     if not data["sections"]:
