@@ -102,7 +102,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py:run_patch_mode`：函数签名改为 `-> RunResult`；函数内全部 `sys.exit()` 均替换为 `ConfigError`、`ParseError`、`PipelineError` 或最终 `RunResult(summary, exit_code=...)` 返回；保留现有 stderr 用户可见错误/警告信息。实现中实际发现 6 处 `sys.exit()`，多于任务描述的 4 处，已按任务目标语义全部清除。未移除 stdout JSON 输出，因为统一 stdout 输出迁移属于 TASK 004 范围。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证 patch mode 缺少 `--date` 时抛出 `ConfigError` 且保留 stderr、成功路径返回 `RunResult` 通过。
 
-#### [TASK ID: 003] [状态: OPEN]
+#### [TASK ID: 003] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `run_normal_mode` 函数
 - **目标描述**: 将 `run_normal_mode` 中的 ~12 处 `sys.exit()` 替换为 raise 或 return
 - **前置依赖**: TASK 001
@@ -117,6 +117,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
   3. 对于 "skipped" 路径（output 已存在），保持 `exit_code=0`
   4. **必须保留** stderr 的用户可见状态信息（进度、警告）
   5. 移除函数内对 `log_path` 的引用（改由 main 统一处理）
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py:run_normal_mode`：函数签名改为 `-> RunResult`；保存 HTML 缺失、解析失败、日期不匹配、格式不可识别等路径改为 `ParseError`；抓取失败改为 `FetchError`；日期参数格式错误改为 `ConfigError`；LLM batch 失败改为 `PipelineError`；skipped 和成功路径返回 `RunResult(summary)`。已移除该函数内 `log_path` 引用和 `Log:` stderr 行，同时保留现有用户可见进度、警告和错误 stderr。未移除 stdout JSON 输出，因为统一 stdout 输出迁移属于 TASK 004 范围。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证缺失保存 HTML 抛 `ParseError`、fetch 失败抛 `FetchError`、skipped 路径返回 `RunResult(exit_code=0)` 且不输出 `Log:` 通过。
 
 #### [TASK ID: 004] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `main` 函数

@@ -1359,9 +1359,7 @@ def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: L
     return RunResult(summary, exit_code=0 if total_failed == 0 else 1)
 
 
-def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: LlmConfig) -> None:
-    log_path = cache_base / "arxiv_daily.log"
-
+def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: LlmConfig) -> RunResult:
     logger.info(f"[Phase1] Starting run for field={args.field}")
 
     # Phase 1: Download and parse
@@ -1377,8 +1375,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
         if not saved_path.exists():
             logger.error(f"[Phase1] No saved HTML for date {args.date} at {saved_path}")
             print(f"Error: No saved HTML for date {args.date} at {saved_path}", file=sys.stderr)
-            print(f"Log: {log_path}", file=sys.stderr)
-            sys.exit(2)
+            raise ParseError(f"No saved HTML for date {args.date} at {saved_path}")
         html = saved_path.read_text(encoding="utf-8")
         logger.info(f"[Phase1] Using saved HTML for {args.date} from {saved_path}")
         print(f"Using saved HTML for {args.date} from {saved_path}", file=sys.stderr)
@@ -1389,8 +1386,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
         except Exception as e:
             logger.error(f"[Phase1] Failed to fetch page: {e}")
             print(f"Error: Failed to fetch arxiv page: {e}", file=sys.stderr)
-            print(f"Log: {log_path}", file=sys.stderr)
-            sys.exit(2)
+            raise FetchError(f"Failed to fetch arxiv page: {e}")
 
     data = parse_html(html, args.field)
     if not data["sections"]:
@@ -1399,8 +1395,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
             "Error: No papers found. The field may not exist or no updates today.",
             file=sys.stderr,
         )
-        print(f"Log: {log_path}", file=sys.stderr)
-        sys.exit(2)
+        raise ParseError("No papers found. The field may not exist or no updates today.")
 
     page_date = data["listing_date"]  # YYYY-MM-DD or None
     page_type = data["page_type"]     # "new", "catchup", or "unknown"
@@ -1413,14 +1408,14 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
     if parsed_papers == 0:
         logger.error("[Phase1] Sections found but no papers could be parsed from page")
         print("Error: No papers could be parsed. Page format may be unsupported.", file=sys.stderr)
-        print(f"Log: {log_path}", file=sys.stderr)
-        sys.exit(2)
+        raise ParseError("No papers could be parsed. Page format may be unsupported.")
     log_parse_diagnostics(data, logger)
     if papers_with_abstract == 0:
         logger.error(f"[Phase1] {parsed_papers} papers parsed but none have abstracts")
         print(f"Error: {parsed_papers} papers parsed but no abstracts extracted. Page format may be unsupported.", file=sys.stderr)
-        print(f"Log: {log_path}", file=sys.stderr)
-        sys.exit(2)
+        raise ParseError(
+            f"{parsed_papers} papers parsed but no abstracts extracted. Page format may be unsupported."
+        )
 
     total_papers = sum(s["count"] for s in data["sections"])
     if parsed_papers != total_papers:
@@ -1438,7 +1433,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
         except ValueError:
             logger.error(f"[Phase1] Invalid --date format: {args.date}")
             print(f"Error: Invalid --date format: {args.date}, expected YYYY-MM-DD", file=sys.stderr)
-            sys.exit(2)
+            raise ConfigError(f"Invalid --date format: {args.date}, expected YYYY-MM-DD")
         # Validate page date matches --date
         if page_date and page_date != args.date:
             logger.error(
@@ -1448,16 +1443,16 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
                 f"Error: Date mismatch: --date={args.date} but page contains date {page_date} ({page_type})",
                 file=sys.stderr,
             )
-            print(f"Log: {log_path}", file=sys.stderr)
-            sys.exit(2)
+            raise ParseError(
+                f"Date mismatch: --date={args.date} but page contains date {page_date} ({page_type})"
+            )
         date_str = args.date
     elif page_date:
         date_str = page_date
     else:
         logger.error("[Phase1] Unrecognized page format: cannot extract listing date")
         print("Error: Unrecognized page format, expected arxiv /list/new or /catchup page.", file=sys.stderr)
-        print(f"Log: {log_path}", file=sys.stderr)
-        sys.exit(2)
+        raise ParseError("Unrecognized page format, expected arxiv /list/new or /catchup page.")
 
     # Save HTML to pages archive (keyed by listing date)
     page_archive_path = pages_dir / f"{date_str}.html"
@@ -1483,7 +1478,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
             "skipped": True,
         }
         print(json.dumps(summary, ensure_ascii=False))
-        sys.exit(0)
+        return RunResult(summary)
     if expected_output.exists() and args.date and not args.no_cache:
         logger.info(f"[Phase1] --date mode overwriting existing output: {expected_output}")
         print(f"Warning: --date mode overwriting existing output: {expected_output}", file=sys.stderr)
@@ -1511,7 +1506,6 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
             f"Re-run with --date {date_str} to retry (cached batches will be reused).",
             file=sys.stderr,
         )
-        print(f"Log: {log_path}", file=sys.stderr)
 
         summary = {
             "listing_date": date_str,
@@ -1522,7 +1516,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
             "failed_batches": failed_batches,
         }
         print(json.dumps(summary, ensure_ascii=False))
-        sys.exit(1)
+        raise PipelineError(f"{failed_batches} batch(es) failed. Markdown not generated.")
 
     output_file = generate_markdown(data, results_by_id, output_dir, date_str)
 
@@ -1546,7 +1540,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
     }
     print(json.dumps(summary, ensure_ascii=False))
     logger.info(f"[Phase3] Run completed successfully. Output: {output_file}")
-    sys.exit(0)
+    return RunResult(summary)
 
 
 def main():
