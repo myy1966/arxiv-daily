@@ -126,7 +126,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py:run_phase2` 的缓存命中路径：将 `match_llm_results` 返回值解构为 `matched, diagnostics`；使用 `diagnostics.total_failed` 判断缓存结果是否仍需 retry；stderr 状态从 `cached ({unmatched} unmatched)` 改为 `cached failed ({_format_match_failures(diagnostics)})`，与 `_process_batch` 的细分显示保持一致；failed batch 也改为使用 `diagnostics.all_failed_ids` 过滤 unresolved paper。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证 cached batch 同时存在 missing/duplicate 时输出 `batch_001 cached failed (1 missing, 1 duplicate)` 且 stderr 不再包含 `unmatched` 通过。未运行全量 pytest，因为 TASK 005 尚未适配旧测试断言，当前仍处于接口迁移中间态。
 
-#### [TASK ID: 005] [状态: OPEN]
+#### [TASK ID: 005] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/tests/test_arxiv_daily.py`
 - **目标描述**: 为三种错误分类补充单元测试
 - **前置依赖**: TASK 002
@@ -136,6 +136,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
   3. 新增测试用例 `test_match_quality_failed`：LLM 响应 summary 长度 < 30 或 tags 为空 → 进入 `diagnostics.quality_failed`
   4. 验证 `diagnostics.total_failed` 和 `diagnostics.all_failed_ids` 计算正确
   5. 运行 `python3 -m pytest tests/test_arxiv_daily.py -q` 确认全部通过
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/tests/test_arxiv_daily.py`：将 `TestMatchLlmResults` 中旧的 `(results, unmatched)` 断言迁移为 `(results, diagnostics)`；新增 `test_match_duplicate_id`、`test_match_missing_id`、`test_match_quality_failed`，覆盖重复 ID、缺失 ID、质量失败三类诊断，并验证 `total_failed` 与 `all_failed_ids`；将旧的 `test_duplicate_ids_tolerated` 更新为 `test_duplicate_ids_are_rejected`，匹配 ADR 明确要求的“重复 ID 直接拒绝匹配”新行为。验证：`python3 -m py_compile arxiv_daily.py tests/test_arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMatchLlmResults tests/test_arxiv_daily.py::TestRunPhase2ErrorModes::test_duplicate_ids_are_rejected -q` 通过，13 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，139 passed, 1 xfailed。
 
 #### [TASK ID: 006] [状态: OPEN]
 - **定位**: 全文验证

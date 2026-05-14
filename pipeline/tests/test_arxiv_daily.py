@@ -408,9 +408,10 @@ class TestMatchLlmResults:
             {"id": "2604.00001", "summary": "x" * 60, "tags": ["T1"], "venue": None},
             {"id": "2604.00002", "summary": "y" * 60, "tags": ["T2"], "venue": "ACL 2026"},
         ]
-        results, unmatched = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
         assert len(results) == 2
-        assert unmatched == 0
+        assert diagnostics.total_failed == 0
+        assert diagnostics.all_failed_ids == []
         assert results["2604.00001"]["tags"] == ["T1"]
         assert results["2604.00002"]["venue"] == "ACL 2026"
 
@@ -419,55 +420,59 @@ class TestMatchLlmResults:
         llm_papers = [
             {"id": "2604.00001v2", "summary": "x" * 60, "tags": ["T1"], "venue": None},
         ]
-        results, unmatched = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
         assert "2604.00001" in results
-        assert unmatched == 0
+        assert diagnostics.total_failed == 0
 
     def test_wrong_ids(self, logger):
         batch = [{"id": "2604.00001"}]
         llm_papers = [
             {"id": "9999.99999", "summary": "x" * 60, "tags": ["T1"], "venue": None},
         ]
-        results, unmatched = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
         assert len(results) == 0
-        assert unmatched == 1
+        assert diagnostics.missing_ids == ["2604.00001"]
+        assert diagnostics.total_failed == 1
 
     def test_quality_check_short_summary(self, logger):
         batch = [{"id": "2604.00001"}]
         llm_papers = [
             {"id": "2604.00001", "summary": "short", "tags": ["T1"], "venue": None},
         ]
-        results, unmatched = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
         assert len(results) == 0
-        assert unmatched == 1  # quality failures are included in unmatched count
+        assert [failure["id"] for failure in diagnostics.quality_failed] == ["2604.00001"]
+        assert diagnostics.total_failed == 1
 
     def test_summary_threshold_allows_concise_summaries(self, logger):
         batch = [{"id": "2604.00001"}]
         llm_papers = [
             {"id": "2604.00001", "summary": "x" * arxiv_daily.MIN_SUMMARY_LEN, "tags": ["T1"], "venue": None},
         ]
-        results, unmatched = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
         assert len(results) == 1
-        assert unmatched == 0
+        assert diagnostics.total_failed == 0
 
     def test_quality_check_missing_tags(self, logger):
         batch = [{"id": "2604.00001"}]
         llm_papers = [
             {"id": "2604.00001", "summary": "x" * 60, "tags": [], "venue": None},
         ]
-        results, unmatched = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
         assert len(results) == 0
+        assert [failure["id"] for failure in diagnostics.quality_failed] == ["2604.00001"]
 
     def test_empty_llm_papers(self, logger):
         batch = [{"id": "2604.00001"}]
-        results, unmatched = arxiv_daily.match_llm_results(batch, [], logger, 1)
+        results, diagnostics = arxiv_daily.match_llm_results(batch, [], logger, 1)
         assert len(results) == 0
-        assert unmatched == 1
+        assert diagnostics.missing_ids == ["2604.00001"]
+        assert diagnostics.total_failed == 1
 
     def test_empty_batch(self, logger):
-        results, unmatched = arxiv_daily.match_llm_results([], [], logger, 1)
+        results, diagnostics = arxiv_daily.match_llm_results([], [], logger, 1)
         assert results == {}
-        assert unmatched == 0
+        assert diagnostics.total_failed == 0
 
     def test_partial_match(self, logger):
         batch = [{"id": "2604.00001"}, {"id": "2604.00002"}, {"id": "2604.00003"}]
@@ -475,9 +480,57 @@ class TestMatchLlmResults:
             {"id": "2604.00001", "summary": "x" * 60, "tags": ["T1"], "venue": None},
             {"id": "9999.99999", "summary": "y" * 60, "tags": ["T2"], "venue": None},
         ]
-        results, unmatched = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
         assert len(results) == 1
-        assert unmatched == 2
+        assert diagnostics.missing_ids == ["2604.00002", "2604.00003"]
+        assert diagnostics.total_failed == 2
+
+    def test_match_duplicate_id(self, logger):
+        batch = [{"id": "2604.00001"}]
+        llm_papers = [
+            {"id": "2604.00001", "summary": "x" * 60, "tags": ["T1"], "venue": None},
+            {"id": "2604.00001", "summary": "y" * 60, "tags": ["T2"], "venue": None},
+        ]
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+
+        assert "2604.00001" not in results
+        assert diagnostics.duplicate_ids == ["2604.00001"]
+        assert diagnostics.missing_ids == []
+        assert diagnostics.quality_failed == []
+        assert diagnostics.total_failed == 1
+        assert diagnostics.all_failed_ids == ["2604.00001"]
+
+    def test_match_missing_id(self, logger):
+        batch = [{"id": "2604.00001"}]
+        llm_papers = [
+            {"id": "9999.99999", "summary": "x" * 60, "tags": ["T1"], "venue": None},
+        ]
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+
+        assert results == {}
+        assert diagnostics.missing_ids == ["2604.00001"]
+        assert diagnostics.duplicate_ids == []
+        assert diagnostics.quality_failed == []
+        assert diagnostics.total_failed == 1
+        assert diagnostics.all_failed_ids == ["2604.00001"]
+
+    def test_match_quality_failed(self, logger):
+        batch = [{"id": "2604.00001"}, {"id": "2604.00002"}]
+        llm_papers = [
+            {"id": "2604.00001", "summary": "short", "tags": ["T1"], "venue": None},
+            {"id": "2604.00002", "summary": "x" * 60, "tags": [], "venue": None},
+        ]
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+
+        assert results == {}
+        assert diagnostics.missing_ids == []
+        assert diagnostics.duplicate_ids == []
+        assert [failure["id"] for failure in diagnostics.quality_failed] == [
+            "2604.00001",
+            "2604.00002",
+        ]
+        assert diagnostics.total_failed == 2
+        assert diagnostics.all_failed_ids == ["2604.00001", "2604.00002"]
 
 
 # ===========================================================================
@@ -1247,8 +1300,8 @@ class TestRunPhase2ErrorModes:
         assert len(results) > 0
         assert failed == 0
 
-    def test_duplicate_ids_tolerated(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
-        """Duplicate IDs in LLM response should be tolerated without failure."""
+    def test_duplicate_ids_are_rejected(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
+        """Duplicate IDs in LLM response should fail instead of silently choosing one."""
         api_url, handler_cls = fake_llm_server
         handler_cls.error_mode = "duplicate_ids"
         cache_dir = tmp_path / "cache"
@@ -1257,14 +1310,9 @@ class TestRunPhase2ErrorModes:
             sample_data, tags_file, cache_dir, no_cache=True,
             api_endpoint=api_url, api_key="test-key", model="test-model", logger=logger,
         )
-        # Duplicate IDs are tolerated and result keys remain unique
-        assert failed == 0
-        assert len(results) > 0
-        # No duplicate keys in results (dict keys are unique by definition)
-        expected_ids = {
-            p["id"] for s in sample_data["sections"] for p in s["papers"] if p.get("abstract")
-        }
-        assert set(results.keys()) == expected_ids
+        assert failed == 1
+        assert results["2604.06189"]["summary"] == arxiv_daily.SUMMARY_FAILURE_PLACEHOLDER
+        assert results["2604.06189"]["tags"] == [arxiv_daily.SUMMARY_FAILURE_TAG]
 
 
 # ===========================================================================
