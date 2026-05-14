@@ -69,7 +69,7 @@ def match_llm_results(
 
 *Architect 寄语：以下任务已就绪，请 Executor 严格按照顺序和规范执行。*
 
-#### [TASK ID: 001] [状态: OPEN]
+#### [TASK ID: 001] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `MatchDiagnostics` 定义（在 `BatchProcessResult` 附近）
 - **目标描述**: 新增 `MatchDiagnostics` dataclass
 - **前置依赖**: 无
@@ -77,6 +77,8 @@ def match_llm_results(
   1. 在 `BatchProcessResult` 定义之后新增 `MatchDiagnostics` dataclass，字段如上述接口定义
   2. 包含 `total_failed` 和 `all_failed_ids` 两个 property
   3. 仅新增定义，不修改现有代码
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py` 的 `BatchProcessResult` 定义之后新增 `MatchDiagnostics` dataclass，包含 `missing_ids`、`duplicate_ids`、`quality_failed` 字段，以及 `total_failed` 和 `all_failed_ids` 两个 property；未修改任何现有匹配逻辑或调用方。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接断言 `MatchDiagnostics.total_failed` 与 `all_failed_ids` 聚合结果通过。
 
 #### [TASK ID: 002] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `match_llm_results` 函数

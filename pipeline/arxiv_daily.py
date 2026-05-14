@@ -103,6 +103,23 @@ class BatchProcessResult:
     failed: bool
 
 
+@dataclass
+class MatchDiagnostics:
+    missing_ids: list[str]
+    duplicate_ids: list[str]
+    quality_failed: list[dict]
+
+    @property
+    def total_failed(self) -> int:
+        return len(self.missing_ids) + len(self.duplicate_ids) + len(self.quality_failed)
+
+    @property
+    def all_failed_ids(self) -> list[str]:
+        return self.missing_ids + self.duplicate_ids + [
+            failure["id"] for failure in self.quality_failed
+        ]
+
+
 @dataclass(frozen=True)
 class LlmConfig:
     api_key: str
