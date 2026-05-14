@@ -115,7 +115,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py:_process_batch`：将 `match_llm_results` 返回值解构为 `matched, diagnostics`；使用 `diagnostics.total_failed` 判断失败；新增 `_format_match_failures(diagnostics)` 生成仅包含非零分类的 stderr 失败摘要；`_unresolved_papers` 增加可选 `failed_ids` 参数，并在 `_process_batch` 中使用 `diagnostics.all_failed_ids` 过滤 unresolved paper，保持旧调用兼容。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证 `_process_batch` 在 missing/duplicate/quality 混合失败时输出 `FAILED (1 missing, 1 duplicate, 1 quality)`，且 unresolved 仅包含诊断失败 ID 通过。未运行全量 pytest，因为 TASK 004/005 尚未适配缓存路径和旧测试，当前仍处于接口迁移中间态。
 
-#### [TASK ID: 004] [状态: OPEN]
+#### [TASK ID: 004] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `run_phase2` 中对 cached batch 的 `match_llm_results` 调用
 - **目标描述**: 适配 `run_phase2` 中缓存路径的返回值解构
 - **前置依赖**: TASK 002
@@ -123,6 +123,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
   1. 将 `matched, unmatched = match_llm_results(...)` 改为 `matched, diagnostics = match_llm_results(...)`
   2. 用 `diagnostics.total_failed` 替代 `unmatched` 判断
   3. stderr 中 `cached ({unmatched} unmatched)` 改为 `cached ({diagnostics.total_failed} failed)` 或细分显示
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py:run_phase2` 的缓存命中路径：将 `match_llm_results` 返回值解构为 `matched, diagnostics`；使用 `diagnostics.total_failed` 判断缓存结果是否仍需 retry；stderr 状态从 `cached ({unmatched} unmatched)` 改为 `cached failed ({_format_match_failures(diagnostics)})`，与 `_process_batch` 的细分显示保持一致；failed batch 也改为使用 `diagnostics.all_failed_ids` 过滤 unresolved paper。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证 cached batch 同时存在 missing/duplicate 时输出 `batch_001 cached failed (1 missing, 1 duplicate)` 且 stderr 不再包含 `unmatched` 通过。未运行全量 pytest，因为 TASK 005 尚未适配旧测试断言，当前仍处于接口迁移中间态。
 
 #### [TASK ID: 005] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/tests/test_arxiv_daily.py`

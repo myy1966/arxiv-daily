@@ -1039,14 +1039,22 @@ def run_phase2(
 
         if batch_num in cached_batches:
             cached = cached_batches[batch_num]
-            matched, unmatched = match_llm_results(batch, cached.get("papers", []), logger, batch_num, cached, debug_dir, batch_label=blabel)
+            matched, diagnostics = match_llm_results(
+                batch, cached.get("papers", []), logger, batch_num, cached, debug_dir, batch_label=blabel
+            )
             results_by_id.update(matched)
             if cached.get("current_tags"):
                 current_tags = cached["current_tags"]
-            status = "cached" if unmatched == 0 else f"cached ({unmatched} unmatched)"
+            status = (
+                "cached"
+                if diagnostics.total_failed == 0
+                else f"cached failed ({_format_match_failures(diagnostics)})"
+            )
             print(f"[{batch_num}/{total}] {blabel} {status}", file=sys.stderr)
-            if unmatched > 0:
-                failed_batches.append((idx, _unresolved_papers(batch, matched)))
+            if diagnostics.total_failed > 0:
+                failed_batches.append(
+                    (idx, _unresolved_papers(batch, matched, diagnostics.all_failed_ids))
+                )
             continue
 
         processed = _process_batch(
