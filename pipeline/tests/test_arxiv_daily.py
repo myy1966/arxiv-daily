@@ -1557,9 +1557,7 @@ class TestMainCli:
         monkeypatch.delenv("ARXIV_UPDATE_MODEL", raising=False)
         monkeypatch.setattr("sys.argv", ["arxiv_daily.py", "cs.AI", "--output", "/tmp/out", "--tags", "/tmp/tags.json"])
 
-        with pytest.raises(SystemExit) as exc_info:
-            arxiv_daily.main()
-        assert exc_info.value.code == 2
+        assert arxiv_daily.main() == 2
 
     def test_main_passes_llm_config_to_normal_mode(self, monkeypatch, tmp_path):
         captured = {}
@@ -1575,10 +1573,11 @@ class TestMainCli:
 
         def fake_run_normal_mode(args, logger, cache_base, llm_config):
             captured["llm_config"] = llm_config
+            return arxiv_daily.RunResult({"ok": True})
 
         monkeypatch.setattr(arxiv_daily, "run_normal_mode", fake_run_normal_mode)
 
-        arxiv_daily.main()
+        assert arxiv_daily.main() == 0
 
         assert captured["llm_config"] == arxiv_daily.LlmConfig(
             api_key="test-key",
@@ -1602,10 +1601,11 @@ class TestMainCli:
 
         def fake_run_patch_mode(args, logger, cache_base, llm_config):
             captured["llm_config"] = llm_config
+            return arxiv_daily.RunResult({"ok": True})
 
         monkeypatch.setattr(arxiv_daily, "run_patch_mode", fake_run_patch_mode)
 
-        arxiv_daily.main()
+        assert arxiv_daily.main() == 0
 
         assert captured["llm_config"] == arxiv_daily.LlmConfig(
             api_key="test-key",
@@ -1638,9 +1638,7 @@ class TestMainCli:
             "--cache-dir", str(cache_dir),
         ])
 
-        with pytest.raises(SystemExit) as exc_info:
-            arxiv_daily.main()
-        assert exc_info.value.code == 0
+        assert arxiv_daily.main() == 0
 
         # Verify markdown output
         md_files = list(output_dir.glob("*.md"))
@@ -1716,10 +1714,7 @@ class TestMainCli:
             lambda *args, **kwargs: pytest.fail("existing HTML archive should not be rewritten"),
         )
 
-        with pytest.raises(SystemExit) as exc_info:
-            arxiv_daily.main()
-
-        assert exc_info.value.code == 0
+        assert arxiv_daily.main() == 0
         captured = capsys.readouterr()
         assert "--date mode overwriting existing output" in captured.err
         log_text = (cache_dir / "arxiv_daily.log").read_text(encoding="utf-8")
@@ -1739,9 +1734,7 @@ class TestMainCli:
             "--date", "2099-01-01",
             "--cache-dir", str(cache_dir),
         ])
-        with pytest.raises(SystemExit) as exc_info:
-            arxiv_daily.main()
-        assert exc_info.value.code == 2
+        assert arxiv_daily.main() == 2
 
     def test_date_mismatch(self, monkeypatch, tmp_path, sample_listing_html):
         """Page date != --date should exit with code 2."""
@@ -1762,9 +1755,7 @@ class TestMainCli:
             "--date", "2025-04-12",
             "--cache-dir", str(cache_dir),
         ])
-        with pytest.raises(SystemExit) as exc_info:
-            arxiv_daily.main()
-        assert exc_info.value.code == 2
+        assert arxiv_daily.main() == 2
 
     def test_patch_without_date(self, monkeypatch, tmp_path):
         """--patch without --date should exit with code 2."""
@@ -1778,9 +1769,7 @@ class TestMainCli:
             "--patch", "2604.06189",
             "--cache-dir", str(tmp_path / "cache"),
         ])
-        with pytest.raises(SystemExit) as exc_info:
-            arxiv_daily.main()
-        assert exc_info.value.code == 2
+        assert arxiv_daily.main() == 2
 
     def test_patch_warns_for_missing_abstract(self, monkeypatch, tmp_path, capsys):
         """Patch mode should diagnose parsed target papers without abstracts."""
@@ -1834,10 +1823,7 @@ class TestMainCli:
         )
         monkeypatch.setattr(arxiv_daily, "patch_markdown", lambda *args, **kwargs: 1)
 
-        with pytest.raises(SystemExit) as exc_info:
-            arxiv_daily.main()
-
-        assert exc_info.value.code == 0
+        assert arxiv_daily.main() == 0
         captured = capsys.readouterr()
         assert "missing abstract: 2604.06189" in captured.err
         log_text = (cache_dir / "arxiv_daily.log").read_text(encoding="utf-8")
