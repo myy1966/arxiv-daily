@@ -157,7 +157,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py`：新增 `validate_env() -> LlmConfig` 并将缺失环境变量转换为 `ConfigError`；重写 `main() -> int`，由入口统一构造 `LlmConfig`、初始化 logger、调用 patch/normal mode、打印 `RunResult.summary` 并返回 `RunResult.exit_code`；`except ArxivDailyError` 统一输出 `Error:` 与 `Log:` 并返回异常 exit code；文件末尾改为 `sys.exit(main())`。已移除 `run_patch_mode` 和 `run_normal_mode` 内部 stdout JSON 输出，并将 fatal error stderr 收敛到 `main()`，避免同一错误重复打印；保留进度和 warning stderr。同步更新 `arxiv-update/scripts/tests/test_arxiv_daily.py::TestMainCli` 断言以匹配 `main() -> int` 接口。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMainCli -q` 通过，9 passed；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，136 passed, 1 xfailed。
 
-#### [TASK ID: 005] [状态: OPEN]
+#### [TASK ID: 005] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` 全文
 - **目标描述**: 验证无残留 `sys.exit` 调用，确认行为等价
 - **前置依赖**: TASK 004
@@ -166,6 +166,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
   2. 如果 `sys` 模块不再有其他用途（`sys.stderr` 仍在用），保留 import
   3. 运行 `python3 -c "import arxiv_daily"` 确认无语法错误（注意：不要实际执行 main，仅 import 检查）
   4. 确认 stderr 输出格式与重构前一致（人类需确认此点）
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。本项为验证任务，未修改源码。`grep -n "sys.exit" arxiv_daily.py` 仅返回 `1560:    sys.exit(main())`，确认全文只剩入口处单出口调用；`sys` 仍用于 `sys.stderr` 和入口 `sys.exit(main())`，保留 import；`python3 -c "import arxiv_daily"` 成功，未执行 main。stderr 输出格式已通过 `tests/test_arxiv_daily.py::TestMainCli` 覆盖主要成功、错误、warning 路径；任务要求中的“人类需确认”部分无法由 Executor 自动完成，已保留为人工最终验收事项。验证：`grep -n "sys.exit" arxiv_daily.py` 通过；`python3 -c "import arxiv_daily"` 通过；`python3 -m py_compile arxiv_daily.py tests/test_arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMainCli -q` 通过，9 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，136 passed, 1 xfailed。
 
 ## 4. 最终决策 (Final Decision)
 
