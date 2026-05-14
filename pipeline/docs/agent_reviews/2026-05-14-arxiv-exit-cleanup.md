@@ -1,7 +1,7 @@
 ---
 title: "arxiv_daily.py sys.exit 散落重构"
 date: "2026-05-14"
-status: "PLANNING_COMPLETE"
+status: "PASS"
 ---
 
 ## 1. 元数据 (Metadata)
@@ -169,6 +169,42 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。本项为验证任务，未修改源码。`grep -n "sys.exit" arxiv_daily.py` 仅返回 `1560:    sys.exit(main())`，确认全文只剩入口处单出口调用；`sys` 仍用于 `sys.stderr` 和入口 `sys.exit(main())`，保留 import；`python3 -c "import arxiv_daily"` 成功，未执行 main。stderr 输出格式已通过 `tests/test_arxiv_daily.py::TestMainCli` 覆盖主要成功、错误、warning 路径；任务要求中的“人类需确认”部分无法由 Executor 自动完成，已保留为人工最终验收事项。验证：`grep -n "sys.exit" arxiv_daily.py` 通过；`python3 -c "import arxiv_daily"` 通过；`python3 -m py_compile arxiv_daily.py tests/test_arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMainCli -q` 通过，9 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，136 passed, 1 xfailed。
 
+### [Round 2]
+- **Reviewer**:
+  - **状态判决**: `[STATUS: PASS]`
+  - **审查摘要**:
+    重构目标完全达成：18 处散落的 `sys.exit()` 已被替换为自定义异常体系，`main()` 作为唯一出口处统一捕获异常并返回进程退出码。代码结构清晰，异常层级语义明确，测试覆盖充分（136 passed, 1 xfailed）。
+  - **[ISSUE ID: 001] (Advisory, non-blocking)**:
+    - **定位**: `arxiv-update/scripts/arxiv_daily.py:run_normal_mode` L1381
+    - **问题描述**: `raise FetchError(f"Failed to fetch arxiv page: {e}")` 丢失原始异常的 traceback。应使用 `raise ... from e` 语法保留异常链，便于 debug 时在日志中追踪原始堆栈。
+    - **修复指令**: 改为 `raise FetchError(f"Failed to fetch arxiv page: {e}") from e`
+    - **前置依赖**: 无
+    - **严重程度**: 低。当前 `main()` 中 `except ArxivDailyError` 只打印 message 不打印 traceback，因此实际用户可见行为不受影响。但作为可维护性最佳实践，建议后续补上。此 Issue 不阻塞合并。
+  - **回应 Executor**: 所有 5 个 TASK 的实现符合设计预期，测试断言已正确从 `pytest.raises(SystemExit)` 迁移为直接断言 `main()` 返回值，接口清晰。
+  - **Issue 优先级与依赖总表**:
+    | Issue | 优先级 | 阻塞合并 | 前置依赖 |
+    |-------|--------|----------|----------|
+    | 001   | Low    | 否       | 无       |
+
+  - **综合评价**:
+    - 异常层级设计合理，`exit_code` 作为类属性而非实例属性，简洁且不易出错。
+    - `RunResult` dataclass 提供了清晰的返回值契约。
+    - `validate_env()` 的提取使环境校验逻辑可独立测试。
+    - stderr 输出格式在 `main()` 中统一为 `Error: ...` + `Log: ...`，一致性良好。
+    - 未引入不必要的抽象或过度工程。
+
+> **本项目无 AGENTS.md 规范文件，以通用最佳实践为准。** Issue 001 基于 Python 异常链最佳实践（PEP 3134），非项目强制约定。
+
+#### [TASK ID: 006] [状态: PENDING]
+- **定位**: `arxiv-update/scripts/arxiv_daily.py:run_normal_mode` L1379-1381
+- **目标描述**: 为 `raise FetchError(...)` 补充异常链（`from e`），保留原始异常的 traceback
+- **前置依赖**: 无
+- **执行指令与限制**:
+  1. 将 L1381 的 `raise FetchError(f"Failed to fetch arxiv page: {e}")` 改为 `raise FetchError(f"Failed to fetch arxiv page: {e}") from e`
+  2. 检查全文件是否有其他 `except ... as e:` + `raise XxxError(...)` 的模式遗漏了 `from e`，如有一并补上
+  3. 运行 `python3 -m py_compile arxiv_daily.py` 确认无语法错误
+  4. 运行测试确认无回归
+
 ## 4. 最终决策 (Final Decision)
 
-（由 Reviewer 在最终判决 PASS 时填写）
+- **决策记录**: 代码审查通过，可合并。重构完整实现了异常驱动单出口模式，消除了全部散落的 `sys.exit()` 调用，测试全部通过且覆盖了主要成功/失败/跳过路径。Advisory Issue 001（`raise ... from e`）建议后续 PR 补上，不阻塞本次合并。
