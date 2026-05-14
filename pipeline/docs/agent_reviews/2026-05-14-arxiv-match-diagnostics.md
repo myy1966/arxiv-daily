@@ -1,7 +1,7 @@
 ---
 title: "match_llm_results 错误诊断细分"
 date: "2026-05-14"
-status: "PLANNING_COMPLETE"
+status: "PASS"
 ---
 
 ## 1. 元数据 (Metadata)
@@ -150,6 +150,31 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。验证时发现 `match_llm_results` 中仍有 `unmatched_batch` / `unmatched_llm_ids` 局部变量名残留；已将局部变量改为 `id_mismatch_batch_ids` 和 `remaining_llm_ids`，保留 debug JSON 的 `unmatched_batch_ids` / `unmatched_llm_ids` 字段以满足 TASK 002 的兼容性要求。`grep -n "unmatched" arxiv_daily.py` 现在仅返回这两个兼容 debug JSON 字段；旧变量名、解构和判断逻辑均已迁移到 `diagnostics`。验证：`python3 -m py_compile arxiv_daily.py tests/test_arxiv_daily.py` 通过；`rg -n "matched, unmatched|unmatched =|unmatched >|unmatched ==|unmatched_count|unmatched_batch|unmatched_llm" arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 仅返回兼容 JSON 字段；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，139 passed, 1 xfailed。
 
+### [Round 2]
+- **Reviewer**:
+  - **状态判决**: `[STATUS: PASS]`
+  - **审查摘要**:
+    重构目标完全达成。`match_llm_results` 从返回 `(dict, int)` 升级为 `(dict, MatchDiagnostics)`，三类错误（missing / duplicate / quality）清晰分离；重复 ID 不再被字典覆盖静默"最后一个胜出"，而是直接拒绝匹配；所有调用方（`_process_batch`、`run_phase2` 缓存路径）已适配；测试从 136 增至 139 passed，新增 3 个诊断专项用例，旧 `test_duplicate_ids_tolerated` 正确更新为 `test_duplicate_ids_are_rejected`。
+  - **[ISSUE ID: 001] (Advisory, non-blocking)**:
+    - **定位**: `arxiv-update/scripts/arxiv_daily.py:match_llm_results` L623-627
+    - **问题描述**: `duplicate_norm_set` 的构建逻辑是将所有 `duplicate_set` 中的 ID 归一化后加入集合。如果两个不同 ID（如 `2604.00001v1` 和 `2604.00001v2`）各出现一次，归一化后相同（`2604.00001`），但由于原始 ID 不同，不会被 `llm_id_counts` 检测为重复。这是可接受的——归一化冲突属于"不同论文"，不是 LLM 输出重复。但如果同一归一化 ID 对应的两个版本号分别出现，当前逻辑不会将其视为重复。这是设计决策，非 bug，仅标注为已知行为边界。
+    - **严重程度**: 信息性。不阻塞合并。
+  - **回应 Executor**: 所有 6 个 TASK 的实现符合设计预期。TASK 006 中 Executor 主动将 `unmatched_batch` / `unmatched_llm_ids` 局部变量重命名为 `id_mismatch_batch_ids` / `remaining_llm_ids`，同时保留 debug JSON 的兼容字段，处理得当。
+  - **Issue 优先级与依赖总表**:
+    | Issue | 优先级 | 阻塞合并 | 前置依赖 |
+    |-------|--------|----------|----------|
+    | 001   | Info   | 否       | 无       |
+
+  - **综合评价**:
+    - `MatchDiagnostics` dataclass 设计简洁，`total_failed` 和 `all_failed_ids` property 避免了调用方重复计算。
+    - `_format_match_failures` 生成仅含非零项的摘要字符串，用户可见信息精准。
+    - `_unresolved_papers` 新增 `failed_ids` 参数保持了向后兼容，同时允许精确过滤。
+    - `duplicate_set` 排除逻辑正确修复了原始 bug（`llm_by_id[pid] = i` 字典覆盖）。
+    - debug JSON 保留 `unmatched_batch_ids` / `unmatched_llm_ids` 兼容字段，同时新增 `diagnostics` 细分，对外部工具友好。
+    - 测试覆盖充分，139 passed, 1 xfailed。
+
+> **本项目无 AGENTS.md 规范文件，以通用最佳实践为准。** Issue 001 为设计边界备注，非基于项目强制约定。
+
 ## 4. 最终决策 (Final Decision)
 
-（由 Reviewer 在最终判决 PASS 时填写）
+- **决策记录**: 代码审查通过，可合并。`match_llm_results` 成功从笼统的 unmatched 计数升级为结构化诊断，修复了重复 ID 静默覆盖的 bug，调用方全部适配，测试全部通过。Advisory Issue 001 为已知行为边界备注，不需修改。
