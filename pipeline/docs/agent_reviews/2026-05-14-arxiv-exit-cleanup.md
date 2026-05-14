@@ -120,7 +120,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py:run_normal_mode`：函数签名改为 `-> RunResult`；保存 HTML 缺失、解析失败、日期不匹配、格式不可识别等路径改为 `ParseError`；抓取失败改为 `FetchError`；日期参数格式错误改为 `ConfigError`；LLM batch 失败改为 `PipelineError`；skipped 和成功路径返回 `RunResult(summary)`。已移除该函数内 `log_path` 引用和 `Log:` stderr 行，同时保留现有用户可见进度、警告和错误 stderr。未移除 stdout JSON 输出，因为统一 stdout 输出迁移属于 TASK 004 范围。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证缺失保存 HTML 抛 `ParseError`、fetch 失败抛 `FetchError`、skipped 路径返回 `RunResult(exit_code=0)` 且不输出 `Log:` 通过。
 
-#### [TASK ID: 004] [状态: OPEN]
+#### [TASK ID: 004] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `main` 函数
 - **目标描述**: 重写 `main()` 为统一异常捕获 + 单出口模式
 - **前置依赖**: TASK 002, TASK 003
@@ -154,6 +154,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
      ```
   4. 将原 `main()` 中环境变量校验逻辑提取为 `validate_env() -> LlmConfig`，校验失败 raise `ConfigError`
   5. **注意**：`run_patch_mode` 和 `run_normal_mode` 内部已有 `print(json.dumps(summary))` 的 stdout 输出——重构后应移除函数内的 stdout JSON 输出，改由 `main()` 统一 `print(json.dumps(result.summary))`
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py`：新增 `validate_env() -> LlmConfig` 并将缺失环境变量转换为 `ConfigError`；重写 `main() -> int`，由入口统一构造 `LlmConfig`、初始化 logger、调用 patch/normal mode、打印 `RunResult.summary` 并返回 `RunResult.exit_code`；`except ArxivDailyError` 统一输出 `Error:` 与 `Log:` 并返回异常 exit code；文件末尾改为 `sys.exit(main())`。已移除 `run_patch_mode` 和 `run_normal_mode` 内部 stdout JSON 输出，并将 fatal error stderr 收敛到 `main()`，避免同一错误重复打印；保留进度和 warning stderr。同步更新 `arxiv-update/scripts/tests/test_arxiv_daily.py::TestMainCli` 断言以匹配 `main() -> int` 接口。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMainCli -q` 通过，9 passed；`cd arxiv-update/scripts && ./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，136 passed, 1 xfailed。
 
 #### [TASK ID: 005] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` 全文
