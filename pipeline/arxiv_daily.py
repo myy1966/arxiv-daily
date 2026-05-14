@@ -1267,10 +1267,10 @@ def patch_markdown(md_path: Path, results_by_id: dict[str, dict], logger: loggin
 # Main
 # ---------------------------------------------------------------------------
 
-def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: LlmConfig) -> None:
+def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: LlmConfig) -> RunResult:
     if not args.date:
         print("Error: --patch requires --date", file=sys.stderr)
-        sys.exit(2)
+        raise ConfigError("--patch requires --date")
 
     logger.info(f"[Patch] Starting patch for field={args.field} date={args.date} ids={args.patch}")
 
@@ -1279,7 +1279,7 @@ def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: L
     saved_path = pages_dir / f"{args.date}.html"
     if not saved_path.exists():
         print(f"Error: No saved HTML for date {args.date} at {saved_path}", file=sys.stderr)
-        sys.exit(2)
+        raise ParseError(f"No saved HTML for date {args.date} at {saved_path}")
     html = saved_path.read_text(encoding="utf-8")
     full_data = parse_html(html, args.field)
 
@@ -1296,7 +1296,7 @@ def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: L
         print(f"Warning: Papers not found in HTML: {', '.join(sorted(missing_ids))}", file=sys.stderr)
     if not patch_papers:
         print("Error: No matching papers found in saved HTML", file=sys.stderr)
-        sys.exit(2)
+        raise ParseError("No matching papers found in saved HTML")
 
     papers_without_abstract = [p for p in patch_papers if not p.get("abstract")]
     if papers_without_abstract:
@@ -1332,14 +1332,14 @@ def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: L
 
     if not results_by_id:
         print("Error: No papers successfully matched from LLM response", file=sys.stderr)
-        sys.exit(1)
+        raise PipelineError("No papers successfully matched from LLM response")
 
     # Patch markdown
     output_dir = Path(args.output)
     md_path = output_dir / f"{args.date}-{args.field}.md"
     if not md_path.exists():
         print(f"Error: Markdown file not found: {md_path}", file=sys.stderr)
-        sys.exit(2)
+        raise ConfigError(f"Markdown file not found: {md_path}")
 
     patched = patch_markdown(md_path, results_by_id, logger)
     total_failed = len(patch_ids) - len(results_by_id)
@@ -1356,7 +1356,7 @@ def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: L
         "failed": total_failed,
     }
     print(json.dumps(summary, ensure_ascii=False))
-    sys.exit(0 if total_failed == 0 else 1)
+    return RunResult(summary, exit_code=0 if total_failed == 0 else 1)
 
 
 def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: LlmConfig) -> None:

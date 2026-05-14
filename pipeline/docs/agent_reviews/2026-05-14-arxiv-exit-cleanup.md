@@ -88,7 +88,7 @@ def main() -> int:
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py` 的 `BATCH_SIZE` 常量之前新增 `ArxivDailyError`、`ConfigError`、`FetchError`、`ParseError`、`PipelineError` 异常层级，以及 `RunResult(summary: dict, exit_code: int = 0)` dataclass；未修改任何现有逻辑。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过。
 
-#### [TASK ID: 002] [状态: OPEN]
+#### [TASK ID: 002] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `run_patch_mode` 函数
 - **目标描述**: 将 `run_patch_mode` 中的 4 处 `sys.exit()` 替换为 raise 或 return
 - **前置依赖**: TASK 001
@@ -99,6 +99,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
   4. 末尾 `sys.exit(0 if total_failed == 0 else 1)` 改为 `return RunResult(summary, exit_code=0 if total_failed == 0 else 1)`
   5. 移除函数内所有 `print(..., file=sys.stderr)` 中的 `f"Log: {log_path}"` 行（日志路径由 main 统一输出）
   6. **必须保留** stderr 的用户可见错误/警告信息（只是不再自行 exit）
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py:run_patch_mode`：函数签名改为 `-> RunResult`；函数内全部 `sys.exit()` 均替换为 `ConfigError`、`ParseError`、`PipelineError` 或最终 `RunResult(summary, exit_code=...)` 返回；保留现有 stderr 用户可见错误/警告信息。实现中实际发现 6 处 `sys.exit()`，多于任务描述的 4 处，已按任务目标语义全部清除。未移除 stdout JSON 输出，因为统一 stdout 输出迁移属于 TASK 004 范围。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证 patch mode 缺少 `--date` 时抛出 `ConfigError` 且保留 stderr、成功路径返回 `RunResult` 通过。
 
 #### [TASK ID: 003] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `run_normal_mode` 函数
