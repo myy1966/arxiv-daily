@@ -608,13 +608,13 @@ def match_llm_results(
     batch: list[dict], llm_papers: list[dict], logger: logging.Logger, batch_num: int,
     raw_result: dict | None = None, debug_dir: Path | None = None,
     batch_label: str | None = None, attempt: int = 0,
-) -> tuple[dict[str, dict], int]:
-    """Match LLM results to batch papers. Returns ({paper_id: {summary, tags, venue}}, unmatched_count).
+) -> tuple[dict[str, dict], MatchDiagnostics]:
+    """Match LLM results to batch papers and return structured diagnostics.
 
     Strategy:
     1. Try exact ID match first
     2. Try normalized ID match (strip version suffix like v1, v2)
-    3. Fall back to positional matching for remaining unmatched papers
+    3. Report missing, duplicate, and quality failures separately
     """
     label = batch_label or f"batch_{batch_num:03d}"
     log_label = batch_label or f"Batch {batch_num:03d}"
@@ -623,13 +623,23 @@ def match_llm_results(
     batch_ids = [p["id"] for p in batch]
     used_llm_indices: set[int] = set()
 
-    # Build lookup by exact and normalized ID
+    # Build lookup by exact and normalized ID. Duplicate IDs are excluded so
+    # they are never silently resolved by "last write wins" dictionary behavior.
+    llm_id_counts: dict[str, int] = {}
+    for p in llm_papers:
+        pid = p.get("id", "")
+        llm_id_counts[pid] = llm_id_counts.get(pid, 0) + 1
+    duplicate_set = {pid for pid, count in llm_id_counts.items() if count >= 2}
+    duplicate_norm_set = {re.sub(r"v\d+$", "", pid) for pid in duplicate_set}
+
     llm_by_id: dict[str, int] = {}
     llm_by_norm: dict[str, int] = {}
     for i, p in enumerate(llm_papers):
         pid = p.get("id", "")
-        llm_by_id[pid] = i
         norm = re.sub(r"v\d+$", "", pid)
+        if pid in duplicate_set or norm in duplicate_norm_set:
+            continue
+        llm_by_id[pid] = i
         llm_by_norm[norm] = i
 
     # Pass 1: exact match
@@ -663,7 +673,16 @@ def match_llm_results(
                     f"[Phase2] {log_label}: matched {batch_id} to LLM id {p.get('id', '')} by normalization"
                 )
 
-    # Pass 3: quality check - remove papers with missing tags or short summary
+    # Pass 3: duplicate IDs corresponding to batch papers
+    duplicate_ids = []
+    for batch_id in batch_ids:
+        if batch_id in results:
+            continue
+        norm = re.sub(r"v\d+$", "", batch_id)
+        if batch_id in duplicate_set or norm in duplicate_norm_set:
+            duplicate_ids.append(batch_id)
+
+    # Pass 4: quality check - remove papers with missing tags or short summary
     quality_failures: list[dict] = []
     for bid in list(results.keys()):
         r = results[bid]
@@ -675,9 +694,32 @@ def match_llm_results(
         if issues:
             quality_failures.append({"id": bid, "issues": issues, "result": r})
             del results[bid]
+
+    missing_ids = [
+        bid for bid in batch_ids
+        if bid not in results
+        and bid not in duplicate_ids
+        and bid not in {qf["id"] for qf in quality_failures}
+    ]
+    diagnostics = MatchDiagnostics(
+        missing_ids=missing_ids,
+        duplicate_ids=duplicate_ids,
+        quality_failed=quality_failures,
+    )
+
+    if missing_ids:
+        logger.error(
+            f"[Phase2] {log_label}: {len(missing_ids)} papers ID not found in LLM response: "
+            f"{missing_ids}"
+        )
+    if duplicate_ids:
+        logger.error(
+            f"[Phase2] {log_label}: {len(duplicate_ids)} papers ID duplicated in LLM response: "
+            f"{duplicate_ids}"
+        )
     if quality_failures:
         logger.error(
-            f"[Phase2] {log_label}: {len(quality_failures)} papers failed quality check: "
+            f"[Phase2] {log_label}: {len(quality_failures)} papers quality check failed: "
             + ", ".join(f"{qf['id']}({', '.join(qf['issues'])})" for qf in quality_failures)
         )
         if debug_dir is not None and raw_result is not None:
@@ -687,22 +729,22 @@ def match_llm_results(
                 "batch_input_ids": batch_ids,
                 "quality_failures": quality_failures,
                 "llm_response": raw_result,
+                "diagnostics": {
+                    "missing_ids": diagnostics.missing_ids,
+                    "duplicate_ids": diagnostics.duplicate_ids,
+                    "quality_failed": diagnostics.quality_failed,
+                },
             }
             with open(debug_path, "w", encoding="utf-8") as f:
                 json.dump(debug_data, f, ensure_ascii=False, indent=2)
             logger.error(f"[Phase2] {log_label} quality debug saved to {debug_path}")
 
-    # Pass 4: report unmatched papers (excluding quality failures already reported)
-    quality_failed_ids = {qf["id"] for qf in quality_failures}
-    unmatched_batch = [bid for bid in batch_ids if bid not in results and bid not in quality_failed_ids]
+    # Pass 5: write ID mismatch debug info
+    unmatched_batch = missing_ids + duplicate_ids
     if unmatched_batch:
         unmatched_llm_ids = [
             llm_papers[i].get("id", "?") for i in range(len(llm_papers)) if i not in used_llm_indices
         ]
-        logger.error(
-            f"[Phase2] {log_label}: {len(unmatched_batch)} papers unmatched "
-            f"(batch IDs: {unmatched_batch}, LLM IDs: {unmatched_llm_ids})"
-        )
         if debug_dir is not None and raw_result is not None:
             debug_dir.mkdir(parents=True, exist_ok=True)
             debug_path = debug_dir / f"{label}_id_mismatch{attempt_suffix}.json"
@@ -715,12 +757,17 @@ def match_llm_results(
                 "llm_response": raw_result,
                 "unmatched_batch_ids": unmatched_batch,
                 "unmatched_llm_ids": unmatched_llm_ids,
+                "diagnostics": {
+                    "missing_ids": diagnostics.missing_ids,
+                    "duplicate_ids": diagnostics.duplicate_ids,
+                    "quality_failed": diagnostics.quality_failed,
+                },
             }
             with open(debug_path, "w", encoding="utf-8") as f:
                 json.dump(debug_data, f, ensure_ascii=False, indent=2)
             logger.error(f"[Phase2] {log_label} debug info saved to {debug_path}")
 
-    return results, len(unmatched_batch) + len(quality_failures)
+    return results, diagnostics
 
 
 def compute_metadata_hash(data: dict) -> str:

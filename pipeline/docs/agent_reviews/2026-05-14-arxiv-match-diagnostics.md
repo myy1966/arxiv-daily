@@ -80,7 +80,7 @@ def match_llm_results(
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py` 的 `BatchProcessResult` 定义之后新增 `MatchDiagnostics` dataclass，包含 `missing_ids`、`duplicate_ids`、`quality_failed` 字段，以及 `total_failed` 和 `all_failed_ids` 两个 property；未修改任何现有匹配逻辑或调用方。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接断言 `MatchDiagnostics.total_failed` 与 `all_failed_ids` 聚合结果通过。
 
-#### [TASK ID: 002] [状态: OPEN]
+#### [TASK ID: 002] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `match_llm_results` 函数
 - **目标描述**: 重构匹配逻辑，检测重复 ID 并返回 `MatchDiagnostics`
 - **前置依赖**: TASK 001
@@ -98,6 +98,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
      - `[Phase2] {label}: {n} papers quality check failed: [id(issues)...]`
   9. **debug JSON**: 保留原有 `unmatched_batch_ids` 字段（= missing + duplicate 合集），新增 `diagnostics` 字段包含三类明细
   10. **不要**对重复 ID 尝试启发式选择，直接拒绝匹配
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已重构 `arxiv-update/scripts/arxiv_daily.py:match_llm_results`：返回类型改为 `(matched, MatchDiagnostics)`；构建 LLM ID 计数并将重复 ID 从精确/归一化索引中排除，避免重复 ID 被字典覆盖为“最后一个胜出”；重复 ID 对应的 batch paper 直接归入 `diagnostics.duplicate_ids`，不做启发式选择；质量失败归入 `diagnostics.quality_failed`；其余未匹配归入 `diagnostics.missing_ids`。日志已按 missing、duplicate、quality 三类分别输出；ID mismatch debug JSON 保留 `unmatched_batch_ids` 字段并新增 `diagnostics` 字段，quality debug JSON 也包含同一诊断结构。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证 missing/duplicate/quality 三类诊断、`total_failed`、`all_failed_ids` 和归一化重复 ID 判定通过；`python3 - <<'PY' ... PY` 直接验证 debug JSON 保留 `unmatched_batch_ids` 并新增 `diagnostics` 通过。未运行全量 pytest，因为 TASK 003/004/005 尚未适配旧调用方和旧测试，当前处于接口迁移中间态。
 
 #### [TASK ID: 003] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `_process_batch` 函数
