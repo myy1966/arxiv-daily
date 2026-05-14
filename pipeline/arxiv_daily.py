@@ -103,6 +103,23 @@ class BatchProcessResult:
     failed: bool
 
 
+@dataclass
+class MatchDiagnostics:
+    missing_ids: list[str]
+    duplicate_ids: list[str]
+    quality_failed: list[dict]
+
+    @property
+    def total_failed(self) -> int:
+        return len(self.missing_ids) + len(self.duplicate_ids) + len(self.quality_failed)
+
+    @property
+    def all_failed_ids(self) -> list[str]:
+        return self.missing_ids + self.duplicate_ids + [
+            failure["id"] for failure in self.quality_failed
+        ]
+
+
 @dataclass(frozen=True)
 class LlmConfig:
     api_key: str
@@ -591,13 +608,13 @@ def match_llm_results(
     batch: list[dict], llm_papers: list[dict], logger: logging.Logger, batch_num: int,
     raw_result: dict | None = None, debug_dir: Path | None = None,
     batch_label: str | None = None, attempt: int = 0,
-) -> tuple[dict[str, dict], int]:
-    """Match LLM results to batch papers. Returns ({paper_id: {summary, tags, venue}}, unmatched_count).
+) -> tuple[dict[str, dict], MatchDiagnostics]:
+    """Match LLM results to batch papers and return structured diagnostics.
 
     Strategy:
     1. Try exact ID match first
     2. Try normalized ID match (strip version suffix like v1, v2)
-    3. Fall back to positional matching for remaining unmatched papers
+    3. Report missing, duplicate, and quality failures separately
     """
     label = batch_label or f"batch_{batch_num:03d}"
     log_label = batch_label or f"Batch {batch_num:03d}"
@@ -606,13 +623,23 @@ def match_llm_results(
     batch_ids = [p["id"] for p in batch]
     used_llm_indices: set[int] = set()
 
-    # Build lookup by exact and normalized ID
+    # Build lookup by exact and normalized ID. Duplicate IDs are excluded so
+    # they are never silently resolved by "last write wins" dictionary behavior.
+    llm_id_counts: dict[str, int] = {}
+    for p in llm_papers:
+        pid = p.get("id", "")
+        llm_id_counts[pid] = llm_id_counts.get(pid, 0) + 1
+    duplicate_set = {pid for pid, count in llm_id_counts.items() if count >= 2}
+    duplicate_norm_set = {re.sub(r"v\d+$", "", pid) for pid in duplicate_set}
+
     llm_by_id: dict[str, int] = {}
     llm_by_norm: dict[str, int] = {}
     for i, p in enumerate(llm_papers):
         pid = p.get("id", "")
-        llm_by_id[pid] = i
         norm = re.sub(r"v\d+$", "", pid)
+        if pid in duplicate_set or norm in duplicate_norm_set:
+            continue
+        llm_by_id[pid] = i
         llm_by_norm[norm] = i
 
     # Pass 1: exact match
@@ -646,7 +673,16 @@ def match_llm_results(
                     f"[Phase2] {log_label}: matched {batch_id} to LLM id {p.get('id', '')} by normalization"
                 )
 
-    # Pass 3: quality check - remove papers with missing tags or short summary
+    # Pass 3: duplicate IDs corresponding to batch papers
+    duplicate_ids = []
+    for batch_id in batch_ids:
+        if batch_id in results:
+            continue
+        norm = re.sub(r"v\d+$", "", batch_id)
+        if batch_id in duplicate_set or norm in duplicate_norm_set:
+            duplicate_ids.append(batch_id)
+
+    # Pass 4: quality check - remove papers with missing tags or short summary
     quality_failures: list[dict] = []
     for bid in list(results.keys()):
         r = results[bid]
@@ -658,9 +694,32 @@ def match_llm_results(
         if issues:
             quality_failures.append({"id": bid, "issues": issues, "result": r})
             del results[bid]
+
+    missing_ids = [
+        bid for bid in batch_ids
+        if bid not in results
+        and bid not in duplicate_ids
+        and bid not in {qf["id"] for qf in quality_failures}
+    ]
+    diagnostics = MatchDiagnostics(
+        missing_ids=missing_ids,
+        duplicate_ids=duplicate_ids,
+        quality_failed=quality_failures,
+    )
+
+    if missing_ids:
+        logger.error(
+            f"[Phase2] {log_label}: {len(missing_ids)} papers ID not found in LLM response: "
+            f"{missing_ids}"
+        )
+    if duplicate_ids:
+        logger.error(
+            f"[Phase2] {log_label}: {len(duplicate_ids)} papers ID duplicated in LLM response: "
+            f"{duplicate_ids}"
+        )
     if quality_failures:
         logger.error(
-            f"[Phase2] {log_label}: {len(quality_failures)} papers failed quality check: "
+            f"[Phase2] {log_label}: {len(quality_failures)} papers quality check failed: "
             + ", ".join(f"{qf['id']}({', '.join(qf['issues'])})" for qf in quality_failures)
         )
         if debug_dir is not None and raw_result is not None:
@@ -670,22 +729,22 @@ def match_llm_results(
                 "batch_input_ids": batch_ids,
                 "quality_failures": quality_failures,
                 "llm_response": raw_result,
+                "diagnostics": {
+                    "missing_ids": diagnostics.missing_ids,
+                    "duplicate_ids": diagnostics.duplicate_ids,
+                    "quality_failed": diagnostics.quality_failed,
+                },
             }
             with open(debug_path, "w", encoding="utf-8") as f:
                 json.dump(debug_data, f, ensure_ascii=False, indent=2)
             logger.error(f"[Phase2] {log_label} quality debug saved to {debug_path}")
 
-    # Pass 4: report unmatched papers (excluding quality failures already reported)
-    quality_failed_ids = {qf["id"] for qf in quality_failures}
-    unmatched_batch = [bid for bid in batch_ids if bid not in results and bid not in quality_failed_ids]
-    if unmatched_batch:
-        unmatched_llm_ids = [
+    # Pass 5: write ID mismatch debug info
+    id_mismatch_batch_ids = missing_ids + duplicate_ids
+    if id_mismatch_batch_ids:
+        remaining_llm_ids = [
             llm_papers[i].get("id", "?") for i in range(len(llm_papers)) if i not in used_llm_indices
         ]
-        logger.error(
-            f"[Phase2] {log_label}: {len(unmatched_batch)} papers unmatched "
-            f"(batch IDs: {unmatched_batch}, LLM IDs: {unmatched_llm_ids})"
-        )
         if debug_dir is not None and raw_result is not None:
             debug_dir.mkdir(parents=True, exist_ok=True)
             debug_path = debug_dir / f"{label}_id_mismatch{attempt_suffix}.json"
@@ -696,14 +755,19 @@ def match_llm_results(
                     for p in batch
                 ],
                 "llm_response": raw_result,
-                "unmatched_batch_ids": unmatched_batch,
-                "unmatched_llm_ids": unmatched_llm_ids,
+                "unmatched_batch_ids": id_mismatch_batch_ids,
+                "unmatched_llm_ids": remaining_llm_ids,
+                "diagnostics": {
+                    "missing_ids": diagnostics.missing_ids,
+                    "duplicate_ids": diagnostics.duplicate_ids,
+                    "quality_failed": diagnostics.quality_failed,
+                },
             }
             with open(debug_path, "w", encoding="utf-8") as f:
                 json.dump(debug_data, f, ensure_ascii=False, indent=2)
             logger.error(f"[Phase2] {log_label} debug info saved to {debug_path}")
 
-    return results, len(unmatched_batch) + len(quality_failures)
+    return results, diagnostics
 
 
 def compute_metadata_hash(data: dict) -> str:
@@ -721,8 +785,15 @@ def compute_metadata_hash(data: dict) -> str:
     return hashlib.sha256(json.dumps(hash_input, sort_keys=True).encode()).hexdigest()
 
 
-def _unresolved_papers(batch: list[dict], matched: dict[str, dict]) -> list[dict]:
+def _unresolved_papers(
+    batch: list[dict],
+    matched: dict[str, dict],
+    failed_ids: list[str] | None = None,
+) -> list[dict]:
     """Return batch papers that still lack an accepted LLM result."""
+    if failed_ids is not None:
+        failed_id_set = set(failed_ids)
+        return [paper for paper in batch if paper["id"] in failed_id_set]
     return [paper for paper in batch if paper["id"] not in matched]
 
 
@@ -751,6 +822,17 @@ def _format_usage(usage: dict) -> str:
     ct = usage.get("completion_tokens", 0)
     tt = usage.get("total_tokens", 0)
     return f", tokens: {pt}+{ct}={tt}"
+
+
+def _format_match_failures(diagnostics: MatchDiagnostics) -> str:
+    parts = []
+    if diagnostics.missing_ids:
+        parts.append(f"{len(diagnostics.missing_ids)} missing")
+    if diagnostics.duplicate_ids:
+        parts.append(f"{len(diagnostics.duplicate_ids)} duplicate")
+    if diagnostics.quality_failed:
+        parts.append(f"{len(diagnostics.quality_failed)} quality")
+    return ", ".join(parts)
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:
@@ -820,7 +902,7 @@ def _process_batch(
             messages, api_endpoint, api_key, model, logger, batch_num, debug_dir, batch_label=blabel
         )
 
-        matched, unmatched = match_llm_results(
+        matched, diagnostics = match_llm_results(
             batch, result.get("papers", []), logger, batch_num, result, debug_dir, batch_label=blabel
         )
 
@@ -831,12 +913,17 @@ def _process_batch(
 
         elapsed = time.monotonic() - t0
         usage_str = _format_usage(usage)
-        if unmatched > 0:
+        if diagnostics.total_failed > 0:
+            failure_summary = _format_match_failures(diagnostics)
             print(
-                f"[{batch_num}/{total}] {blabel} FAILED ({unmatched} unmatched) ({elapsed:.1f}s{usage_str}), see log",
+                f"[{batch_num}/{total}] {blabel} FAILED ({failure_summary}) ({elapsed:.1f}s{usage_str}), see log",
                 file=sys.stderr,
             )
-            return BatchProcessResult(matched, _unresolved_papers(batch, matched), True)
+            return BatchProcessResult(
+                matched,
+                _unresolved_papers(batch, matched, diagnostics.all_failed_ids),
+                True,
+            )
 
         if save_cache and cache_allowed:
             _write_batch_cache(field_cache, batch_num, result, new_tags, current_tags)
@@ -952,14 +1039,22 @@ def run_phase2(
 
         if batch_num in cached_batches:
             cached = cached_batches[batch_num]
-            matched, unmatched = match_llm_results(batch, cached.get("papers", []), logger, batch_num, cached, debug_dir, batch_label=blabel)
+            matched, diagnostics = match_llm_results(
+                batch, cached.get("papers", []), logger, batch_num, cached, debug_dir, batch_label=blabel
+            )
             results_by_id.update(matched)
             if cached.get("current_tags"):
                 current_tags = cached["current_tags"]
-            status = "cached" if unmatched == 0 else f"cached ({unmatched} unmatched)"
+            status = (
+                "cached"
+                if diagnostics.total_failed == 0
+                else f"cached failed ({_format_match_failures(diagnostics)})"
+            )
             print(f"[{batch_num}/{total}] {blabel} {status}", file=sys.stderr)
-            if unmatched > 0:
-                failed_batches.append((idx, _unresolved_papers(batch, matched)))
+            if diagnostics.total_failed > 0:
+                failed_batches.append(
+                    (idx, _unresolved_papers(batch, matched, diagnostics.all_failed_ids))
+                )
             continue
 
         processed = _process_batch(
