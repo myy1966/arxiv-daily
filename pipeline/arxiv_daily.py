@@ -920,6 +920,9 @@ def _process_batch(
 
         elapsed = time.monotonic() - t0
         usage_str = _format_usage(usage)
+        if save_cache and cache_allowed and matched:
+            _write_batch_cache(field_cache, batch_num, result, new_tags, current_tags)
+
         if diagnostics.total_failed > 0:
             failure_summary = _format_match_failures(diagnostics)
             print(
@@ -932,8 +935,6 @@ def _process_batch(
                 True,
             )
 
-        if save_cache and cache_allowed:
-            _write_batch_cache(field_cache, batch_num, result, new_tags, current_tags)
         print(f"[{batch_num}/{total}] {blabel} done ({elapsed:.1f}s{usage_str})", file=sys.stderr)
         return BatchProcessResult(matched, [], False)
 

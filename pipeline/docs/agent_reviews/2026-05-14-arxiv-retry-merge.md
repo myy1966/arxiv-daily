@@ -84,7 +84,7 @@ class UnresolvedPaper:
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py` 的 `BATCH_SIZE = 16` 之后新增 `RETRY_BATCH_SIZE = BATCH_SIZE // 2`，并在 `BatchProcessResult` 后新增 `UnresolvedPaper(paper: dict, original_batch_num: int)` dataclass；未修改任何现有 retry、缓存或调用逻辑。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接断言 `RETRY_BATCH_SIZE` 与 `UnresolvedPaper` 字段可用通过。
 
-#### [TASK ID: 002] [状态: OPEN]
+#### [TASK ID: 002] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `_process_batch` 函数（第797-806行区域）
 - **目标描述**: 首轮部分成功时也写缓存（记录已成功的 paper）
 - **前置依赖**: TASK 001
@@ -104,6 +104,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
      return BatchProcessResult(matched, [], False)
      ```
   3. **注意**：`_write_batch_cache` 写入的是 LLM 原始响应中的 `result["papers"]`（包含所有 LLM 返回的 paper，无论是否匹配成功）。这不需要修改——后续加载时仍通过 `match_llm_results` 按 ID 匹配，多余的条目会被忽略
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py:_process_batch` 控制流：在判断 `diagnostics.total_failed` 之前，只要 `save_cache and cache_allowed and matched` 成立就调用 `_write_batch_cache`，因此首轮部分成功时也会记录已成功的 LLM 原始响应；完全失败时不写空缓存；成功路径不再重复写缓存。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证 2 篇 batch 中 1 篇 matched、1 篇 missing 时 `_process_batch` 返回 failed 且写出 `batch_001.json`，缓存中包含 matched paper 与 current tags 通过。
 
 #### [TASK ID: 003] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `run_phase2` 函数中加载缓存路径（第916-926行区域）
