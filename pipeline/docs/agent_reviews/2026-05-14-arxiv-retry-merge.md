@@ -139,7 +139,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py:run_phase2` 的缓存命中路径：在主循环前声明 `all_unresolved: list[UnresolvedPaper] = []`；缓存命中后通过 `match_llm_results` 和 `diagnostics.all_failed_ids` 计算 `unresolved_papers`；partial cache 不再加入 `failed_batches`，而是将缺失 paper 以 `UnresolvedPaper(paper, original_batch_num=batch_num)` 形式加入 `all_unresolved`；stderr 改为 `cached (partial: {len(matched)}/{len(batch)} matched)`，完整缓存仍显示 `cached`。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证 2 篇 batch 的 partial cache 只加载 1 篇已缓存结果、不调用 LLM、不加入 failed batch，并输出 `batch_001 cached (partial: 1/2 matched)` 通过。当前 `all_unresolved` 将在 TASK 005 中接入合并 retry，故本轮仍为接口迁移中间态。
 
-#### [TASK ID: 004] [状态: OPEN]
+#### [TASK ID: 004] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 新增 `_patch_batch_cache` 函数
 - **目标描述**: 实现将 retry 成功的 paper 增补回原始 batch 缓存文件的逻辑
 - **前置依赖**: TASK 001
@@ -155,6 +155,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
      - **不覆写 `current_tags` 和 `new_tags` 字段**（避免后续 batch 加载缓存时 tags 回退）
      - 使用 `_atomic_write_json` 原子写回
   4. **必须使用 try-except 包裹读取逻辑**，防止缓存文件损坏时阻断整个 retry 流程（捕获异常后 `logger.warning(...)` 并初始化为空结构继续）
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py` 的 `_write_batch_cache` 后新增 `_patch_batch_cache(field_cache, batch_num, new_papers, logger)`：读取原始 `batch_{num}.json`，不存在时初始化为空 cache；读取损坏时记录 `logger.warning` 并初始化为空结构继续；仅向 `papers` 追加 retry 成功的 `new_papers`，保留已有 `new_tags` 和 `current_tags`；最后使用 `_atomic_write_json` 原子写回。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证缓存文件不存在时创建、存在时追加且保留 tags 字段、损坏 JSON 时 warning 后重建通过。
 
 #### [TASK ID: 005] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `run_phase2` 函数的 retry 路径（第939-962行区域）

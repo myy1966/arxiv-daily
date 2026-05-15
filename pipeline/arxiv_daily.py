@@ -884,6 +884,29 @@ def _write_batch_cache(field_cache: Path, batch_num: int, result: dict, new_tags
     _atomic_write_json(cache_path, cache_entry)
 
 
+def _patch_batch_cache(
+    field_cache: Path,
+    batch_num: int,
+    new_papers: list[dict],
+    logger: logging.Logger,
+) -> None:
+    """Append retry-successful papers to an original batch cache file."""
+    cache_path = field_cache / f"batch_{batch_num:03d}.json"
+    cached = {"papers": [], "new_tags": [], "current_tags": []}
+    if cache_path.exists():
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                cached = json.load(f)
+        except Exception as e:
+            logger.warning(f"[Cache] Could not read batch cache {cache_path}, recreating: {e}")
+
+    cached.setdefault("papers", [])
+    cached.setdefault("new_tags", [])
+    cached.setdefault("current_tags", [])
+    cached["papers"].extend(new_papers)
+    _atomic_write_json(cache_path, cached)
+
+
 def _process_batch(
     batch: list[dict],
     idx: int,
