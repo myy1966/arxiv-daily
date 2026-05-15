@@ -7,6 +7,8 @@ Checks for content completeness and format correctness.
 Usage:
     python3 validate_md.py <file.md> [file2.md ...]
     python3 validate_md.py --dir <directory>
+    python3 validate_md.py --dir <directory> --recent 5
+    python3 validate_md.py --dir <directory> --all
 
 Exit codes:
     0 - All files pass validation
@@ -400,6 +402,18 @@ def main():
     )
     parser.add_argument("files", nargs="*", help="Markdown files to validate")
     parser.add_argument("--dir", help="Validate all .md files in a directory")
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Check all posts (default: only the most recent dates)",
+    )
+    parser.add_argument(
+        "--recent",
+        type=int,
+        default=3,
+        metavar="N",
+        help="Number of most recent dates to check (default: 3)",
+    )
     args = parser.parse_args()
 
     paths: list[Path] = []
