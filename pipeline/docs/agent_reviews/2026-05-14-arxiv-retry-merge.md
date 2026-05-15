@@ -219,7 +219,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已重写 `arxiv-update/scripts/arxiv_daily.py:run_phase2` 的 retry 路径：首轮 `_process_batch` 失败时将每个 unresolved paper 记录为 `UnresolvedPaper(paper, original_batch_num=batch_num)`；将所有 `all_unresolved` 按 `RETRY_BATCH_SIZE` 合并分组；retry 阶段统一调用 `_process_batch(..., label_prefix="retry", save_cache=False, cache_allowed=False, exception_status="retry failed")`；每个 retry batch 成功后将 `processed.matched` 写入 `results_by_id`，并在外层 `save_cache=True` 时按 `original_batch_num` 分组调用 `_patch_batch_cache` 增补原始 batch cache；retry 后仍失败的 paper 统一通过 `_add_summary_failure_placeholders(..., "retry")` 保留原有占位行为。`run_phase2` 第二返回值语义改为最终仍未解决的 `failed_papers` 数量；`run_normal_mode` 同步改用 `failed_papers` 判断，并在 success/skip summary 中保留 `failed_batches: 0`、新增 `failed_papers: 0`。验证：`python3 -m py_compile arxiv_daily.py tests/test_arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证两个原始 batch 的 unresolved papers 合并为一个 retry batch、retry 成功后按原始 batch 增补 cache 且返回 `failed_papers == 0` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestRunPhase2 tests/test_arxiv_daily.py::TestRunPhase2ErrorModes -q` 通过，13 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，139 passed, 1 xfailed。
 
-#### [TASK ID: 006] [状态: OPEN]
+#### [TASK ID: 006] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/tests/test_arxiv_daily.py`
 - **目标描述**: 为首轮部分缓存、缓存完整性检测、retry 合并和缓存增补逻辑补充单元测试
 - **前置依赖**: TASK 005
@@ -231,6 +231,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
   5. 新增测试 `test_patch_batch_cache_corrupt_file`：缓存文件损坏时不崩溃，重新初始化
   6. 新增测试 `test_retry_merges_unresolved_across_batches`：验证多个 batch 的 unresolved papers 被合并为按 RETRY_BATCH_SIZE 分组的 retry batches（可 mock `_process_batch`）
   7. 运行 `python3 -m pytest tests/test_arxiv_daily.py -q` 确认全部通过
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/tests/test_arxiv_daily.py` 补充 6 个回归测试：`test_process_batch_partial_success_writes_cache` 覆盖首轮部分成功仍写 cache；`test_run_phase2_partial_cache_only_retries_missing` 覆盖 partial cache 命中后只对缺失 paper 构造 retry prompt；`test_patch_batch_cache_creates_file`、`test_patch_batch_cache_appends`、`test_patch_batch_cache_corrupt_file` 覆盖 `_patch_batch_cache` 创建、追加、损坏文件恢复；`test_retry_merges_unresolved_across_batches` 通过 mock `_process_batch` 验证两个原始 batch 的 unresolved papers 会跨批合并为一个 `RETRY_BATCH_SIZE` retry batch。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestPhase2Helpers tests/test_arxiv_daily.py::TestRunPhase2 -q` 通过，23 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，145 passed, 1 xfailed。
 
 #### [TASK ID: 007] [状态: OPEN]
 - **定位**: 全文验证
