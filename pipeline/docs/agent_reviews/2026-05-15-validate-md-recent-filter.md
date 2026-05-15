@@ -6,7 +6,7 @@ status: "PLANNING_COMPLETE"
 
 ## 1. 元数据 (Metadata)
 - **原始需求**: `validate_md.py --dir` 默认只检查文件名日期最新的几个 post；`--all` 检查所有。
-- **技术翻译**: 当前 `--dir` 模式会遍历目录下所有符合命名规范的 `.md` 文件并逐一校验。随着 posts 累积，全量验证耗时增长且大部分历史文件无需反复检查。需增加"按文件名日期筛选最近 N 天"的默认行为，并保留 `--all` 全量模式。
+- **技术翻译**: 当前 `--dir` 模式会遍历目录下所有符合命名规范的 `.md` 文件并逐一校验。随着 posts 累积，全量验证耗时增长且大部分历史文件无需反复检查。需增加"按文件名日期筛选最近 N 天"的默认行为（默认 N=1），并保留 `--all` 全量模式。
 - **涉及文件**: `arxiv-update/scripts/validate_md.py`
 
 ## 2. 设计概要 (Design Overview)
@@ -26,8 +26,8 @@ status: "PLANNING_COMPLETE"
 # 新增 CLI 参数
 parser.add_argument("--all", action="store_true",
                     help="Check all posts (default: only the most recent ones)")
-parser.add_argument("--recent", type=int, default=3, metavar="N",
-                    help="Number of most recent dates to check (default: 3)")
+parser.add_argument("--recent", type=int, default=1, metavar="N",
+                    help="Number of most recent dates to check (default: 1)")
 ```
 
 ### 日期提取逻辑（伪代码）
@@ -50,18 +50,16 @@ paths = [p for p in all_valid_files if p.name[:10] in recent_dates]
 ### [Round 1]
 *(Architect 寄语：以下任务已就绪，请 Executor 严格按照顺序和规范执行)*
 
-#### [TASK ID: 001] [状态: RESOLVED]
+#### [TASK ID: 001] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/validate_md.py` — `main()` 函数，argparse 定义区域（约 line 398-403）
 - **目标描述**: 新增 `--all` 和 `--recent N` 两个命令行参数
 - **前置依赖**: 无
 - **执行指令与限制**:
   - `--all`: `action="store_true"`，帮助文本注明"默认只检查最近几个日期"
-  - `--recent`: `type=int, default=3, metavar="N"`
+  - `--recent`: `type=int, default=1, metavar="N"`
   - 同时更新文件顶部 docstring 的 Usage 部分，补充新用法示例
 
-Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/validate_md.py` 的 Usage docstring 中新增 `--dir <directory> --recent 5` 与 `--dir <directory> --all` 示例，并在 `main()` argparse 定义中新增 `--all`（`action="store_true"`，帮助文本说明默认只检查最近日期）和 `--recent N`（`type=int, default=3, metavar="N"`）；未修改 `--dir` 文件收集逻辑，保留给 TASK-002。验证：`python3 -m py_compile arxiv-update/scripts/validate_md.py` 通过；`python3 arxiv-update/scripts/validate_md.py --help` 显示 `--all` 与 `--recent N` 通过；`git diff --check` 通过。
-
-#### [TASK ID: 002] [状态: RESOLVED]
+#### [TASK ID: 002] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/validate_md.py` — `main()` 函数中 `if args.dir:` 分支（约 line 407-416）
 - **目标描述**: 将 `--dir` 模式的文件收集逻辑改为"默认取最近 N 个日期，`--all` 取全部"
 - **前置依赖**: TASK 001
@@ -71,8 +69,6 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
   - 否则，从文件名提取日期（`p.name[:10]`），去重降序排列，取前 `args.recent` 个日期，只保留匹配的文件
   - 保持已有的 `skipped` 逻辑不变
   - 不引入新的 import（`sorted`/`set` 为内置）
-
-Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/validate_md.py:main` 的 `if args.dir:` 分支：先将符合命名规范的 markdown 文件收集到 `all_valid`，非规范文件仍加入原有 `skipped`；`args.all` 为真时将全部 `all_valid` 加入 `paths`；否则从 `p.name[:10]` 提取唯一日期并降序排序，取最近 `args.recent` 个日期后仅保留匹配文件。未引入新 import，未修改校验规则或直接文件参数路径。验证：`python3 -m py_compile arxiv-update/scripts/validate_md.py` 通过；`git diff --check` 通过；`python3 - <<'PY' ... PY` 临时脚本验证 `--dir --recent 2` 只校验最近 2 个唯一日期的 3 个文件、`--dir --all` 校验全部 4 个合法文件，且 `invalid.md` 仍进入 skipped，均通过。
 
 ## 4. 最终决策 (Final Decision)
 （由 Reviewer 在最终判决 PASS 时填写）
