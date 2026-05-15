@@ -1344,7 +1344,7 @@ def generate_markdown(data: dict, results_by_id: dict, output_dir: Path, date_st
             if paper.get("code_urls"):
                 code_links = ", ".join(f"[code]({u})" for u in paper["code_urls"])
                 lines.append(f"- **Code**: {code_links}")
-            lines.append(f"- **Summary**: {summary}")
+            lines.append(f"- **Summary**: {_escape_md_inline(summary)}")
             lines.append("")
 
     # Write file

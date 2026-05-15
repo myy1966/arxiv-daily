@@ -61,13 +61,15 @@ def _escape_md_inline(text: str) -> str:
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py` 的 Phase 3 区域开头、`SECTION_NAME_CN` 之前新增 `_escape_md_inline(text: str) -> str`，仅依次转义 `|`、`<`、`>` 三个 markdown 敏感字符；未引入额外依赖，未接入 `generate_markdown` 或 `patch_markdown`，以保持本轮只处理 TASK-001。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`git diff --check` 通过。
 
-#### [TASK ID: 002] [状态: OPEN]
+#### [TASK ID: 002] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` line 1338
 - **目标描述**: 在 `generate_markdown` 中对 summary 调用 `_escape_md_inline`
 - **前置依赖**: TASK 001
 - **执行指令与限制**:
   - 将 `lines.append(f"- **Summary**: {summary}")` 改为 `lines.append(f"- **Summary**: {_escape_md_inline(summary)}")`
   - 仅修改 summary 的输出行，不要动 tags/venue/title 等字段
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py:generate_markdown` 中将 summary 输出行改为 `lines.append(f"- **Summary**: {_escape_md_inline(summary)}")`；未修改 tags、venue、title、patch markdown 或其他输出字段。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestGenerateMarkdown -q` 通过，9 passed；`git diff --check` 通过。
 
 #### [TASK ID: 003] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` line 1398
