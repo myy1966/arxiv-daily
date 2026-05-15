@@ -1,7 +1,7 @@
 ---
 title: "validate_md 默认只检查最新日期的 posts"
 date: "2026-05-15"
-status: "PLANNING_COMPLETE"
+status: "PASS"
 ---
 
 ## 1. 元数据 (Metadata)
@@ -74,5 +74,21 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。经复核，`arxiv-update/scripts/validate_md.py:main` 的 `--dir` 分支已符合 Architect 更新后的设计：先收集合法文件到 `all_valid`，非规范文件继续进入 `skipped`；`--all` 使用全部 `all_valid`；默认路径从文件名 `p.name[:10]` 提取唯一日期并降序排序，按 `args.recent` 过滤，当前 `TASK-001` 已将默认值修正为 1，因此仅 `--dir` 会检查最新 1 个唯一日期。生产代码本轮无需进一步修改。验证：`python3 -m py_compile arxiv-update/scripts/validate_md.py` 通过；`git diff --check` 通过；`python3 - <<'PY' ... PY` 临时脚本验证仅 `--dir` 检查最新 1 个唯一日期的 2 个文件、`--recent 2` 检查最新 2 个唯一日期的 3 个文件、`--all` 检查全部 4 个合法文件，且 `invalid.md` 仍进入 skipped，均通过。
 
+### [Round 2]
+- **Reviewer**:
+  - **状态判决**: `[STATUS: PASS]`
+  - **审查摘要**:
+    改动精准最小化：仅修改 `main()` 的文件收集逻辑，新增 `--all` 和 `--recent N` 参数，不涉及校验规则本身。日期提取使用 `p.name[:10]` 简洁正确（文件名格式 `YYYY-MM-DD-*` 由 `is_valid_filename` 保证）。直接指定文件路径不受影响，`--dir --all` 等价于原行为。
+  - **无阻塞 Issue。**
+  - **综合评价**:
+    - `all_valid` 中间列表清晰分离了收集与过滤，`skipped` 逻辑不受影响。
+    - 日期去重降序 + 切片 + 集合过滤，逻辑简洁无冗余。
+    - `--all` 与 `--recent` 互不冲突：`--all` 优先级高于 `--recent`，符合直觉。
+    - docstring Usage 示例已同步更新。
+    - 边界情况安全：空目录 / 无合法文件时 `all_valid` 为空，`dates` 为空，`recent_dates` 为空集，`paths` 为空，走入已有的 "No files to validate" 路径。
+
+> **本项目无 AGENTS.md 规范文件，以通用最佳实践为准。**
+
 ## 4. 最终决策 (Final Decision)
-（由 Reviewer 在最终判决 PASS 时填写）
+
+- **决策记录**: 代码审查通过，可合并。纯文件收集层改动，不影响校验逻辑，向后兼容。
