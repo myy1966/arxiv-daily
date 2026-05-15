@@ -80,6 +80,7 @@ class RunResult:
 
 
 BATCH_SIZE = 16
+RETRY_BATCH_SIZE = BATCH_SIZE // 2
 MAX_RETRIES = 3
 RETRY_DELAYS = [2, 4, 8]
 MIN_SUMMARY_LEN = 30
@@ -101,6 +102,12 @@ class BatchProcessResult:
     matched: dict[str, dict]
     unresolved: list[dict]
     failed: bool
+
+
+@dataclass
+class UnresolvedPaper:
+    paper: dict
+    original_batch_num: int
 
 
 @dataclass

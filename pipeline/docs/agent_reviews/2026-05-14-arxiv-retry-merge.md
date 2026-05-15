@@ -67,7 +67,7 @@ class UnresolvedPaper:
 
 *Architect 寄语：以下任务已就绪，请 Executor 严格按照顺序和规范执行。*
 
-#### [TASK ID: 001] [状态: OPEN]
+#### [TASK ID: 001] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 常量定义区域 + 新增数据类
 - **目标描述**: 新增 `RETRY_BATCH_SIZE` 常量和 `UnresolvedPaper` dataclass
 - **前置依赖**: 无
@@ -81,6 +81,8 @@ class UnresolvedPaper:
          original_batch_num: int
      ```
   3. 仅新增定义，不修改现有代码
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py` 的 `BATCH_SIZE = 16` 之后新增 `RETRY_BATCH_SIZE = BATCH_SIZE // 2`，并在 `BatchProcessResult` 后新增 `UnresolvedPaper(paper: dict, original_batch_num: int)` dataclass；未修改任何现有 retry、缓存或调用逻辑。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接断言 `RETRY_BATCH_SIZE` 与 `UnresolvedPaper` 字段可用通过。
 
 #### [TASK ID: 002] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `_process_batch` 函数（第797-806行区域）
