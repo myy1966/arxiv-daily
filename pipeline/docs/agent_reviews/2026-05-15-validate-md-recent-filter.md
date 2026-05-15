@@ -50,7 +50,7 @@ paths = [p for p in all_valid_files if p.name[:10] in recent_dates]
 ### [Round 1]
 *(Architect 寄语：以下任务已就绪，请 Executor 严格按照顺序和规范执行)*
 
-#### [TASK ID: 001] [状态: OPEN]
+#### [TASK ID: 001] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/validate_md.py` — `main()` 函数，argparse 定义区域（约 line 398-403）
 - **目标描述**: 新增 `--all` 和 `--recent N` 两个命令行参数
 - **前置依赖**: 无
@@ -58,6 +58,8 @@ paths = [p for p in all_valid_files if p.name[:10] in recent_dates]
   - `--all`: `action="store_true"`，帮助文本注明"默认只检查最近几个日期"
   - `--recent`: `type=int, default=1, metavar="N"`
   - 同时更新文件顶部 docstring 的 Usage 部分，补充新用法示例
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。根据 Architect 更新后的 ADR，已将 `arxiv-update/scripts/validate_md.py` 中 `--recent` 参数从 `default=3` 修正为 `default=1`，并同步将 help 文本改为 `Number of most recent dates to check (default: 1)`；`--all` 参数和 Usage 示例已存在且符合本任务要求，本轮未修改 `--dir` 文件收集逻辑。验证：`python3 -m py_compile arxiv-update/scripts/validate_md.py` 通过；`python3 arxiv-update/scripts/validate_md.py --help` 显示 `--recent N ... (default: 1)` 通过；`git diff --check` 通过。
 
 #### [TASK ID: 002] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/validate_md.py` — `main()` 函数中 `if args.dir:` 分支（约 line 407-416）

@@ -410,9 +410,9 @@ def main():
     parser.add_argument(
         "--recent",
         type=int,
-        default=3,
+        default=1,
         metavar="N",
-        help="Number of most recent dates to check (default: 3)",
+        help="Number of most recent dates to check (default: 1)",
     )
     args = parser.parse_args()
 
