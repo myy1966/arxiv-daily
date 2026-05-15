@@ -80,13 +80,15 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py:patch_markdown` 中将 summary 重写行改为 `new_lines.append(f"- **Summary**: {_escape_md_inline(summary)}\n")`；未修改 tags、venue、code、authors 或其他 patch 字段。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestPatchMarkdown tests/test_arxiv_daily.py::TestRunPatchMode -q` 通过，9 passed；`git diff --check` 通过。
 
-#### [TASK ID: 004] [状态: OPEN]
+#### [TASK ID: 004] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/tests/`
 - **目标描述**: 为 `_escape_md_inline` 添加单元测试
 - **前置依赖**: TASK 001
 - **执行指令与限制**:
   - 测试用例需覆盖：纯中文无特殊字符（不变）、含 `|`、含 `<tag>`、含组合字符、空字符串
   - 遵循项目已有测试风格（检查 `tests/` 目录下已有文件的命名与结构）
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/tests/test_arxiv_daily.py` 的 Markdown 相关测试区块前新增 `TestMarkdownEscaping`，覆盖 `_escape_md_inline` 对纯中文无特殊字符保持不变、`|` 转义、`<tag>` 的 `<`/`>` 转义、`|`/`<`/`>` 组合字符转义，以及空字符串保持为空。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMarkdownEscaping tests/test_arxiv_daily.py::TestGenerateMarkdown tests/test_arxiv_daily.py::TestPatchMarkdown -q` 通过，22 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，152 passed, 1 xfailed；`git diff --check` 通过。
 
 ## 4. 最终决策 (Final Decision)
 （由 Reviewer 在最终判决 PASS 时填写）
