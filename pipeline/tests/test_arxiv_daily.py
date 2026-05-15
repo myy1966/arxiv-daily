@@ -1648,6 +1648,28 @@ class TestRunPhase2ErrorModes:
 
 
 # ===========================================================================
+# TestMarkdownEscaping
+# ===========================================================================
+
+class TestMarkdownEscaping:
+    def test_escape_md_inline_preserves_plain_chinese(self):
+        assert arxiv_daily._escape_md_inline("这是一段普通中文摘要。") == "这是一段普通中文摘要。"
+
+    def test_escape_md_inline_escapes_pipe(self):
+        assert arxiv_daily._escape_md_inline("模型 A | 模型 B") == "模型 A \\| 模型 B"
+
+    def test_escape_md_inline_escapes_html_tag_chars(self):
+        assert arxiv_daily._escape_md_inline("包含 <tag> 标记") == "包含 \\<tag\\> 标记"
+
+    def test_escape_md_inline_escapes_combined_chars(self):
+        text = "方法 <A|B> 在任务 C | D 上有效"
+        assert arxiv_daily._escape_md_inline(text) == "方法 \\<A\\|B\\> 在任务 C \\| D 上有效"
+
+    def test_escape_md_inline_preserves_empty_string(self):
+        assert arxiv_daily._escape_md_inline("") == ""
+
+
+# ===========================================================================
 # TestGenerateMarkdown
 # ===========================================================================
 

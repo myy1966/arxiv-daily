@@ -1150,6 +1150,15 @@ def run_phase2(
 # Phase 3: Markdown Generation
 # ---------------------------------------------------------------------------
 
+
+def _escape_md_inline(text: str) -> str:
+    """Escape markdown-sensitive characters in inline list text."""
+    text = text.replace("|", "\\|")
+    text = text.replace("<", "\\<")
+    text = text.replace(">", "\\>")
+    return text
+
+
 SECTION_NAME_CN = {
     "New submissions": "新投稿",
     "Cross submissions": "跨领域投稿",
@@ -1335,7 +1344,7 @@ def generate_markdown(data: dict, results_by_id: dict, output_dir: Path, date_st
             if paper.get("code_urls"):
                 code_links = ", ".join(f"[code]({u})" for u in paper["code_urls"])
                 lines.append(f"- **Code**: {code_links}")
-            lines.append(f"- **Summary**: {summary}")
+            lines.append(f"- **Summary**: {_escape_md_inline(summary)}")
             lines.append("")
 
     # Write file
@@ -1395,7 +1404,7 @@ def patch_markdown(md_path: Path, results_by_id: dict[str, dict], logger: loggin
             new_lines.append(f"- **Venue**: {venue}\n")
         if "Code" in existing:
             new_lines.append(existing["Code"])
-        new_lines.append(f"- **Summary**: {summary}\n")
+        new_lines.append(f"- **Summary**: {_escape_md_inline(summary)}\n")
 
         new_block = "".join(new_lines)
         content = content[:m.start()] + new_block + content[m.end():]
