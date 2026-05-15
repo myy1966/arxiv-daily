@@ -423,11 +423,18 @@ def main():
         if not dir_path.is_dir():
             print(f"Error: {args.dir} is not a directory", file=sys.stderr)
             sys.exit(2)
+        all_valid: list[Path] = []
         for p in sorted(dir_path.glob("*.md")):
             if is_valid_filename(p):
-                paths.append(p)
+                all_valid.append(p)
             else:
                 skipped.append(p)
+        if args.all:
+            paths.extend(all_valid)
+        else:
+            dates = sorted({p.name[:10] for p in all_valid}, reverse=True)
+            recent_dates = set(dates[:args.recent])
+            paths.extend([p for p in all_valid if p.name[:10] in recent_dates])
     if args.files:
         for f in args.files:
             p = Path(f)

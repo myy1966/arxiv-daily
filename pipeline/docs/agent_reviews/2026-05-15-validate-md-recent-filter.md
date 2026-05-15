@@ -61,7 +61,7 @@ paths = [p for p in all_valid_files if p.name[:10] in recent_dates]
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/validate_md.py` 的 Usage docstring 中新增 `--dir <directory> --recent 5` 与 `--dir <directory> --all` 示例，并在 `main()` argparse 定义中新增 `--all`（`action="store_true"`，帮助文本说明默认只检查最近日期）和 `--recent N`（`type=int, default=3, metavar="N"`）；未修改 `--dir` 文件收集逻辑，保留给 TASK-002。验证：`python3 -m py_compile arxiv-update/scripts/validate_md.py` 通过；`python3 arxiv-update/scripts/validate_md.py --help` 显示 `--all` 与 `--recent N` 通过；`git diff --check` 通过。
 
-#### [TASK ID: 002] [状态: OPEN]
+#### [TASK ID: 002] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/validate_md.py` — `main()` 函数中 `if args.dir:` 分支（约 line 407-416）
 - **目标描述**: 将 `--dir` 模式的文件收集逻辑改为"默认取最近 N 个日期，`--all` 取全部"
 - **前置依赖**: TASK 001
@@ -71,6 +71,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
   - 否则，从文件名提取日期（`p.name[:10]`），去重降序排列，取前 `args.recent` 个日期，只保留匹配的文件
   - 保持已有的 `skipped` 逻辑不变
   - 不引入新的 import（`sorted`/`set` 为内置）
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/validate_md.py:main` 的 `if args.dir:` 分支：先将符合命名规范的 markdown 文件收集到 `all_valid`，非规范文件仍加入原有 `skipped`；`args.all` 为真时将全部 `all_valid` 加入 `paths`；否则从 `p.name[:10]` 提取唯一日期并降序排序，取最近 `args.recent` 个日期后仅保留匹配文件。未引入新 import，未修改校验规则或直接文件参数路径。验证：`python3 -m py_compile arxiv-update/scripts/validate_md.py` 通过；`git diff --check` 通过；`python3 - <<'PY' ... PY` 临时脚本验证 `--dir --recent 2` 只校验最近 2 个唯一日期的 3 个文件、`--dir --all` 校验全部 4 个合法文件，且 `invalid.md` 仍进入 skipped，均通过。
 
 ## 4. 最终决策 (Final Decision)
 （由 Reviewer 在最终判决 PASS 时填写）
