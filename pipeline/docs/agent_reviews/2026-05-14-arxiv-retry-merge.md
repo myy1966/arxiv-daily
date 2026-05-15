@@ -158,7 +158,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py` 的 `_write_batch_cache` 后新增 `_patch_batch_cache(field_cache, batch_num, new_papers, logger)`：读取原始 `batch_{num}.json`，不存在时初始化为空 cache；读取损坏时记录 `logger.warning` 并初始化为空结构继续；仅向 `papers` 追加 retry 成功的 `new_papers`，保留已有 `new_tags` 和 `current_tags`；最后使用 `_atomic_write_json` 原子写回。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证缓存文件不存在时创建、存在时追加且保留 tags 字段、损坏 JSON 时 warning 后重建通过。
 
-#### [TASK ID: 005] [状态: OPEN]
+#### [TASK ID: 005] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `run_phase2` 函数的 retry 路径（第939-962行区域）
 - **目标描述**: 重写 retry 逻辑为合并 batch + 缓存增补模式
 - **前置依赖**: TASK 001, TASK 002, TASK 003, TASK 004
@@ -216,6 +216,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
   6. **stderr 进度**：打印 `Retrying {n} unresolved paper(s) in {m} batch(es) (batch_size={RETRY_BATCH_SIZE})...`
   7. **移除旧逻辑**：删除原有的逐 batch 重试循环（第939-962行）
   8. **返回值语义变更**：`run_phase2` 的返回值第二项改为 `failed_papers: int`——表示最终仍未解决的 **paper 数量**（而非 batch 数）。调用方 `run_normal_mode` 中 `if failed_batches > 0` 的判断改为 `if failed_papers > 0`，逻辑不变（> 0 则不生成 markdown）。**JSON 输出兼容性**：summary dict 中保留 `"failed_batches"` 字段（值设为 `1 if failed_papers > 0 else 0`，向后兼容），同时新增 `"failed_papers"` 字段表示精确的失败 paper 数量
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已重写 `arxiv-update/scripts/arxiv_daily.py:run_phase2` 的 retry 路径：首轮 `_process_batch` 失败时将每个 unresolved paper 记录为 `UnresolvedPaper(paper, original_batch_num=batch_num)`；将所有 `all_unresolved` 按 `RETRY_BATCH_SIZE` 合并分组；retry 阶段统一调用 `_process_batch(..., label_prefix="retry", save_cache=False, cache_allowed=False, exception_status="retry failed")`；每个 retry batch 成功后将 `processed.matched` 写入 `results_by_id`，并在外层 `save_cache=True` 时按 `original_batch_num` 分组调用 `_patch_batch_cache` 增补原始 batch cache；retry 后仍失败的 paper 统一通过 `_add_summary_failure_placeholders(..., "retry")` 保留原有占位行为。`run_phase2` 第二返回值语义改为最终仍未解决的 `failed_papers` 数量；`run_normal_mode` 同步改用 `failed_papers` 判断，并在 success/skip summary 中保留 `failed_batches: 0`、新增 `failed_papers: 0`。验证：`python3 -m py_compile arxiv_daily.py tests/test_arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证两个原始 batch 的 unresolved papers 合并为一个 retry batch、retry 成功后按原始 batch 增补 cache 且返回 `failed_papers == 0` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestRunPhase2 tests/test_arxiv_daily.py::TestRunPhase2ErrorModes -q` 通过，13 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，139 passed, 1 xfailed。
 
 #### [TASK ID: 006] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/tests/test_arxiv_daily.py`
