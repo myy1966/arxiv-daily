@@ -1039,6 +1039,7 @@ def run_phase2(
 
     results_by_id: dict[str, dict] = {}
     failed_batches: list[tuple[int, list[dict]]] = []
+    all_unresolved: list[UnresolvedPaper] = []
 
     for idx, batch in enumerate(batches):
         batch_num = idx + 1
@@ -1053,16 +1054,16 @@ def run_phase2(
             results_by_id.update(matched)
             if cached.get("current_tags"):
                 current_tags = cached["current_tags"]
-            status = (
-                "cached"
-                if diagnostics.total_failed == 0
-                else f"cached failed ({_format_match_failures(diagnostics)})"
-            )
+            unresolved_papers = _unresolved_papers(batch, matched, diagnostics.all_failed_ids)
+            if unresolved_papers:
+                status = f"cached (partial: {len(matched)}/{len(batch)} matched)"
+                for paper in unresolved_papers:
+                    all_unresolved.append(
+                        UnresolvedPaper(paper=paper, original_batch_num=batch_num)
+                    )
+            else:
+                status = "cached"
             print(f"[{batch_num}/{total}] {blabel} {status}", file=sys.stderr)
-            if diagnostics.total_failed > 0:
-                failed_batches.append(
-                    (idx, _unresolved_papers(batch, matched, diagnostics.all_failed_ids))
-                )
             continue
 
         processed = _process_batch(

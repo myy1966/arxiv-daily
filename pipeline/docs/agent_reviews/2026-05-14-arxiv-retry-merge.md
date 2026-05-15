@@ -107,7 +107,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py:_process_batch` 控制流：在判断 `diagnostics.total_failed` 之前，只要 `save_cache and cache_allowed and matched` 成立就调用 `_write_batch_cache`，因此首轮部分成功时也会记录已成功的 LLM 原始响应；完全失败时不写空缓存；成功路径不再重复写缓存。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证 2 篇 batch 中 1 篇 matched、1 篇 missing 时 `_process_batch` 返回 failed 且写出 `batch_001.json`，缓存中包含 matched paper 与 current tags 通过。
 
-#### [TASK ID: 003] [状态: OPEN]
+#### [TASK ID: 003] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `run_phase2` 函数中加载缓存路径（第916-926行区域）
 - **目标描述**: 加载缓存时检测完整性，仅对缺失的 paper 发 LLM 请求
 - **前置依赖**: TASK 002
@@ -136,6 +136,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
      ```
   4. **关键语义**：缓存中有 14/16 篇成功 → 仅 2 篇进入 `all_unresolved` → retry 时只请求这 2 篇，不重复消耗已成功的 14 篇的 token
   5. **不再将 partial cache 视为 "failed batch"**——只有完全无缓存的 batch 才走完整 LLM 路径
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py:run_phase2` 的缓存命中路径：在主循环前声明 `all_unresolved: list[UnresolvedPaper] = []`；缓存命中后通过 `match_llm_results` 和 `diagnostics.all_failed_ids` 计算 `unresolved_papers`；partial cache 不再加入 `failed_batches`，而是将缺失 paper 以 `UnresolvedPaper(paper, original_batch_num=batch_num)` 形式加入 `all_unresolved`；stderr 改为 `cached (partial: {len(matched)}/{len(batch)} matched)`，完整缓存仍显示 `cached`。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证 2 篇 batch 的 partial cache 只加载 1 篇已缓存结果、不调用 LLM、不加入 failed batch，并输出 `batch_001 cached (partial: 1/2 matched)` 通过。当前 `all_unresolved` 将在 TASK 005 中接入合并 retry，故本轮仍为接口迁移中间态。
 
 #### [TASK ID: 004] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 新增 `_patch_batch_cache` 函数
