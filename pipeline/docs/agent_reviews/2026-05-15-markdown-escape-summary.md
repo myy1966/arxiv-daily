@@ -71,12 +71,14 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py:generate_markdown` 中将 summary 输出行改为 `lines.append(f"- **Summary**: {_escape_md_inline(summary)}")`；未修改 tags、venue、title、patch markdown 或其他输出字段。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestGenerateMarkdown -q` 通过，9 passed；`git diff --check` 通过。
 
-#### [TASK ID: 003] [状态: OPEN]
+#### [TASK ID: 003] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` line 1398
 - **目标描述**: 在 `patch_markdown` 中对 summary 同样调用 `_escape_md_inline`
 - **前置依赖**: TASK 001
 - **执行指令与限制**:
   - 将 `new_lines.append(f"- **Summary**: {summary}\n")` 改为 `new_lines.append(f"- **Summary**: {_escape_md_inline(summary)}\n")`
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py:patch_markdown` 中将 summary 重写行改为 `new_lines.append(f"- **Summary**: {_escape_md_inline(summary)}\n")`；未修改 tags、venue、code、authors 或其他 patch 字段。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestPatchMarkdown tests/test_arxiv_daily.py::TestRunPatchMode -q` 通过，9 passed；`git diff --check` 通过。
 
 #### [TASK ID: 004] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/tests/`

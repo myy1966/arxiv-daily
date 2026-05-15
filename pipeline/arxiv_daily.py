@@ -1404,7 +1404,7 @@ def patch_markdown(md_path: Path, results_by_id: dict[str, dict], logger: loggin
             new_lines.append(f"- **Venue**: {venue}\n")
         if "Code" in existing:
             new_lines.append(existing["Code"])
-        new_lines.append(f"- **Summary**: {summary}\n")
+        new_lines.append(f"- **Summary**: {_escape_md_inline(summary)}\n")
 
         new_block = "".join(new_lines)
         content = content[:m.start()] + new_block + content[m.end():]
