@@ -31,6 +31,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from collections import defaultdict
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
@@ -80,6 +81,7 @@ class RunResult:
 
 
 BATCH_SIZE = 16
+RETRY_BATCH_SIZE = BATCH_SIZE // 2
 MAX_RETRIES = 3
 RETRY_DELAYS = [2, 4, 8]
 MIN_SUMMARY_LEN = 30
@@ -101,6 +103,12 @@ class BatchProcessResult:
     matched: dict[str, dict]
     unresolved: list[dict]
     failed: bool
+
+
+@dataclass
+class UnresolvedPaper:
+    paper: dict
+    original_batch_num: int
 
 
 @dataclass
@@ -877,6 +885,29 @@ def _write_batch_cache(field_cache: Path, batch_num: int, result: dict, new_tags
     _atomic_write_json(cache_path, cache_entry)
 
 
+def _patch_batch_cache(
+    field_cache: Path,
+    batch_num: int,
+    new_papers: list[dict],
+    logger: logging.Logger,
+) -> None:
+    """Append retry-successful papers to an original batch cache file."""
+    cache_path = field_cache / f"batch_{batch_num:03d}.json"
+    cached = {"papers": [], "new_tags": [], "current_tags": []}
+    if cache_path.exists():
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                cached = json.load(f)
+        except Exception as e:
+            logger.warning(f"[Cache] Could not read batch cache {cache_path}, recreating: {e}")
+
+    cached.setdefault("papers", [])
+    cached.setdefault("new_tags", [])
+    cached.setdefault("current_tags", [])
+    cached["papers"].extend(new_papers)
+    _atomic_write_json(cache_path, cached)
+
+
 def _process_batch(
     batch: list[dict],
     idx: int,
@@ -913,6 +944,9 @@ def _process_batch(
 
         elapsed = time.monotonic() - t0
         usage_str = _format_usage(usage)
+        if save_cache and cache_allowed and matched:
+            _write_batch_cache(field_cache, batch_num, result, new_tags, current_tags)
+
         if diagnostics.total_failed > 0:
             failure_summary = _format_match_failures(diagnostics)
             print(
@@ -925,8 +959,6 @@ def _process_batch(
                 True,
             )
 
-        if save_cache and cache_allowed:
-            _write_batch_cache(field_cache, batch_num, result, new_tags, current_tags)
         print(f"[{batch_num}/{total}] {blabel} done ({elapsed:.1f}s{usage_str})", file=sys.stderr)
         return BatchProcessResult(matched, [], False)
 
@@ -1009,7 +1041,7 @@ def run_phase2(
     """Phase 2: LLM summarization.
 
     Returns:
-        (results_by_id, failed_batches_count)
+        (results_by_id, failed_papers_count)
         results_by_id: {paper_id: {"summary": ..., "tags": [...], "venue": ...}}
     """
     current_tags = load_tags(tags_path)
@@ -1018,19 +1050,21 @@ def run_phase2(
     if not batches:
         return {}, 0
 
+    cache_writes_enabled = save_cache and not no_cache
+
     # Cache setup
     field_cache = cache_dir / data["field"]
     field_cache.mkdir(parents=True, exist_ok=True)
     debug_dir = cache_dir / "debug" / data["field"]
 
     cached_batches: dict[int, dict] = {}
-    if save_cache:
+    if cache_writes_enabled:
         current_hash = compute_metadata_hash(data)
         hash_file = field_cache / "metadata_hash"
         cached_batches = load_cached_batches(field_cache, hash_file, current_hash, no_cache)
 
     results_by_id: dict[str, dict] = {}
-    failed_batches: list[tuple[int, list[dict]]] = []
+    all_unresolved: list[UnresolvedPaper] = []
 
     for idx, batch in enumerate(batches):
         batch_num = idx + 1
@@ -1045,57 +1079,71 @@ def run_phase2(
             results_by_id.update(matched)
             if cached.get("current_tags"):
                 current_tags = cached["current_tags"]
-            status = (
-                "cached"
-                if diagnostics.total_failed == 0
-                else f"cached failed ({_format_match_failures(diagnostics)})"
-            )
+            unresolved_papers = _unresolved_papers(batch, matched, diagnostics.all_failed_ids)
+            if unresolved_papers:
+                status = f"cached (partial: {len(matched)}/{len(batch)} matched)"
+                for paper in unresolved_papers:
+                    all_unresolved.append(
+                        UnresolvedPaper(paper=paper, original_batch_num=batch_num)
+                    )
+            else:
+                status = "cached"
             print(f"[{batch_num}/{total}] {blabel} {status}", file=sys.stderr)
-            if diagnostics.total_failed > 0:
-                failed_batches.append(
-                    (idx, _unresolved_papers(batch, matched, diagnostics.all_failed_ids))
-                )
             continue
 
         processed = _process_batch(
             batch, idx, total, current_tags,
             api_endpoint, api_key, model, logger, debug_dir, field_cache,
-            batch_prefix, save_cache, cache_allowed=True,
+            batch_prefix, cache_writes_enabled, cache_allowed=True,
             exception_status="failed after all retries",
         )
         results_by_id.update(processed.matched)
         if processed.failed:
-            failed_batches.append((idx, processed.unresolved))
+            for paper in processed.unresolved:
+                all_unresolved.append(
+                    UnresolvedPaper(paper=paper, original_batch_num=batch_num)
+                )
 
-    # Retry failed batches once
-    if failed_batches:
-        print(f"Retrying {len(failed_batches)} failed batch(es)...", file=sys.stderr)
-        still_failed = 0
-        for idx, batch in failed_batches:
-            original_batch = batches[idx]
-            batch_num = idx + 1
-            total = len(batches)
-            blabel = f"retry_{batch_prefix}_{batch_num:03d}"
+    still_failed_papers: list[dict] = []
+    retry_batches = [
+        all_unresolved[i : i + RETRY_BATCH_SIZE]
+        for i in range(0, len(all_unresolved), RETRY_BATCH_SIZE)
+    ]
+    if retry_batches:
+        print(
+            f"Retrying {len(all_unresolved)} unresolved paper(s) in "
+            f"{len(retry_batches)} batch(es) (batch_size={RETRY_BATCH_SIZE})...",
+            file=sys.stderr,
+        )
+        for retry_idx, retry_batch in enumerate(retry_batches):
+            retry_papers = [u.paper for u in retry_batch]
 
             processed = _process_batch(
-                batch, idx, total, current_tags,
+                retry_papers, retry_idx, len(retry_batches), current_tags,
                 api_endpoint, api_key, model, logger, debug_dir, field_cache,
-                f"retry_{batch_prefix}", save_cache,
-                cache_allowed=len(batch) == len(original_batch),
-                exception_status="failed",
+                "retry", save_cache=False,
+                cache_allowed=False,
+                exception_status="retry failed",
             )
             results_by_id.update(processed.matched)
-            if processed.failed:
-                still_failed += 1
-                _add_summary_failure_placeholders(results_by_id, processed.unresolved, logger, blabel)
+            still_failed_papers.extend(processed.unresolved)
 
-        failed_batches = still_failed
-    else:
-        failed_batches = 0
+            if cache_writes_enabled and processed.matched:
+                patch_groups: dict[int, list[dict]] = defaultdict(list)
+                for unresolved in retry_batch:
+                    pid = unresolved.paper["id"]
+                    if pid in processed.matched:
+                        patch_groups[unresolved.original_batch_num].append(
+                            {"id": pid, **processed.matched[pid]}
+                        )
+                for original_batch_num, papers in patch_groups.items():
+                    _patch_batch_cache(field_cache, original_batch_num, papers, logger)
+
+        _add_summary_failure_placeholders(results_by_id, still_failed_papers, logger, "retry")
 
     save_tags(tags_path, current_tags)
 
-    return results_by_id, failed_batches
+    return results_by_id, len(still_failed_papers)
 
 
 # ---------------------------------------------------------------------------
@@ -1413,7 +1461,7 @@ def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: L
     }
 
     tags_path = Path(args.tags)
-    results_by_id, failed_batches = run_phase2(
+    results_by_id, failed_papers = run_phase2(
         patch_data, tags_path, cache_base, no_cache=True,
         api_endpoint=llm_config.api_endpoint,
         api_key=llm_config.api_key,
@@ -1432,7 +1480,7 @@ def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: L
         raise ConfigError(f"Markdown file not found: {md_path}")
 
     patched = patch_markdown(md_path, results_by_id, logger)
-    total_failed = len(patch_ids) - len(results_by_id)
+    total_failed = len(patch_ids) - len(results_by_id) + failed_papers
     print(f"Patched {patched}/{len(patch_ids)} paper(s) in {md_path}", file=sys.stderr)
     logger.info(f"[Patch] Completed: patched {patched} paper(s)")
 
@@ -1550,6 +1598,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
             "sections": {s["name"]: s["count"] for s in data["sections"]},
             "total": total_papers,
             "failed_batches": 0,
+            "failed_papers": 0,
             "skipped": True,
         }
         return RunResult(summary)
@@ -1559,7 +1608,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
 
     # Phase 2: LLM summarization
     tags_path = Path(args.tags)
-    results_by_id, failed_batches = run_phase2(
+    results_by_id, failed_papers = run_phase2(
         data,
         tags_path,
         cache_base,
@@ -1573,10 +1622,10 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
     # Phase 3: Generate markdown (only if all batches succeeded)
     output_dir = Path(args.output)
 
-    if failed_batches > 0:
-        logger.error(f"[Phase2] {failed_batches} batch(es) still failed after retry, skipping markdown generation")
+    if failed_papers > 0:
+        logger.error(f"[Phase2] {failed_papers} paper(s) still failed after retry, skipping markdown generation")
         raise PipelineError(
-            f"{failed_batches} batch(es) failed. Markdown not generated. "
+            f"{failed_papers} paper(s) failed. Markdown not generated. "
             f"Re-run with --date {date_str} to retry (cached batches will be reused)."
         )
 
@@ -1599,6 +1648,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
         "sections": sections_summary,
         "total": total_papers,
         "failed_batches": 0,
+        "failed_papers": 0,
     }
     logger.info(f"[Phase3] Run completed successfully. Output: {output_file}")
     return RunResult(summary)

@@ -1,0 +1,283 @@
+---
+title: "retry 阶段合并 batch 与缓存增补"
+date: "2026-05-14"
+status: "PASS"
+---
+
+## 1. 元数据 (Metadata)
+
+- **原始需求**: 优化 retry 策略——将所有 unresolved papers 合并为新 batch 重试（batch size = BATCH_SIZE//2），并在 retry 成功后将结果增补回原 batch 缓存文件，避免重复重试
+- **技术翻译**: 重构 `run_phase2` 的 retry 路径：从"逐原始 batch 重试各自的 unresolved"改为"收集所有 unresolved papers，按 RETRY_BATCH_SIZE(=BATCH_SIZE//2=8) 重新分组统一重试"；每个 retry batch 完成后，将成功匹配的 paper 增补回其所属原始 batch 的缓存文件中，确保下次运行时已成功的 paper 不再重试
+- **涉及文件**: `arxiv-update/scripts/arxiv_daily.py`, `arxiv-update/scripts/tests/test_arxiv_daily.py`
+
+## 2. 设计概要 (Design Overview)
+
+### 数据流向 (Data Flow)
+
+```
+run_phase2
+  ├── 第一轮：按 BATCH_SIZE(16) 处理所有 papers
+  │     └── 记录每个 batch 的 unresolved papers（附带 original batch_num）
+  ├── 合并所有 unresolved papers
+  │     └── 按 RETRY_BATCH_SIZE(8) 重新分组为 retry batches
+  ├── retry 轮：逐 retry batch 调用 LLM
+  │     └── 每个 retry batch 完成后：
+  │           ├── 更新 results_by_id
+  │           └── 将成功的 paper 增补回对应原始 batch 的缓存文件
+  └── 仍失败的 paper → placeholder（patch mode 写入 markdown；normal mode 不生成 markdown）
+```
+
+### 核心接口定义 (API Contracts)
+
+```python
+RETRY_BATCH_SIZE = BATCH_SIZE // 2  # = 8，retry 时使用更小 batch 降低失败概率
+
+def _patch_batch_cache(field_cache: Path, batch_num: int, new_papers: list[dict], logger: logging.Logger) -> None:
+    """将 retry 成功的 paper 增补到原始 batch 缓存文件中。
+
+    读取 field_cache/batch_{batch_num:03d}.json，将 new_papers 追加到 papers 列表，
+    不修改 current_tags/new_tags 字段，原子写回。若缓存文件不存在则创建。
+    """
+
+@dataclass
+class UnresolvedPaper:
+    paper: dict              # 原始 paper dict
+    original_batch_num: int  # 归属的原始 batch 编号（用于回写缓存）
+```
+
+### 风险预警 (Risk Assessment)
+
+> **本项目无 AGENTS.md 规范文件，以下设计基于通用最佳实践。**
+
+| 风险 | 应对 |
+|------|------|
+| retry batch 中 papers 来自不同原始 batch，回写缓存时需按 batch_num 分组 | TASK 005 中必须按 `original_batch_num` 分组后逐文件增补 |
+| 缓存文件并发写入冲突 | 不存在——脚本单线程执行，无并发 |
+| 增补后缓存文件中 papers 顺序可能与 prompt 顺序不一致 | 不影响——缓存加载时走 `match_llm_results` 按 ID 匹配，不依赖顺序 |
+| retry batch 全部失败时不应写缓存 | `_patch_batch_cache` 仅在有成功 paper 时被调用 |
+| RETRY_BATCH_SIZE 过小导致调用次数增多 | 8 篇仍是合理大小，相比当前 1-2 篇的独立调用已大幅减少次数 |
+| `all_unresolved` 变量在 TASK 003 缓存路径和 TASK 005 首轮失败路径中均需使用，但声明位置不明确 | TASK 003 在 `run_phase2` 循环之前声明，TASK 005 使用时该变量已存在 |
+| `run_phase2` 返回的 `failed_batches` 语义从"失败 batch 数"变为"失败 paper 数" | TASK 005 显式重定义返回语义，TASK 007 验证 `run_normal_mode` 判断逻辑兼容 |
+| `_patch_batch_cache` 覆写 `current_tags` 可能导致后续 batch 缓存中 tags 回退 | `_patch_batch_cache` 仅追加 papers，不覆写 `current_tags` 字段 |
+| `--no-cache` 模式下 `_patch_batch_cache` 调用未受控 | TASK 005 中缓存增补逻辑外层必须判断 `save_cache` |
+
+## 3. 交互历史 (The Thread)
+
+### [Round 1]
+
+*Architect 寄语：以下任务已就绪，请 Executor 严格按照顺序和规范执行。*
+
+#### [TASK ID: 001] [状态: RESOLVED]
+- **定位**: `arxiv-update/scripts/arxiv_daily.py` — 常量定义区域 + 新增数据类
+- **目标描述**: 新增 `RETRY_BATCH_SIZE` 常量和 `UnresolvedPaper` dataclass
+- **前置依赖**: 无
+- **执行指令与限制**:
+  1. 在 `BATCH_SIZE = 16` 之后新增 `RETRY_BATCH_SIZE = BATCH_SIZE // 2`
+  2. 在 `BatchProcessResult` 之后新增：
+     ```python
+     @dataclass
+     class UnresolvedPaper:
+         paper: dict
+         original_batch_num: int
+     ```
+  3. 仅新增定义，不修改现有代码
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py` 的 `BATCH_SIZE = 16` 之后新增 `RETRY_BATCH_SIZE = BATCH_SIZE // 2`，并在 `BatchProcessResult` 后新增 `UnresolvedPaper(paper: dict, original_batch_num: int)` dataclass；未修改任何现有 retry、缓存或调用逻辑。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接断言 `RETRY_BATCH_SIZE` 与 `UnresolvedPaper` 字段可用通过。
+
+#### [TASK ID: 002] [状态: RESOLVED]
+- **定位**: `arxiv-update/scripts/arxiv_daily.py` — `_process_batch` 函数（第797-806行区域）
+- **目标描述**: 首轮部分成功时也写缓存（记录已成功的 paper）
+- **前置依赖**: TASK 001
+- **执行指令与限制**:
+  1. 当前逻辑：`unmatched > 0` 时提前 return，跳过缓存写入。改为：**无论是否有 unmatched，只要有 matched paper 就写缓存**
+  2. 修改 `_process_batch` 中的控制流：
+     ```python
+     # 无论成功与否，有 matched 就写缓存（记录部分成功）
+     if save_cache and cache_allowed and matched:
+         _write_batch_cache(field_cache, batch_num, result, new_tags, current_tags)
+
+     if unmatched > 0:
+         print(f"[...] FAILED ...", file=sys.stderr)
+         return BatchProcessResult(matched, _unresolved_papers(batch, matched), True)
+
+     print(f"[...] done ...", file=sys.stderr)
+     return BatchProcessResult(matched, [], False)
+     ```
+  3. **注意**：`_write_batch_cache` 写入的是 LLM 原始响应中的 `result["papers"]`（包含所有 LLM 返回的 paper，无论是否匹配成功）。这不需要修改——后续加载时仍通过 `match_llm_results` 按 ID 匹配，多余的条目会被忽略
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py:_process_batch` 控制流：在判断 `diagnostics.total_failed` 之前，只要 `save_cache and cache_allowed and matched` 成立就调用 `_write_batch_cache`，因此首轮部分成功时也会记录已成功的 LLM 原始响应；完全失败时不写空缓存；成功路径不再重复写缓存。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证 2 篇 batch 中 1 篇 matched、1 篇 missing 时 `_process_batch` 返回 failed 且写出 `batch_001.json`，缓存中包含 matched paper 与 current tags 通过。
+
+#### [TASK ID: 003] [状态: RESOLVED]
+- **定位**: `arxiv-update/scripts/arxiv_daily.py` — `run_phase2` 函数中加载缓存路径（第916-926行区域）
+- **目标描述**: 加载缓存时检测完整性，仅对缺失的 paper 发 LLM 请求
+- **前置依赖**: TASK 002
+- **执行指令与限制**:
+  1. **变量声明**：在 `run_phase2` 的主循环**之前**声明 `all_unresolved: list[UnresolvedPaper] = []`（本 TASK 缓存路径和 TASK 005 首轮失败路径均使用此变量）
+  2. 当前逻辑：加载缓存后若 `unmatched > 0`，将整个 batch 加入 `failed_batches`。改为：**仅将 unresolved papers（缓存中未覆盖的）加入 unresolved 列表**
+  3. 修改缓存命中路径：
+     ```python
+     if batch_num in cached_batches:
+         cached = cached_batches[batch_num]
+         matched, unmatched = match_llm_results(batch, cached.get("papers", []), ...)
+         results_by_id.update(matched)
+         if cached.get("current_tags"):
+             current_tags = cached["current_tags"]
+
+         unresolved_papers = _unresolved_papers(batch, matched)
+         if unresolved_papers:
+             # 缓存不完整，仅将缺失的 paper 记入 unresolved
+             status = f"cached (partial: {len(matched)}/{len(batch)} matched)"
+             for paper in unresolved_papers:
+                 all_unresolved.append(UnresolvedPaper(paper=paper, original_batch_num=batch_num))
+         else:
+             status = "cached"
+         print(f"[{batch_num}/{total}] {blabel} {status}", file=sys.stderr)
+         continue
+     ```
+  4. **关键语义**：缓存中有 14/16 篇成功 → 仅 2 篇进入 `all_unresolved` → retry 时只请求这 2 篇，不重复消耗已成功的 14 篇的 token
+  5. **不再将 partial cache 视为 "failed batch"**——只有完全无缓存的 batch 才走完整 LLM 路径
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已修改 `arxiv-update/scripts/arxiv_daily.py:run_phase2` 的缓存命中路径：在主循环前声明 `all_unresolved: list[UnresolvedPaper] = []`；缓存命中后通过 `match_llm_results` 和 `diagnostics.all_failed_ids` 计算 `unresolved_papers`；partial cache 不再加入 `failed_batches`，而是将缺失 paper 以 `UnresolvedPaper(paper, original_batch_num=batch_num)` 形式加入 `all_unresolved`；stderr 改为 `cached (partial: {len(matched)}/{len(batch)} matched)`，完整缓存仍显示 `cached`。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证 2 篇 batch 的 partial cache 只加载 1 篇已缓存结果、不调用 LLM、不加入 failed batch，并输出 `batch_001 cached (partial: 1/2 matched)` 通过。当前 `all_unresolved` 将在 TASK 005 中接入合并 retry，故本轮仍为接口迁移中间态。
+
+#### [TASK ID: 004] [状态: RESOLVED]
+- **定位**: `arxiv-update/scripts/arxiv_daily.py` — 新增 `_patch_batch_cache` 函数
+- **目标描述**: 实现将 retry 成功的 paper 增补回原始 batch 缓存文件的逻辑
+- **前置依赖**: TASK 001
+- **执行指令与限制**:
+  1. 放置在 `_write_batch_cache` 函数之后
+  2. 函数签名：
+     ```python
+     def _patch_batch_cache(field_cache: Path, batch_num: int, new_papers: list[dict], logger: logging.Logger) -> None:
+     ```
+  3. 逻辑：
+     - 读取 `field_cache / f"batch_{batch_num:03d}.json"`，若不存在则初始化为 `{"papers": [], "new_tags": [], "current_tags": []}`
+     - 将 `new_papers` 追加到 `cached["papers"]` 列表
+     - **不覆写 `current_tags` 和 `new_tags` 字段**（避免后续 batch 加载缓存时 tags 回退）
+     - 使用 `_atomic_write_json` 原子写回
+  4. **必须使用 try-except 包裹读取逻辑**，防止缓存文件损坏时阻断整个 retry 流程（捕获异常后 `logger.warning(...)` 并初始化为空结构继续）
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py` 的 `_write_batch_cache` 后新增 `_patch_batch_cache(field_cache, batch_num, new_papers, logger)`：读取原始 `batch_{num}.json`，不存在时初始化为空 cache；读取损坏时记录 `logger.warning` 并初始化为空结构继续；仅向 `papers` 追加 retry 成功的 `new_papers`，保留已有 `new_tags` 和 `current_tags`；最后使用 `_atomic_write_json` 原子写回。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证缓存文件不存在时创建、存在时追加且保留 tags 字段、损坏 JSON 时 warning 后重建通过。
+
+#### [TASK ID: 005] [状态: RESOLVED]
+- **定位**: `arxiv-update/scripts/arxiv_daily.py` — `run_phase2` 函数的 retry 路径（第939-962行区域）
+- **目标描述**: 重写 retry 逻辑为合并 batch + 缓存增补模式
+- **前置依赖**: TASK 001, TASK 002, TASK 003, TASK 004
+- **执行指令与限制**:
+  1. **收集阶段改造**：第一轮循环中，首轮 `_process_batch` 失败时，将 unresolved papers 追加到 TASK 003 中已声明的 `all_unresolved`：
+     ```python
+     for paper in processed.unresolved:
+         all_unresolved.append(UnresolvedPaper(paper=paper, original_batch_num=batch_num))
+     ```
+  2. **合并分组**：将 `all_unresolved` 按 `RETRY_BATCH_SIZE` 分组为 retry batches：
+     ```python
+     retry_batches = [
+         all_unresolved[i:i+RETRY_BATCH_SIZE]
+         for i in range(0, len(all_unresolved), RETRY_BATCH_SIZE)
+     ]
+     ```
+  3. **retry 执行**：逐 retry batch 调用 `_process_batch`，参数说明：
+     ```python
+     still_failed_papers: list[dict] = []
+     for retry_idx, retry_batch in enumerate(retry_batches):
+         retry_papers = [u.paper for u in retry_batch]
+         processed = _process_batch(
+             batch=retry_papers,
+             idx=retry_idx,                    # retry batch 自身的 0-based 索引
+             total=len(retry_batches),         # retry batches 总数
+             current_tags=current_tags,
+             api_endpoint=api_endpoint,
+             api_key=api_key,
+             model=model,
+             logger=logger,
+             debug_dir=debug_dir,
+             field_cache=field_cache,          # 传入但不会被使用（cache_allowed=False）
+             label_prefix="retry",            # 区分首轮日志
+             save_cache=False,                 # retry 不写独立缓存
+             cache_allowed=False,
+             exception_status="retry failed",
+         )
+         results_by_id.update(processed.matched)  # ← 必须将 retry 结果写入
+         still_failed_papers.extend(processed.unresolved)
+         # ... 缓存增补逻辑（见指令 4）
+     ```
+  4. **缓存增补**：每个 retry batch 完成后，**仅在 `save_cache=True`（外层参数）时**将 `processed.matched` 中的 paper 按 `original_batch_num` 分组，逐组调用 `_patch_batch_cache`：
+     ```python
+     if save_cache:
+         from collections import defaultdict
+         patch_groups: dict[int, list[dict]] = defaultdict(list)
+         for u in retry_batch:
+             if u.paper["id"] in processed.matched:
+                 llm_paper = processed.matched[u.paper["id"]]  # {summary, tags, venue}
+                 patch_groups[u.original_batch_num].append({"id": u.paper["id"], **llm_paper})
+         for orig_num, papers in patch_groups.items():
+             _patch_batch_cache(field_cache, orig_num, papers, logger)
+     ```
+  5. **仍失败的 paper**：循环结束后，对指令 3 中已收集的 `still_failed_papers` 调用 `_add_summary_failure_placeholders(results_by_id, still_failed_papers, logger, "retry")`（保留原有行为：patch mode 中 placeholder 会被写入 markdown）
+  6. **stderr 进度**：打印 `Retrying {n} unresolved paper(s) in {m} batch(es) (batch_size={RETRY_BATCH_SIZE})...`
+  7. **移除旧逻辑**：删除原有的逐 batch 重试循环（第939-962行）
+  8. **返回值语义变更**：`run_phase2` 的返回值第二项改为 `failed_papers: int`——表示最终仍未解决的 **paper 数量**（而非 batch 数）。调用方 `run_normal_mode` 中 `if failed_batches > 0` 的判断改为 `if failed_papers > 0`，逻辑不变（> 0 则不生成 markdown）。**JSON 输出兼容性**：summary dict 中保留 `"failed_batches"` 字段（值设为 `1 if failed_papers > 0 else 0`，向后兼容），同时新增 `"failed_papers"` 字段表示精确的失败 paper 数量
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已重写 `arxiv-update/scripts/arxiv_daily.py:run_phase2` 的 retry 路径：首轮 `_process_batch` 失败时将每个 unresolved paper 记录为 `UnresolvedPaper(paper, original_batch_num=batch_num)`；将所有 `all_unresolved` 按 `RETRY_BATCH_SIZE` 合并分组；retry 阶段统一调用 `_process_batch(..., label_prefix="retry", save_cache=False, cache_allowed=False, exception_status="retry failed")`；每个 retry batch 成功后将 `processed.matched` 写入 `results_by_id`，并在外层 `save_cache=True` 时按 `original_batch_num` 分组调用 `_patch_batch_cache` 增补原始 batch cache；retry 后仍失败的 paper 统一通过 `_add_summary_failure_placeholders(..., "retry")` 保留原有占位行为。`run_phase2` 第二返回值语义改为最终仍未解决的 `failed_papers` 数量；`run_normal_mode` 同步改用 `failed_papers` 判断，并在 success/skip summary 中保留 `failed_batches: 0`、新增 `failed_papers: 0`。验证：`python3 -m py_compile arxiv_daily.py tests/test_arxiv_daily.py` 通过；`python3 - <<'PY' ... PY` 直接验证两个原始 batch 的 unresolved papers 合并为一个 retry batch、retry 成功后按原始 batch 增补 cache 且返回 `failed_papers == 0` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestRunPhase2 tests/test_arxiv_daily.py::TestRunPhase2ErrorModes -q` 通过，13 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，139 passed, 1 xfailed。
+
+#### [TASK ID: 006] [状态: RESOLVED]
+- **定位**: `arxiv-update/scripts/tests/test_arxiv_daily.py`
+- **目标描述**: 为首轮部分缓存、缓存完整性检测、retry 合并和缓存增补逻辑补充单元测试
+- **前置依赖**: TASK 005
+- **执行指令与限制**:
+  1. 新增测试 `test_process_batch_partial_success_writes_cache`：首轮 batch 14/16 成功时仍写缓存文件
+  2. 新增测试 `test_run_phase2_partial_cache_only_retries_missing`：加载缓存后仅对缺失 paper 发 LLM 请求（mock LLM，验证调用参数仅含缺失 paper）
+  3. 新增测试 `test_patch_batch_cache_creates_file`：缓存文件不存在时创建
+  4. 新增测试 `test_patch_batch_cache_appends`：缓存文件已存在时追加 papers
+  5. 新增测试 `test_patch_batch_cache_corrupt_file`：缓存文件损坏时不崩溃，重新初始化
+  6. 新增测试 `test_retry_merges_unresolved_across_batches`：验证多个 batch 的 unresolved papers 被合并为按 RETRY_BATCH_SIZE 分组的 retry batches（可 mock `_process_batch`）
+  7. 运行 `python3 -m pytest tests/test_arxiv_daily.py -q` 确认全部通过
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/tests/test_arxiv_daily.py` 补充 6 个回归测试：`test_process_batch_partial_success_writes_cache` 覆盖首轮部分成功仍写 cache；`test_run_phase2_partial_cache_only_retries_missing` 覆盖 partial cache 命中后只对缺失 paper 构造 retry prompt；`test_patch_batch_cache_creates_file`、`test_patch_batch_cache_appends`、`test_patch_batch_cache_corrupt_file` 覆盖 `_patch_batch_cache` 创建、追加、损坏文件恢复；`test_retry_merges_unresolved_across_batches` 通过 mock `_process_batch` 验证两个原始 batch 的 unresolved papers 会跨批合并为一个 `RETRY_BATCH_SIZE` retry batch。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestPhase2Helpers tests/test_arxiv_daily.py::TestRunPhase2 -q` 通过，23 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，145 passed, 1 xfailed。
+
+#### [TASK ID: 007] [状态: RESOLVED]
+- **定位**: 全文验证
+- **目标描述**: 确认无回归，整体逻辑一致
+- **前置依赖**: TASK 005, TASK 006
+- **执行指令与限制**:
+  1. `python3 -m py_compile arxiv_daily.py` 通过
+  2. 全量测试通过
+  3. 确认 `run_phase2` 返回值 `failed_papers` 语义为"最终仍未解决的 paper 数量"，`run_normal_mode` 和 `run_patch_mode` 中 `if failed_papers > 0` 判断逻辑正确
+  4. 确认 `--no-cache` 模式下首轮不写缓存、retry 不调用 `_patch_batch_cache`
+  5. 验证完整流程场景：首轮部分失败 → 写部分缓存 → 第二次运行加载部分缓存 → 仅 retry 缺失 paper → 增补缓存 → 第三次运行全部从缓存加载
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。验证中发现两处与本任务确认项不一致并已做最小修复：`arxiv-update/scripts/arxiv_daily.py:run_patch_mode` 改为接收 `failed_papers`，并将 retry 后仍失败但写入 placeholder 的 paper 计入 patch summary 的 `failed` 与退出码；`arxiv-update/scripts/arxiv_daily.py:run_phase2` 新增 `cache_writes_enabled = save_cache and not no_cache`，确保 `--no-cache` 模式不写 `metadata_hash`/batch cache，retry 成功后也不调用 `_patch_batch_cache`。已在 `arxiv-update/scripts/tests/test_arxiv_daily.py` 新增 `test_patch_mode_counts_retry_placeholders_as_failed` 与 `test_no_cache_disables_batch_cache_and_retry_patch` 覆盖上述行为。验证：`python3 -m py_compile arxiv_daily.py tests/test_arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestRunPhase2::test_no_cache_disables_batch_cache_and_retry_patch tests/test_arxiv_daily.py::TestRunPatchMode::test_patch_mode_counts_retry_placeholders_as_failed -q` 通过，2 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，147 passed, 1 xfailed；`./.venv/bin/python - <<'PY' ... PY` 临时脚本验证 partial cache 第二次仅 retry 缺失 paper、增补原 batch cache、第三次全量缓存命中且不调用 LLM，通过。
+
+### [Round 2]
+- **Reviewer**:
+  - **状态判决**: `[STATUS: PASS]`
+  - **审查摘要**:
+    重构目标完全达成。retry 策略从"逐原始 batch 重试各自的 unresolved"改为"收集所有 unresolved papers，按 RETRY_BATCH_SIZE(8) 重新分组统一重试"；retry 成功后按 `original_batch_num` 分组增补回原始 batch 缓存文件；`run_phase2` 返回值语义从 `failed_batches` 改为 `failed_papers`；`--no-cache` 模式下缓存写入和增补正确禁用。测试从 139 增至 147 passed，新增 8 个回归测试覆盖核心路径。
+  - **[ISSUE ID: 001] (Advisory, non-blocking)**:
+    - **定位**: `arxiv-update/scripts/arxiv_daily.py:_process_batch` L947-948
+    - **问题描述**: 首轮 `_process_batch` 中 `if save_cache and cache_allowed and matched` 在 **全量成功** 时也会写缓存（行为正确），但条件 `matched` 为真即可触发写入——若所有 paper 都 quality_failed（matched 为空 dict），则不写缓存。这是正确行为（空 matched 无意义缓存），仅标注边界以供文档留存。
+    - **严重程度**: 信息性。不阻塞合并。
+  - **[ISSUE ID: 002] (Advisory, non-blocking)**:
+    - **定位**: `arxiv-update/scripts/arxiv_daily.py:run_phase2` L1142
+    - **问题描述**: `_add_summary_failure_placeholders(results_by_id, still_failed_papers, logger, "retry")` 位于 `if retry_batches:` 块内。若 `all_unresolved` 为空则不进入该分支，placeholder 逻辑不执行——这是正确行为（无 unresolved = 无需 placeholder）。但如果未来新增"首轮不 retry 直接 placeholder"的逻辑，需注意此位置约束。仅标注以供未来扩展参考。
+    - **严重程度**: 信息性。不阻塞合并。
+  - **回应 Executor**: 所有 7 个 TASK 实现符合设计预期。TASK 007 中 Executor 主动发现并修复了两个遗漏：`run_patch_mode` 接收 `failed_papers` 并计入退出码、`cache_writes_enabled` 确保 `--no-cache` 禁用所有缓存写入，修复质量高。
+  - **Issue 优先级与依赖总表**:
+    | Issue | 优先级 | 阻塞合并 | 前置依赖 |
+    |-------|--------|----------|----------|
+    | 001   | Info   | 否       | 无       |
+    | 002   | Info   | 否       | 无       |
+
+  - **综合评价**:
+    - `UnresolvedPaper` dataclass 清晰追踪 paper 的原始 batch 归属，使缓存增补逻辑无歧义。
+    - `_patch_batch_cache` 实现健壮：文件不存在时创建、损坏时 warning 后重建、仅追加 papers 不覆写 tags。
+    - `cache_writes_enabled = save_cache and not no_cache` 统一了缓存控制点，避免分散判断。
+    - retry 合并逻辑正确：跨 batch 的 unresolved papers 合并为更小的 retry batch，减少 LLM 调用次数且降低单次失败概率。
+    - `run_patch_mode` 中 `total_failed = len(patch_ids) - len(results_by_id) + failed_papers` 计算正确：placeholder 已写入 `results_by_id`，故 `len(patch_ids) - len(results_by_id)` = 0，`total_failed` = `failed_papers`。
+    - JSON 输出向后兼容：保留 `failed_batches: 0` 字段，新增 `failed_papers` 字段。
+    - 测试覆盖充分：147 passed, 1 xfailed，覆盖 partial cache、cache 创建/追加/损坏、跨批合并、`--no-cache` 禁用、patch mode placeholder 计数。
+
+> **本项目无 AGENTS.md 规范文件，以通用最佳实践为准。** 以上 Issue 为行为边界备注，非基于项目强制约定。
+
+## 4. 最终决策 (Final Decision)
+
+- **决策记录**: 代码审查通过，可合并。retry 策略成功从逐 batch 重试升级为跨 batch 合并重试 + 缓存增补模式，降低 LLM 调用浪费，修复了 partial cache 未被利用的效率问题。所有调用方已适配，`--no-cache` 模式行为正确，测试全部通过。两个 Advisory Issue 为行为边界文档，不需修改。

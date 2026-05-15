@@ -671,6 +671,75 @@ class TestPhase2Helpers:
         assert cached["current_tags"] == ["旧标签", "新标签"]
         assert list(field_cache.glob("*.json.tmp")) == []
 
+    def test_patch_batch_cache_creates_file(self, tmp_path, logger):
+        field_cache = tmp_path / "cache"
+        field_cache.mkdir()
+
+        arxiv_daily._patch_batch_cache(
+            field_cache,
+            1,
+            [{"id": "2604.00001", "summary": "summary", "tags": ["T1"], "venue": None}],
+            logger,
+        )
+
+        cached = json.loads((field_cache / "batch_001.json").read_text(encoding="utf-8"))
+        assert cached == {
+            "papers": [{"id": "2604.00001", "summary": "summary", "tags": ["T1"], "venue": None}],
+            "new_tags": [],
+            "current_tags": [],
+        }
+
+    def test_patch_batch_cache_appends(self, tmp_path, logger):
+        field_cache = tmp_path / "cache"
+        field_cache.mkdir()
+        cache_path = field_cache / "batch_001.json"
+        cache_path.write_text(
+            json.dumps(
+                {
+                    "papers": [{"id": "2604.00001", "summary": "old", "tags": ["T1"], "venue": None}],
+                    "new_tags": ["T1"],
+                    "current_tags": ["Existing", "T1"],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        arxiv_daily._patch_batch_cache(
+            field_cache,
+            1,
+            [{"id": "2604.00002", "summary": "new", "tags": ["T2"], "venue": None}],
+            logger,
+        )
+
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        assert cached["papers"] == [
+            {"id": "2604.00001", "summary": "old", "tags": ["T1"], "venue": None},
+            {"id": "2604.00002", "summary": "new", "tags": ["T2"], "venue": None},
+        ]
+        assert cached["new_tags"] == ["T1"]
+        assert cached["current_tags"] == ["Existing", "T1"]
+
+    def test_patch_batch_cache_corrupt_file(self, tmp_path, logger):
+        field_cache = tmp_path / "cache"
+        field_cache.mkdir()
+        cache_path = field_cache / "batch_001.json"
+        cache_path.write_text("{bad json", encoding="utf-8")
+
+        arxiv_daily._patch_batch_cache(
+            field_cache,
+            1,
+            [{"id": "2604.00001", "summary": "summary", "tags": ["T1"], "venue": None}],
+            logger,
+        )
+
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        assert cached == {
+            "papers": [{"id": "2604.00001", "summary": "summary", "tags": ["T1"], "venue": None}],
+            "new_tags": [],
+            "current_tags": [],
+        }
+
     def test_atomic_json_write_cleans_temp_on_failure(self, monkeypatch, tmp_path):
         cache_path = tmp_path / "batch_001.json"
         cache_path.write_text('{"old": true}', encoding="utf-8")
@@ -989,6 +1058,126 @@ class TestRunPhase2:
         assert failed == 0
         assert observed_prompt_tags == [["LLM Reasoning", "Diffusion Models", "Transfer Learning", "Robotics"]]
 
+    def test_process_batch_partial_success_writes_cache(self, monkeypatch, logger, tmp_path):
+        field_cache = tmp_path / "cache"
+        debug_dir = tmp_path / "debug"
+        field_cache.mkdir()
+        long_summary = "这是一篇用于测试的论文摘要，内容足够长，可以通过质量检查并验证部分成功缓存。"
+        papers = [
+            {
+                "id": f"2604.{i:05d}",
+                "title": f"Paper {i}",
+                "abstract": f"Abstract {i}",
+            }
+            for i in range(1, arxiv_daily.BATCH_SIZE + 1)
+        ]
+
+        monkeypatch.setattr(
+            arxiv_daily,
+            "build_prompt",
+            lambda batch, current_tags: [{"role": "user", "content": "fake prompt"}],
+        )
+        monkeypatch.setattr(
+            arxiv_daily,
+            "call_llm",
+            lambda *args, **kwargs: (
+                {
+                    "papers": [
+                        {"id": paper["id"], "summary": long_summary, "tags": ["T1"], "venue": None}
+                        for paper in papers[:14]
+                    ],
+                    "new_tags": ["T1"],
+                },
+                {},
+            ),
+        )
+
+        processed = arxiv_daily._process_batch(
+            papers,
+            0,
+            1,
+            [],
+            "http://unused",
+            "test-key",
+            "test-model",
+            logger,
+            debug_dir,
+            field_cache,
+            "batch",
+            save_cache=True,
+            cache_allowed=True,
+            exception_status="failed",
+        )
+
+        assert processed.failed is True
+        assert [paper["id"] for paper in processed.unresolved] == ["2604.00015", "2604.00016"]
+        cached = json.loads((field_cache / "batch_001.json").read_text(encoding="utf-8"))
+        assert [paper["id"] for paper in cached["papers"]] == [paper["id"] for paper in papers[:14]]
+
+    def test_run_phase2_partial_cache_only_retries_missing(
+        self, monkeypatch, logger, tags_file, tmp_path, sample_data
+    ):
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        field_cache = cache_dir / sample_data["field"]
+        field_cache.mkdir(parents=True)
+        long_summary = "这是一篇用于测试的论文摘要，内容足够长，可以通过质量检查并验证缓存重试。"
+        papers = [
+            {"id": "2604.00001", "title": "Paper 1", "abstract": "Abstract 1"},
+            {"id": "2604.00002", "title": "Paper 2", "abstract": "Abstract 2"},
+        ]
+        data = {
+            "field": sample_data["field"],
+            "listing_date": sample_data["listing_date"],
+            "page_type": "new",
+            "sections": [{"name": "New submissions", "count": 2, "papers": papers}],
+        }
+        (field_cache / "metadata_hash").write_text(arxiv_daily.compute_metadata_hash(data), encoding="utf-8")
+        (field_cache / "batch_001.json").write_text(
+            json.dumps(
+                {
+                    "papers": [
+                        {"id": "2604.00001", "summary": long_summary, "tags": ["T1"], "venue": None},
+                    ],
+                    "new_tags": ["T1"],
+                    "current_tags": ["LLM Reasoning", "T1"],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        prompt_batches = []
+
+        def fake_build_prompt(batch, current_tags):
+            prompt_batches.append([paper["id"] for paper in batch])
+            return [{"role": "user", "content": "fake prompt"}]
+
+        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None):
+            return {
+                "papers": [
+                    {"id": "2604.00002", "summary": long_summary, "tags": ["T2"], "venue": None},
+                ],
+                "new_tags": ["T2"],
+            }, {}
+
+        monkeypatch.setattr(arxiv_daily, "build_prompt", fake_build_prompt)
+        monkeypatch.setattr(arxiv_daily, "call_llm", fake_call_llm)
+
+        results, failed = arxiv_daily.run_phase2(
+            data,
+            tags_file,
+            cache_dir,
+            no_cache=False,
+            api_endpoint="http://unused",
+            api_key="test-key",
+            model="test-model",
+            logger=logger,
+        )
+
+        assert failed == 0
+        assert prompt_batches == [["2604.00002"]]
+        assert set(results) == {"2604.00001", "2604.00002"}
+
     def test_retries_only_unresolved_papers(self, monkeypatch, logger, tags_file, tmp_path, sample_data):
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
@@ -1036,6 +1225,82 @@ class TestRunPhase2:
         assert failed == 0
         assert prompt_batches == [["2604.00001", "2604.00002"], ["2604.00002"]]
         assert set(results) == {"2604.00001", "2604.00002"}
+
+    def test_retry_merges_unresolved_across_batches(self, monkeypatch, logger, tags_file, tmp_path, sample_data):
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        long_summary = "这是一篇用于测试的论文摘要，内容足够长，可以通过质量检查并验证跨批重试。"
+        papers = [
+            {
+                "id": f"2604.{i:05d}",
+                "title": f"Paper {i}",
+                "abstract": f"Abstract {i}",
+                "comments": "",
+            }
+            for i in range(1, arxiv_daily.BATCH_SIZE + 5)
+        ]
+        data = {
+            "field": sample_data["field"],
+            "listing_date": sample_data["listing_date"],
+            "page_type": "new",
+            "sections": [{"name": "New submissions", "count": len(papers), "papers": papers}],
+        }
+        retry_batches = []
+
+        def fake_process_batch(
+            batch,
+            idx,
+            total,
+            current_tags,
+            api_endpoint,
+            api_key,
+            model,
+            logger,
+            debug_dir,
+            field_cache,
+            label_prefix,
+            save_cache,
+            cache_allowed,
+            exception_status,
+        ):
+            if label_prefix == "retry":
+                retry_batches.append([paper["id"] for paper in batch])
+                return arxiv_daily.BatchProcessResult(
+                    {
+                        paper["id"]: {
+                            "summary": long_summary,
+                            "tags": ["RetryTag"],
+                            "venue": None,
+                        }
+                        for paper in batch
+                    },
+                    [],
+                    False,
+                )
+
+            if idx == 0:
+                unresolved = batch[-4:]
+            else:
+                unresolved = batch[:4]
+            return arxiv_daily.BatchProcessResult({}, unresolved, True)
+
+        monkeypatch.setattr(arxiv_daily, "_process_batch", fake_process_batch)
+
+        results, failed = arxiv_daily.run_phase2(
+            data,
+            tags_file,
+            cache_dir,
+            no_cache=True,
+            api_endpoint="http://unused",
+            api_key="test-key",
+            model="test-model",
+            logger=logger,
+        )
+
+        expected_retry = [paper["id"] for paper in papers[arxiv_daily.BATCH_SIZE - 4 : arxiv_daily.BATCH_SIZE + 4]]
+        assert failed == 0
+        assert retry_batches == [expected_retry]
+        assert set(results) == set(expected_retry)
 
     def test_unresolved_after_retry_gets_summary_placeholder(
         self, monkeypatch, logger, tags_file, tmp_path, sample_data
@@ -1093,6 +1358,73 @@ class TestRunPhase2:
             api_endpoint=api_url, api_key="test-key", model="test-model", logger=logger,
         )
         assert handler_cls.request_counter > count_after_first
+
+    def test_no_cache_disables_batch_cache_and_retry_patch(
+        self, monkeypatch, logger, tags_file, tmp_path, sample_data
+    ):
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        long_summary = "这是一篇用于测试的论文摘要，内容足够长，可以通过质量检查并验证禁用缓存。"
+        papers = [
+            {"id": "2604.00001", "title": "Paper 1", "abstract": "Abstract 1"},
+            {"id": "2604.00002", "title": "Paper 2", "abstract": "Abstract 2"},
+        ]
+        data = {
+            "field": sample_data["field"],
+            "listing_date": sample_data["listing_date"],
+            "page_type": "new",
+            "sections": [{"name": "New submissions", "count": 2, "papers": papers}],
+        }
+        prompt_batches = []
+        patch_calls = []
+
+        def fake_build_prompt(batch, current_tags):
+            prompt_batches.append([paper["id"] for paper in batch])
+            return [{"role": "user", "content": "fake prompt"}]
+
+        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None):
+            if len(prompt_batches) == 1:
+                return {
+                    "papers": [
+                        {"id": "2604.00001", "summary": long_summary, "tags": ["T1"], "venue": None},
+                    ],
+                    "new_tags": [],
+                }, {}
+            return {
+                "papers": [
+                    {"id": "2604.00002", "summary": long_summary, "tags": ["T2"], "venue": None},
+                ],
+                "new_tags": [],
+            }, {}
+
+        monkeypatch.setattr(arxiv_daily, "build_prompt", fake_build_prompt)
+        monkeypatch.setattr(arxiv_daily, "call_llm", fake_call_llm)
+        monkeypatch.setattr(
+            arxiv_daily,
+            "_patch_batch_cache",
+            lambda field_cache, batch_num, new_papers, logger: patch_calls.append(
+                (batch_num, new_papers)
+            ),
+        )
+
+        results, failed = arxiv_daily.run_phase2(
+            data,
+            tags_file,
+            cache_dir,
+            no_cache=True,
+            api_endpoint="http://unused",
+            api_key="test-key",
+            model="test-model",
+            logger=logger,
+        )
+
+        field_cache = cache_dir / sample_data["field"]
+        assert failed == 0
+        assert set(results) == {"2604.00001", "2604.00002"}
+        assert prompt_batches == [["2604.00001", "2604.00002"], ["2604.00002"]]
+        assert patch_calls == []
+        assert not (field_cache / "metadata_hash").exists()
+        assert list(field_cache.glob("batch_*.json")) == []
 
     def test_tags_updated(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
         api_url, handler_cls = fake_llm_server
@@ -1592,6 +1924,81 @@ title: "test"
         patched_content = md_path.read_text(encoding="utf-8")
         assert "- **Summary**: New replaced summary." in patched_content
         assert "(replaced)" in patched_content
+
+
+# ===========================================================================
+# TestRunPatchMode
+# ===========================================================================
+
+class TestRunPatchMode:
+    def test_patch_mode_counts_retry_placeholders_as_failed(self, monkeypatch, tmp_path, logger):
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        cache_base = tmp_path / "cache"
+        pages_dir = cache_base / "pages" / "cs.AI"
+        pages_dir.mkdir(parents=True)
+        (pages_dir / "2025-04-11.html").write_text("<html>saved</html>", encoding="utf-8")
+        md_path = output_dir / "2025-04-11-cs.AI.md"
+        md_path.write_text(
+            """\
+<h3 id="1">[1] Test Paper</h3>
+- **arXiv**: [2604.00001](https://arxiv.org/abs/2604.00001)
+- **Authors**: Alice
+- **Subjects**: cs.AI
+- **Tags**: Old
+- **Summary**: Old summary.
+""",
+            encoding="utf-8",
+        )
+        tags_path = tmp_path / "tags.json"
+        tags_path.write_text('{"tags": []}', encoding="utf-8")
+        args = type("Args", (), {})()
+        args.date = "2025-04-11"
+        args.field = "cs.AI"
+        args.patch = ["2604.00001"]
+        args.tags = str(tags_path)
+        args.output = str(output_dir)
+
+        monkeypatch.setattr(
+            arxiv_daily,
+            "parse_html",
+            lambda html, field: {
+                "sections": [{
+                    "papers": [
+                        {"id": "2604.00001", "title": "Test Paper", "abstract": "Abstract"},
+                    ],
+                }],
+            },
+        )
+        monkeypatch.setattr(
+            arxiv_daily,
+            "run_phase2",
+            lambda *args, **kwargs: (
+                {
+                    "2604.00001": {
+                        "summary": arxiv_daily.SUMMARY_FAILURE_PLACEHOLDER,
+                        "tags": [arxiv_daily.SUMMARY_FAILURE_TAG],
+                        "venue": None,
+                    },
+                },
+                1,
+            ),
+        )
+
+        result = arxiv_daily.run_patch_mode(
+            args,
+            logger,
+            cache_base,
+            arxiv_daily.LlmConfig(
+                api_key="test-key",
+                api_endpoint="http://unused",
+                model="test-model",
+            ),
+        )
+
+        assert result.exit_code == 1
+        assert result.summary["failed"] == 1
+        assert arxiv_daily.SUMMARY_FAILURE_PLACEHOLDER in md_path.read_text(encoding="utf-8")
 
 
 # ===========================================================================
