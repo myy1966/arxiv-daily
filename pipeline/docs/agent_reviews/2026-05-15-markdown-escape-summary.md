@@ -50,7 +50,7 @@ def _escape_md_inline(text: str) -> str:
 ### [Round 1]
 *(Architect 寄语：以下任务已就绪，请 Executor 严格按照顺序和规范执行)*
 
-#### [TASK ID: 001] [状态: OPEN]
+#### [TASK ID: 001] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py`，在 `generate_markdown` 函数之前（约 line 1179 附近）
 - **目标描述**: 新增 `_escape_md_inline(text: str) -> str` 工具函数
 - **前置依赖**: 无
@@ -58,6 +58,8 @@ def _escape_md_inline(text: str) -> str:
   - 放置在 Phase 3 区域开头（`# Phase 3: Markdown Generation` 注释块之后、`SECTION_NAME_CN` 之前）
   - 仅转义 `|`、`<`、`>` 三个字符
   - 不得引入额外依赖
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/arxiv_daily.py` 的 Phase 3 区域开头、`SECTION_NAME_CN` 之前新增 `_escape_md_inline(text: str) -> str`，仅依次转义 `|`、`<`、`>` 三个 markdown 敏感字符；未引入额外依赖，未接入 `generate_markdown` 或 `patch_markdown`，以保持本轮只处理 TASK-001。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过；`git diff --check` 通过。
 
 #### [TASK ID: 002] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` line 1338

@@ -1150,6 +1150,15 @@ def run_phase2(
 # Phase 3: Markdown Generation
 # ---------------------------------------------------------------------------
 
+
+def _escape_md_inline(text: str) -> str:
+    """Escape markdown-sensitive characters in inline list text."""
+    text = text.replace("|", "\\|")
+    text = text.replace("<", "\\<")
+    text = text.replace(">", "\\>")
+    return text
+
+
 SECTION_NAME_CN = {
     "New submissions": "新投稿",
     "Cross submissions": "跨领域投稿",
