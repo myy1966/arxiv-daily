@@ -234,7 +234,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/tests/test_arxiv_daily.py` 补充 6 个回归测试：`test_process_batch_partial_success_writes_cache` 覆盖首轮部分成功仍写 cache；`test_run_phase2_partial_cache_only_retries_missing` 覆盖 partial cache 命中后只对缺失 paper 构造 retry prompt；`test_patch_batch_cache_creates_file`、`test_patch_batch_cache_appends`、`test_patch_batch_cache_corrupt_file` 覆盖 `_patch_batch_cache` 创建、追加、损坏文件恢复；`test_retry_merges_unresolved_across_batches` 通过 mock `_process_batch` 验证两个原始 batch 的 unresolved papers 会跨批合并为一个 `RETRY_BATCH_SIZE` retry batch。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestPhase2Helpers tests/test_arxiv_daily.py::TestRunPhase2 -q` 通过，23 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，145 passed, 1 xfailed。
 
-#### [TASK ID: 007] [状态: OPEN]
+#### [TASK ID: 007] [状态: RESOLVED]
 - **定位**: 全文验证
 - **目标描述**: 确认无回归，整体逻辑一致
 - **前置依赖**: TASK 005, TASK 006
@@ -244,6 +244,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
   3. 确认 `run_phase2` 返回值 `failed_papers` 语义为"最终仍未解决的 paper 数量"，`run_normal_mode` 和 `run_patch_mode` 中 `if failed_papers > 0` 判断逻辑正确
   4. 确认 `--no-cache` 模式下首轮不写缓存、retry 不调用 `_patch_batch_cache`
   5. 验证完整流程场景：首轮部分失败 → 写部分缓存 → 第二次运行加载部分缓存 → 仅 retry 缺失 paper → 增补缓存 → 第三次运行全部从缓存加载
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。验证中发现两处与本任务确认项不一致并已做最小修复：`arxiv-update/scripts/arxiv_daily.py:run_patch_mode` 改为接收 `failed_papers`，并将 retry 后仍失败但写入 placeholder 的 paper 计入 patch summary 的 `failed` 与退出码；`arxiv-update/scripts/arxiv_daily.py:run_phase2` 新增 `cache_writes_enabled = save_cache and not no_cache`，确保 `--no-cache` 模式不写 `metadata_hash`/batch cache，retry 成功后也不调用 `_patch_batch_cache`。已在 `arxiv-update/scripts/tests/test_arxiv_daily.py` 新增 `test_patch_mode_counts_retry_placeholders_as_failed` 与 `test_no_cache_disables_batch_cache_and_retry_patch` 覆盖上述行为。验证：`python3 -m py_compile arxiv_daily.py tests/test_arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestRunPhase2::test_no_cache_disables_batch_cache_and_retry_patch tests/test_arxiv_daily.py::TestRunPatchMode::test_patch_mode_counts_retry_placeholders_as_failed -q` 通过，2 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，147 passed, 1 xfailed；`./.venv/bin/python - <<'PY' ... PY` 临时脚本验证 partial cache 第二次仅 retry 缺失 paper、增补原 batch cache、第三次全量缓存命中且不调用 LLM，通过。
 
 ## 4. 最终决策 (Final Decision)
 

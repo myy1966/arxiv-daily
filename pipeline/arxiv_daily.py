@@ -1050,13 +1050,15 @@ def run_phase2(
     if not batches:
         return {}, 0
 
+    cache_writes_enabled = save_cache and not no_cache
+
     # Cache setup
     field_cache = cache_dir / data["field"]
     field_cache.mkdir(parents=True, exist_ok=True)
     debug_dir = cache_dir / "debug" / data["field"]
 
     cached_batches: dict[int, dict] = {}
-    if save_cache:
+    if cache_writes_enabled:
         current_hash = compute_metadata_hash(data)
         hash_file = field_cache / "metadata_hash"
         cached_batches = load_cached_batches(field_cache, hash_file, current_hash, no_cache)
@@ -1092,7 +1094,7 @@ def run_phase2(
         processed = _process_batch(
             batch, idx, total, current_tags,
             api_endpoint, api_key, model, logger, debug_dir, field_cache,
-            batch_prefix, save_cache, cache_allowed=True,
+            batch_prefix, cache_writes_enabled, cache_allowed=True,
             exception_status="failed after all retries",
         )
         results_by_id.update(processed.matched)
@@ -1126,7 +1128,7 @@ def run_phase2(
             results_by_id.update(processed.matched)
             still_failed_papers.extend(processed.unresolved)
 
-            if save_cache and processed.matched:
+            if cache_writes_enabled and processed.matched:
                 patch_groups: dict[int, list[dict]] = defaultdict(list)
                 for unresolved in retry_batch:
                     pid = unresolved.paper["id"]
@@ -1459,7 +1461,7 @@ def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: L
     }
 
     tags_path = Path(args.tags)
-    results_by_id, failed_batches = run_phase2(
+    results_by_id, failed_papers = run_phase2(
         patch_data, tags_path, cache_base, no_cache=True,
         api_endpoint=llm_config.api_endpoint,
         api_key=llm_config.api_key,
@@ -1478,7 +1480,7 @@ def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: L
         raise ConfigError(f"Markdown file not found: {md_path}")
 
     patched = patch_markdown(md_path, results_by_id, logger)
-    total_failed = len(patch_ids) - len(results_by_id)
+    total_failed = len(patch_ids) - len(results_by_id) + failed_papers
     print(f"Patched {patched}/{len(patch_ids)} paper(s) in {md_path}", file=sys.stderr)
     logger.info(f"[Patch] Completed: patched {patched} paper(s)")
 
