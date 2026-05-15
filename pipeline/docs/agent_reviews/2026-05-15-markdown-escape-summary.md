@@ -1,7 +1,7 @@
 ---
 title: "LLM Summary Markdown 特殊字符转义"
 date: "2026-05-15"
-status: "PLANNING_COMPLETE"
+status: "PASS"
 ---
 
 ## 1. 元数据 (Metadata)
@@ -90,5 +90,20 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准。已在 `arxiv-update/scripts/tests/test_arxiv_daily.py` 的 Markdown 相关测试区块前新增 `TestMarkdownEscaping`，覆盖 `_escape_md_inline` 对纯中文无特殊字符保持不变、`|` 转义、`<tag>` 的 `<`/`>` 转义、`|`/`<`/`>` 组合字符转义，以及空字符串保持为空。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestMarkdownEscaping tests/test_arxiv_daily.py::TestGenerateMarkdown tests/test_arxiv_daily.py::TestPatchMarkdown -q` 通过，22 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` 通过，152 passed, 1 xfailed；`git diff --check` 通过。
 
+### [Round 2]
+- **Reviewer**:
+  - **状态判决**: `[STATUS: PASS]`
+  - **审查摘要**:
+    改动精准最小化：新增 `_escape_md_inline` 转义 `|`/`<`/`>`，在 `generate_markdown` 和 `patch_markdown` 两处 summary 输出点接入。不影响缓存、LLM 调用或 match 逻辑。测试覆盖 5 个用例，全量 152 passed, 1 xfailed。
+  - **无阻塞 Issue。**
+  - **综合评价**:
+    - 转义策略保守正确：仅处理 `|`/`<`/`>` 三个高频破坏字符，不过度转义 `*`/`_`/`` ` `` 等 LLM 可能合理使用的强调语法。
+    - `generate_markdown` 和 `patch_markdown` 两条写入路径均已覆盖，无遗漏。
+    - 无二次转义风险：summary 始终从 `results_by_id` 的原始 JSON 值读取，不从已写入的 `.md` 文件回读。
+    - 测试用例覆盖纯中文、单字符、组合字符、空字符串边界。
+
+> **本项目无 AGENTS.md 规范文件，以通用最佳实践为准。**
+
 ## 4. 最终决策 (Final Decision)
-（由 Reviewer 在最终判决 PASS 时填写）
+
+- **决策记录**: 代码审查通过，可合并。纯输出层转义，改动最小化且无副作用，测试全部通过。
