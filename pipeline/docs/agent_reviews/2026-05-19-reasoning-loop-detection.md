@@ -94,7 +94,7 @@ for raw_line in resp:
     # 取当前 chunk 有效文本（两者在同一 chunk 中互斥）
     stream_chunk = delta.get("reasoning_content") or delta.get("content") or ""
     if stream_chunk and detector.feed(stream_chunk):
-        logger.warning(
+        logger.error(
             f"[Phase2] {log_label} attempt {attempt + 1}: "
             f"stream loop detected after {detector.total_chars} chars, aborting"
         )
@@ -213,7 +213,7 @@ for raw_line in resp:
      ```python
      stream_chunk = delta.get("reasoning_content") or delta.get("content") or ""
      if stream_chunk and detector.feed(stream_chunk):
-         logger.warning(
+         logger.error(
              f"[Phase2] {log_label} attempt {attempt + 1}: "
              f"stream loop detected after {detector.total_chars} chars, aborting"
          )
@@ -223,10 +223,10 @@ for raw_line in resp:
      原有 `if delta.get("content"): content_parts.append(delta["content"])` **保持不变、不移动**。
 
   3. **约束**：
-     - 必须使用 `logger.warning`（非 `logger.error`），因为这是可恢复事件。
+     - 必须使用 `logger.error`，与现有网络/超时错误的日志级别一致。
      - `resp.close()` 必须在 `raise` 之前调用。
      - 不修改任何 `except` 块。
-     - **输出路径说明**：循环检测触发后会产生两条日志记录——①检测点的 `logger.warning`（`"stream loop detected after N chars, aborting"`），②现有 `except (... ValueError)` 中的 `logger.error`（`"LLM call attempt X failed: stream loop after N chars"`）。不额外向 stderr `print`，与现有网络/超时错误的输出行为一致。
+     - **输出路径说明**：循环检测触发后会产生两条 `logger.error` 记录——①检测点的 `"stream loop detected after N chars, aborting"`，②现有 `except (... ValueError)` 中的 `"LLM call attempt X failed: stream loop after N chars"`。不额外向 stderr `print`，与现有网络/超时错误的输出行为一致。
 
   4. 完成后运行 `python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 验证语法。
 
