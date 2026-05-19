@@ -6,7 +6,7 @@ status: "PLANNING_COMPLETE"
 
 ## 1. 元数据 (Metadata)
 
-- **原始需求**: 实测发现 glm-5 的流式输出死循环不局限于 reasoning_content 阶段——content 阶段同样会出现重复行死循环。两种循环均导致请求耗时失控（>1000s）。需要在流式接收阶段同时检测两类循环并提前中止请求。
+- **原始需求**: 实测发现 glm-5 在流式输出阶段存在两类死循环：reasoning_content 阶段陷入重复推理行、content 阶段陷入重复输出行，均会导致请求耗时失控（>1000s）直至 token 耗尽。需要在流式接收阶段实时检测这两类循环并提前中止请求。
 - **技术翻译**: 在 `call_llm` 的 SSE 流式解析循环中，对 `reasoning_content` 和 `content` 两个字段**共享一个 `_StreamLoopDetector` 实例**。每个 chunk 的 delta 中两者互斥（reasoning 阶段只有 `reasoning_content`，content 阶段只有 `content`），因此单实例顺序 feed 即可正确覆盖完整流。检测器触发即关闭 HTTP 连接、抛出 `ValueError`，由现有 `except (... ValueError)` 捕获后重试。
 - **Scope**: `arxiv`
 - **涉及文件**:
