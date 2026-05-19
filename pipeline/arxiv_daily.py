@@ -95,7 +95,53 @@ ARXIV_USER_AGENT = os.environ.get(
     "ARXIV_UPDATE_USER_AGENT",
     f"arxiv-daily-bot/1.0 (contact: {ARXIV_CONTACT})",
 )
+STREAM_LOOP_WINDOW = 60
+STREAM_LOOP_THRESHOLD = 4
+STREAM_LOOP_MIN_LEN = 8
 _last_fetch_time: float | None = None
+
+
+class _StreamLoopDetector:
+    """Sliding-window line-repetition detector for LLM SSE streams.
+
+    Detects infinite loops in either reasoning_content or content fields
+    by tracking repeated lines within a fixed-size window of recently seen
+    complete lines. Not thread-safe; create one instance per field per attempt.
+    """
+
+    def __init__(
+        self,
+        window_size: int = STREAM_LOOP_WINDOW,
+        threshold: int = STREAM_LOOP_THRESHOLD,
+        min_len: int = STREAM_LOOP_MIN_LEN,
+    ) -> None:
+        from collections import deque
+
+        self._window: deque[str] = deque(maxlen=window_size)
+        self._threshold = threshold
+        self._min_len = min_len
+        self._buf = ""
+        self._total_chars = 0
+
+    def feed(self, chunk: str) -> bool:
+        """Ingest a text chunk and return True if a loop is detected."""
+        self._total_chars += len(chunk)
+        self._buf += chunk
+        lines = self._buf.split("\n")
+        self._buf = lines[-1]  # keep incomplete tail for next chunk
+        for line in lines[:-1]:
+            stripped = line.strip()
+            if len(stripped) < self._min_len:
+                continue
+            self._window.append(stripped)
+            if self._window.count(stripped) >= self._threshold:
+                return True
+        return False
+
+    @property
+    def total_chars(self) -> int:
+        """Total characters processed so far."""
+        return self._total_chars
 
 
 @dataclass
@@ -510,6 +556,7 @@ def call_llm(
                     content_parts = []
                     usage = {}
                     saw_done = False
+                    detector = _StreamLoopDetector()
                     for raw_line in resp:
                         line = raw_line.decode("utf-8").strip()
                         if not line:
@@ -531,6 +578,14 @@ def call_llm(
                         choices = chunk.get("choices", [])
                         if choices:
                             delta = choices[0].get("delta", {})
+                            stream_chunk = delta.get("reasoning_content") or delta.get("content") or ""
+                            if stream_chunk and detector.feed(stream_chunk):
+                                logger.error(
+                                    f"[Phase2] {log_label} attempt {attempt + 1}: "
+                                    f"stream loop detected after {detector.total_chars} chars, aborting"
+                                )
+                                resp.close()
+                                raise ValueError(f"stream loop after {detector.total_chars} chars")
                             if delta.get("content"):
                                 content_parts.append(delta["content"])
                     if not saw_done:

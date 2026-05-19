@@ -311,6 +311,101 @@ def handle_slow_stream(handler, paper_ids, model):
         time.sleep(type(handler).stream_delay)
 
 
+def handle_reasoning_loop(handler, paper_ids, model, repeat_count: int = 20):
+    """Simulate reasoning_content infinite loop (e.g., glm-5 token exhaustion)."""
+    model = "fake-reasoning-model"
+    req_id = "fake-reasoning-loop-001"
+    loop_line = "Let me assume the ID is `2605.17108`? No.\n"
+
+    handler.send_response(200)
+    handler.send_header("Content-Type", "text/event-stream")
+    handler.send_header("Cache-Control", "no-cache")
+    handler.end_headers()
+
+    for _ in range(repeat_count):
+        chunk = {
+            "id": req_id,
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "content": None,
+                    "reasoning_content": loop_line,
+                },
+                "flag": 0,
+            }],
+        }
+        handler.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
+        handler.wfile.flush()
+
+    final = {
+        "id": req_id,
+        "object": "chat.completion.chunk",
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "delta": {"content": ""},
+            "finish_reason": "stop",
+            "flag": 0,
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": repeat_count,
+            "total_tokens": 100 + repeat_count,
+        },
+    }
+    handler.wfile.write(f"data: {json.dumps(final)}\n\n".encode())
+    handler.wfile.write(b"data: [DONE]\n\n")
+    handler.wfile.flush()
+
+
+def handle_content_loop(handler, paper_ids, model, repeat_count: int = 20):
+    """Simulate content field infinite loop."""
+    model = "fake-content-loop-model"
+    req_id = "fake-content-loop-001"
+    loop_line = '"summary": "这是一段重复的摘要内容，模型陷入了循环。"\n'
+
+    handler.send_response(200)
+    handler.send_header("Content-Type", "text/event-stream")
+    handler.send_header("Cache-Control", "no-cache")
+    handler.end_headers()
+
+    for _ in range(repeat_count):
+        chunk = {
+            "id": req_id,
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {"content": loop_line},
+                "flag": 0,
+            }],
+        }
+        handler.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
+        handler.wfile.flush()
+
+    final = {
+        "id": req_id,
+        "object": "chat.completion.chunk",
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "delta": {"content": ""},
+            "finish_reason": "stop",
+            "flag": 0,
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": repeat_count,
+            "total_tokens": 100 + repeat_count,
+        },
+    }
+    handler.wfile.write(f"data: {json.dumps(final)}\n\n".encode())
+    handler.wfile.write(b"data: [DONE]\n\n")
+    handler.wfile.flush()
+
+
 def handle_versioned_ids(handler, paper_ids, model):
     """Return paper IDs with version suffixes (e.g., 2501.12345v2)."""
     papers = []
@@ -382,6 +477,8 @@ ERROR_HANDLERS = {
     "schema_bad_new_tags": handle_schema_bad_new_tags,
     "markdown_json": handle_markdown_json,
     "slow_stream": handle_slow_stream,
+    "reasoning_loop": handle_reasoning_loop,
+    "content_loop": handle_content_loop,
     "versioned_ids": handle_versioned_ids,
     "malformed_sse": handle_malformed_sse,
 }
