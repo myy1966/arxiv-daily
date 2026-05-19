@@ -1,7 +1,7 @@
 ---
 title: "LLM 流式死循环检测（滑动窗口行重复，覆盖 reasoning_content 与 content）"
 date: "2026-05-19"
-status: "PLANNING_COMPLETE"
+status: "PASS"
 ---
 
 ## 1. 元数据 (Metadata)
@@ -354,6 +354,35 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 ---
 
+### [Round 2] (当前轮次)
+
+- **Reviewer**:
+  - **状态判决**: `[STATUS: PASS]`
+  - **审查摘要**: 本项目无 AGENTS.md 规范文件，以通用最佳实践为准。审查范围为 `feature/reasoning-loop-detection` 分支相对 `master` 的全部代码变更（4 commits, 4 files, +250/−0 净代码改动；另含 6 篇 ADR 修订 commit）。逐项核对 TASK-001 ~ TASK-004 的执行结果与 ADR 设计契约，所有变更与设计文档严格对齐：
+    1. 常量与 `_StreamLoopDetector` 类按 ADR 第 143–192 行的代码草案逐字落地（`arxiv-update/scripts/arxiv_daily.py:98-144`）。`feed` 实现的滑动窗口语义、`_buf` 行边界缓冲、`min_len` 短行过滤、`window.count >= threshold` 触发条件均与设计一致。
+    2. `call_llm` 的 SSE 循环改造（`arxiv-update/scripts/arxiv_daily.py:559-590`）严格遵守 TASK-002 注入位置：在 `for raw_line in resp` 之前实例化、在 `delta = choices[0].get("delta", {})` 之后、原 `if delta.get("content"):` 之前注入检测分支；触发后先 `logger.error`、再 `resp.close()`、最后 `raise ValueError(...)`，与现有 `except (urllib.error.URLError, TimeoutError, OSError, ValueError)` 重试链路无缝衔接。原有 content 追加逻辑未移动、未修改。
+    3. fake server 的 `handle_reasoning_loop` / `handle_content_loop` 与 `ERROR_HANDLERS` 路由注册（`arxiv-update/scripts/tests/fake_llm_server.py:314-406, 478-480`）遵循模块级处理器函数 + dict 注册的既有约定，写入模式与 `handle_slow_stream` 一致；`do_POST` 外层已捕获 `BrokenPipeError/ConnectionResetError/ConnectionAbortedError`（第 542–543 行），客户端提前 `resp.close()` 时不会污染服务端。`repeat_count=20` 远高于 `STREAM_LOOP_THRESHOLD=4`，确保检测器在 server 发完前一定触发。
+    4. 测试覆盖（`arxiv-update/scripts/tests/test_arxiv_daily.py:870-913, 982-1027`）齐备：6 个单元测试覆盖 ADR 表格中的全部 6 项；3 个集成测试通过 `error_sequence=["reasoning_loop", "none"]` 验证「检测 → 抛 ValueError → 重试 → 成功」的完整链路，并通过 `request_counter > 1` 断言确认重试发生。`test_no_false_positive_normal_stream` 用 `request_counter == 1` 反向验证正常流不误触发。
+    5. 验证：`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestStreamLoopDetector tests/test_arxiv_daily.py::TestCallLlmLoopDetection -v` → 9 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` → 161 passed, 1 xfailed（与基线一致，无新增 xfail/失败）。
+  - **回应 Executor**: Executor 上轮无 DISPUTE，无需反驳。
+  - **审查侧维度评估**：
+    - 通用质量：常量命名、类访问性（前导下划线表示模块内部）、docstring、类型注解（`deque[str]`、`-> bool`）均符合 PEP 8 / PEP 257 通用约定。
+    - DRY：循环检测逻辑单点封装于 `_StreamLoopDetector`，调用点仅一处；fake server 两个 handler 复用既有 `ERROR_HANDLERS` 路由机制，未引入并行注册路径。
+    - 容错：`_buf` 上限受限于「单行长度」，配合 `MIN_LEN=8` 和 `WINDOW=60` 不存在 OOM 风险（ADR 风险 #5 已论证）；`detector` 在 attempt 内每轮 `with urlopen` 块新建（第 559 行），跨 attempt 无状态污染（ADR 风险 #6）。
+    - 性能：`deque.count(stripped)` 是 O(N) where N=window_size=60，配合每行触发一次，单 chunk 摊销代价 < 60 次字符串比较，对网络密集型场景影响可忽略。
+    - 测试覆盖：单元测试覆盖滑窗驱逐、短行过滤、partial line buffering、字符计数累积、阈值触发；集成测试用真实 HTTP + 真实 SSE 解析路径验证端到端语义。
+    - 安全性：`logger.error` 中 `log_label` 来自 `batch_label or f"Batch {batch_num:03d}"`，由调用方控制，非用户输入；不存在日志注入新风险。`resp.close()` 后立即 `raise`，不会读取已关闭流。
+  - **`from collections import deque` 局部导入说明**: ADR TASK-001 第 194 行明确要求 `deque` 在 `__init__` 内局部 import（理由是「`deque` 尚未在顶层单独导入」）。Executor 严格遵循此指令。属于设计契约的一部分，非合规问题。文件顶层第 34 行已导入 `from collections import defaultdict`，将 `deque` 合并到此 import 仅是风格优化、非必需，且会越过 ADR 的「不修改任何已有代码」边界，故不作为本轮 Issue 提出，留作未来非阻塞的代码风格 PR 自行决定。
+  - **Issue 优先级与依赖总表**: 无 Issue。所有 TASK 的实现与 ADR 设计契约严格对齐，测试全绿，无阻塞与非阻塞改进项。
+
+---
+
 ## 4. 最终决策 (Final Decision)
 
-（由 Reviewer 在最终判决 PASS 时填写）
+- **决策记录**:
+  - 设计方案最终采纳：单实例 `_StreamLoopDetector` 跨 `reasoning_content` 与 `content` 字段共享、按 attempt 重置；触发后 `logger.error` + `resp.close()` + `raise ValueError`，由现有 `except (urllib.error.URLError, TimeoutError, OSError, ValueError)` 接管重试。参数定值 `WINDOW=60 / THRESHOLD=4 / MIN_LEN=8`。
+  - 妥协与权衡：
+    1. `from collections import deque` 保留在 `__init__` 局部作用域，与文件顶层 `from collections import defaultdict` 风格略不一致——选择遵循 ADR 设计契约「不修改任何已有代码」，避免越权。
+    2. 检测使用「行级精确字符串相等」+ 滑窗计数，而非更复杂的 n-gram / 编辑距离方案——基于线上实测的循环行特征（完整重复、长度 20–80 字符）选择最简实现，零误报实测，复杂度 O(window_size) 每行。
+    3. 集成测试通过 `request_counter > 1` 断言重试，未直接断言 `ValueError` 文本——通过黑盒行为验证而非白盒消息匹配，对未来日志措辞调整更鲁棒。
+  - 后续可选改进（非本轮范围）：未来若顶层引入 `deque` 的其他用途，可顺带把 `_StreamLoopDetector.__init__` 内的局部 import 上提；若发现误报案例，可通过环境变量调整 `STREAM_LOOP_*` 三常量而无需改动检测逻辑。
