@@ -7,7 +7,7 @@ status: "PLANNING_COMPLETE"
 ## 1. 元数据 (Metadata)
 
 - **原始需求**: 实测发现 glm-5 的流式输出死循环不局限于 reasoning_content 阶段——content 阶段同样会出现重复行死循环。两种循环均导致请求耗时失控（>1000s）。需要在流式接收阶段同时检测两类循环并提前中止请求。
-- **技术翻译**: 在 `call_llm` 的 SSE 流式解析循环中，对 `reasoning_content` 和 `content` 两个字段**各维护一个独立的滑动窗口行重复检测器实例**。任一检测器触发即关闭 HTTP 连接、抛出 `ValueError`，由现有 `except (... ValueError)` 捕获后重试。两个检测器使用相同的算法实现（同一个类），仅在 `call_llm` 中分别实例化。
+- **技术翻译**: 在 `call_llm` 的 SSE 流式解析循环中，对 `reasoning_content` 和 `content` 两个字段**共享一个 `_StreamLoopDetector` 实例**。每个 chunk 的 delta 中两者互斥（reasoning 阶段只有 `reasoning_content`，content 阶段只有 `content`），因此单实例顺序 feed 即可正确覆盖完整流。检测器触发即关闭 HTTP 连接、抛出 `ValueError`，由现有 `except (... ValueError)` 捕获后重试。
 - **Scope**: `arxiv`
 - **涉及文件**:
   - `arxiv-update/scripts/arxiv_daily.py`（修改：新增常量、新增 `_StreamLoopDetector` 类、修改 `call_llm` SSE 循环）
@@ -25,19 +25,15 @@ status: "PLANNING_COMPLETE"
 ```
 call_llm (SSE 解析循环)
   │
-  ├─ 实例化两个独立检测器（每次 attempt 重新创建）
-  │     reasoning_detector = _StreamLoopDetector()   # 检测 reasoning_content 循环
-  │     content_detector   = _StreamLoopDetector()   # 检测 content 循环
+  ├─ 实例化单个检测器（每次 attempt 重新创建）
+  │     detector = _StreamLoopDetector()
   │
-  ├─ 每个 chunk → delta 解析
-  │     ├─ reasoning_chunk = delta.get("reasoning_content") or ""
-  │     │     └─ 非空 → reasoning_detector.feed(reasoning_chunk)
-  │     │           └─ True → resp.close() + raise ValueError("reasoning loop ...")
+  ├─ 每个 chunk → delta 解析（reasoning_content 与 content 在同一 chunk 中互斥）
+  │     ├─ chunk = delta.get("reasoning_content") or delta.get("content") or ""
+  │     │     └─ 非空 → detector.feed(chunk)
+  │     │           └─ True → resp.close() + raise ValueError("stream loop ...")
   │     │
-  │     └─ content_chunk = delta.get("content") or ""
-  │           ├─ 非空 → content_detector.feed(content_chunk)
-  │           │     └─ True → resp.close() + raise ValueError("content loop ...")
-  │           └─ 追加到 content_parts（原有逻辑，不变）
+  │     └─ delta.get("content") 非空且未触发循环 → 追加到 content_parts
   │
   ├─ ValueError 被现有 except (... ValueError) 捕获 → 重试
   │
@@ -89,40 +85,25 @@ class _StreamLoopDetector:
 ```python
 # call_llm 内 SSE 循环的改动（伪代码，精确位置见 TASK 002）
 
-reasoning_detector = _StreamLoopDetector()   # 检测 reasoning_content
-content_detector   = _StreamLoopDetector()   # 检测 content
+detector = _StreamLoopDetector()   # 单实例，覆盖 reasoning_content 和 content
 
 for raw_line in resp:
     ...
     delta = choices[0].get("delta", {})
 
-    # 检测 reasoning_content 循环
-    reasoning_chunk = delta.get("reasoning_content") or ""
-    if reasoning_chunk and reasoning_detector.feed(reasoning_chunk):
+    # 取当前 chunk 有效文本（两者在同一 chunk 中互斥）
+    stream_chunk = delta.get("reasoning_content") or delta.get("content") or ""
+    if stream_chunk and detector.feed(stream_chunk):
         logger.warning(
             f"[Phase2] {log_label} attempt {attempt + 1}: "
-            f"reasoning_content loop detected after "
-            f"{reasoning_detector.total_chars} chars, aborting stream"
+            f"stream loop detected after {detector.total_chars} chars, aborting"
         )
         resp.close()
-        raise ValueError(
-            f"reasoning_content loop after {reasoning_detector.total_chars} chars"
-        )
+        raise ValueError(f"stream loop after {detector.total_chars} chars")
 
-    # 检测 content 循环（原有 content_parts 追加逻辑保持不变）
-    content_chunk = delta.get("content") or ""
-    if content_chunk:
-        if content_detector.feed(content_chunk):
-            logger.warning(
-                f"[Phase2] {log_label} attempt {attempt + 1}: "
-                f"content loop detected after "
-                f"{content_detector.total_chars} chars, aborting stream"
-            )
-            resp.close()
-            raise ValueError(
-                f"content loop after {content_detector.total_chars} chars"
-            )
-        content_parts.append(content_chunk)
+    # 原有 content 追加逻辑（仅对 content 字段执行，reasoning_content 不追加）
+    if delta.get("content"):
+        content_parts.append(delta["content"])
 ```
 
 ### 风险预警 (Risk Assessment)
@@ -134,12 +115,11 @@ for raw_line in resp:
 | 1 | `resp.close()` 后继续读取抛出 `OSError`/`ValueError` 以外的异常，被现有重试逻辑漏掉 | `resp.close()` 紧跟 `raise ValueError(...)`，不依赖 close 本身引发何种异常；ValueError 已在现有 `except` 中 |
 | 2 | 误报：正常 content 中存在重复的 JSON key 行（如 `"summary": "..."` 出现多次） | JSON content 的行通常含唯一 paper ID，不会在窗口内重复 4 次；`MIN_LINE_LEN=8` 额外过滤极短行 |
 | 3 | 误报：正常的长推理中存在合理的重复行（如 "Yes." / "No."） | `MIN_LINE_LEN=8` 过滤极短行；`THRESHOLD=4` 要求 60-line 窗口内出现 4 次，误报概率极低 |
-| 4 | 模型不输出 `reasoning_content` 字段（普通模型）时 reasoning_detector 永远不触发 | `delta.get("reasoning_content") or ""` 空值直接跳过 feed，零开销，完全兼容无 reasoning 模型 |
-| 5 | content loop 检测改变了原有 `content_parts.append` 的执行顺序 | TASK 002 明确：`content_detector.feed()` 返回 False 时才执行 `content_parts.append`，即检测通过才追加，语义与原逻辑等价 |
-| 6 | 循环发生在行边界之前（chunk 不含 `\n`）导致 buffer 累积 OOM | `_buf` 最大长度 = 一行文本长度；实测循环行约 20-80 字符，无 OOM 风险 |
-| 7 | 两个 detector 实例跨 attempt 复用导致状态污染 | TASK 002 明确：两个 detector 均在 `with urllib.request.urlopen(...) as resp:` 块内声明，每轮 attempt 重新进入该块，自然重置 |
-| 8 | `ValueError` 与现有代码中已有的 `ValueError` 语义冲突 | 现有 `except (urllib.error.URLError, TimeoutError, OSError, ValueError)` 对所有 ValueError 均重试，行为正确 |
-| 9 | 测试需覆盖两种循环类型 | TASK 003 新增 `handle_reasoning_loop` 和 `handle_content_loop` 两个 fake server 处理器；TASK 004 新增对应集成测试 |
+| 4 | 模型不输出 `reasoning_content` 字段（普通模型）时 detector 处理的全是 content | `delta.get("reasoning_content") or delta.get("content")` 保证有值则 feed，无值则跳过；逻辑不变，完全兼容无 reasoning 模型 |
+| 5 | 循环发生在行边界之前（chunk 不含 `\n`）导致 buffer 累积 OOM | `_buf` 最大长度 = 一行文本长度；实测循环行约 20-80 字符，无 OOM 风险 |
+| 6 | `detector` 实例跨 attempt 复用导致状态污染 | `detector` 在 `with urllib.request.urlopen(...) as resp:` 块内声明，每轮 attempt 重新进入该块，自然重置 |
+| 7 | `ValueError` 与现有代码中已有的 `ValueError` 语义冲突 | 现有 `except (urllib.error.URLError, TimeoutError, OSError, ValueError)` 对所有 ValueError 均重试，行为正确 |
+| 8 | 测试需覆盖两种循环类型 | TASK 003 新增 `handle_reasoning_loop` 和 `handle_content_loop` 两个 fake server 处理器；TASK 004 新增对应集成测试 |
 
 ---
 
@@ -220,56 +200,31 @@ for raw_line in resp:
 #### [TASK ID: 002] [状态: OPEN]
 
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `call_llm` 函数内 SSE 解析循环（当前第 509–535 行区域）
-- **目标描述**: 在 SSE 循环中为 `reasoning_content` 和 `content` 各实例化一个 `_StreamLoopDetector`，检测到任一循环时关闭连接并抛出 ValueError
+- **目标描述**: 在 SSE 循环中实例化一个共享 `_StreamLoopDetector`，对 `reasoning_content` 和 `content` 顺序 feed，检测到循环时关闭连接并抛出 ValueError
 - **前置依赖**: TASK 001
 - **执行指令与限制**:
 
-  1. **实例化位置**：在 `with urllib.request.urlopen(req, timeout=300) as resp:` 之后、`for raw_line in resp:` 之前，添加两行：
+  1. **实例化位置**：在 `with urllib.request.urlopen(req, timeout=300) as resp:` 之后、`for raw_line in resp:` 之前，添加一行：
      ```python
-     reasoning_detector = _StreamLoopDetector()
-     content_detector   = _StreamLoopDetector()
+     detector = _StreamLoopDetector()
      ```
 
-  2. **注入位置**：在 `delta = choices[0].get("delta", {})` 之后，将原有：
+  2. **注入位置**：在 `delta = choices[0].get("delta", {})` 之后、`if delta.get("content"):` 之前，插入：
      ```python
-     if delta.get("content"):
-         content_parts.append(delta["content"])
-     ```
-     替换为：
-     ```python
-     # Detect reasoning_content loop
-     reasoning_chunk = delta.get("reasoning_content") or ""
-     if reasoning_chunk and reasoning_detector.feed(reasoning_chunk):
+     stream_chunk = delta.get("reasoning_content") or delta.get("content") or ""
+     if stream_chunk and detector.feed(stream_chunk):
          logger.warning(
              f"[Phase2] {log_label} attempt {attempt + 1}: "
-             f"reasoning_content loop detected after "
-             f"{reasoning_detector.total_chars} chars, aborting stream"
+             f"stream loop detected after {detector.total_chars} chars, aborting"
          )
          resp.close()
-         raise ValueError(
-             f"reasoning_content loop after {reasoning_detector.total_chars} chars"
-         )
-
-     # Detect content loop; preserve original append logic on non-loop chunks
-     content_chunk = delta.get("content") or ""
-     if content_chunk:
-         if content_detector.feed(content_chunk):
-             logger.warning(
-                 f"[Phase2] {log_label} attempt {attempt + 1}: "
-                 f"content loop detected after "
-                 f"{content_detector.total_chars} chars, aborting stream"
-             )
-             resp.close()
-             raise ValueError(
-                 f"content loop after {content_detector.total_chars} chars"
-             )
-         content_parts.append(content_chunk)
+         raise ValueError(f"stream loop after {detector.total_chars} chars")
      ```
+     原有 `if delta.get("content"): content_parts.append(delta["content"])` **保持不变、不移动**。
 
   3. **约束**：
      - 必须使用 `logger.warning`（非 `logger.error`），因为这是可恢复事件。
      - `resp.close()` 必须在 `raise` 之前调用。
-     - 原有 `if delta.get("content"): content_parts.append(...)` 必须被完整替换，不得保留，避免重复追加。
      - 不修改任何 `except` 块。
 
   4. 完成后运行 `python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 验证语法。
