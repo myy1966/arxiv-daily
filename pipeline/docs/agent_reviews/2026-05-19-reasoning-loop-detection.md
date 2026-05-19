@@ -236,7 +236,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 ---
 
-#### [TASK ID: 003] [状态: OPEN]
+#### [TASK ID: 003] [状态: RESOLVED]
 
 - **定位**: `arxiv-update/scripts/tests/fake_llm_server.py`
 - **目标描述**: 新增 `handle_reasoning_loop` 和 `handle_content_loop` 两个处理器，分别模拟两类死循环的 SSE 流
@@ -306,6 +306,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
   5. **`repeat_count` 默认值设为 20**（远大于 `STREAM_LOOP_THRESHOLD=4`，确保检测器在 server 发完所有行之前触发）。
 
   6. 完成后运行 `python3 -m py_compile arxiv-update/scripts/tests/fake_llm_server.py` 验证语法。
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准；已在 `arxiv-update/scripts/tests/fake_llm_server.py` 新增 `handle_reasoning_loop` 和 `handle_content_loop`，并按现有 fake server 的模块级 `ERROR_HANDLERS` 路由约定注册 `reasoning_loop` 与 `content_loop`；写入模式与 `handle_slow_stream` 保持一致，客户端提前关闭连接时由现有 `do_POST` 外层捕获处理。验证：`python3 -m py_compile arxiv-update/scripts/tests/fake_llm_server.py` 通过。
 
 ---
 
