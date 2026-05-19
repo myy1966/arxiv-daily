@@ -199,7 +199,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 ---
 
-#### [TASK ID: 002] [状态: OPEN]
+#### [TASK ID: 002] [状态: RESOLVED]
 
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `call_llm` 函数内 SSE 解析循环（当前第 509–535 行区域）
 - **目标描述**: 在 SSE 循环中实例化一个共享 `_StreamLoopDetector`，对 `reasoning_content` 和 `content` 顺序 feed，检测到循环时关闭连接并抛出 ValueError
@@ -231,6 +231,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
      - **输出路径说明**：循环检测触发后会产生两条 `logger.error` 记录——①检测点的 `"stream loop detected after N chars, aborting"`，②现有 `except (... ValueError)` 中的 `"LLM call attempt X failed: stream loop after N chars"`。不额外向 stderr `print`，与现有网络/超时错误的输出行为一致。
 
   4. 完成后运行 `python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 验证语法。
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准；已在 `arxiv-update/scripts/arxiv_daily.py` 的 `call_llm` SSE 解析循环中按 attempt 创建共享 `_StreamLoopDetector`，并在 `content` 追加前对 `reasoning_content`/`content` 统一检测，触发时记录 `logger.error`、关闭响应并抛出 `ValueError`；未修改任何 `except` 块。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过。
 
 ---
 

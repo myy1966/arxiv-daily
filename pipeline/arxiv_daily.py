@@ -556,6 +556,7 @@ def call_llm(
                     content_parts = []
                     usage = {}
                     saw_done = False
+                    detector = _StreamLoopDetector()
                     for raw_line in resp:
                         line = raw_line.decode("utf-8").strip()
                         if not line:
@@ -577,6 +578,14 @@ def call_llm(
                         choices = chunk.get("choices", [])
                         if choices:
                             delta = choices[0].get("delta", {})
+                            stream_chunk = delta.get("reasoning_content") or delta.get("content") or ""
+                            if stream_chunk and detector.feed(stream_chunk):
+                                logger.error(
+                                    f"[Phase2] {log_label} attempt {attempt + 1}: "
+                                    f"stream loop detected after {detector.total_chars} chars, aborting"
+                                )
+                                resp.close()
+                                raise ValueError(f"stream loop after {detector.total_chars} chars")
                             if delta.get("content"):
                                 content_parts.append(delta["content"])
                     if not saw_done:
