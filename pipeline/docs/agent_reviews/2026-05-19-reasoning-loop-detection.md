@@ -131,7 +131,7 @@ for raw_line in resp:
 
 ---
 
-#### [TASK ID: 001] [状态: OPEN]
+#### [TASK ID: 001] [状态: RESOLVED]
 
 - **定位**: `arxiv-update/scripts/arxiv_daily.py`
   - 常量区（`BATCH_SIZE` 附近）：新增 3 个常量
@@ -194,6 +194,8 @@ for raw_line in resp:
   3. **不修改任何已有代码**；`from collections import deque` 放在 `__init__` 内（`deque` 尚未在顶层单独导入）。
 
   4. 完成后运行 `python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 验证语法。
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准；已在 `arxiv-update/scripts/arxiv_daily.py` 新增 `STREAM_LOOP_WINDOW`、`STREAM_LOOP_THRESHOLD`、`STREAM_LOOP_MIN_LEN` 常量和 `_StreamLoopDetector` 类，未修改后续 `call_llm` 或测试逻辑。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过。
 
 ---
 
