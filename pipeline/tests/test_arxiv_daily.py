@@ -864,6 +864,56 @@ class TestFetchPage:
 
 
 # ===========================================================================
+# TestStreamLoopDetector
+# ===========================================================================
+
+class TestStreamLoopDetector:
+    def test_no_loop_short_text(self):
+        detector = arxiv_daily._StreamLoopDetector()
+
+        assert detector.feed("This is a normal reasoning line.\n") is False
+        assert detector.feed("This is another normal output line.\n") is False
+
+    def test_detects_loop_after_threshold(self):
+        detector = arxiv_daily._StreamLoopDetector()
+        line = "This line is repeating in the stream.\n"
+
+        for _ in range(arxiv_daily.STREAM_LOOP_THRESHOLD - 1):
+            assert detector.feed(line) is False
+
+        assert detector.feed(line) is True
+
+    def test_short_lines_ignored(self):
+        detector = arxiv_daily._StreamLoopDetector()
+
+        for _ in range(arxiv_daily.STREAM_LOOP_THRESHOLD + 2):
+            assert detector.feed("short\n") is False
+
+    def test_partial_lines_buffered(self):
+        detector = arxiv_daily._StreamLoopDetector(threshold=2)
+
+        assert detector.feed("This line is incomplete") is False
+        assert detector.feed(" and still has no newline") is False
+        assert detector.feed("\n") is False
+
+    def test_total_chars_accumulated(self):
+        detector = arxiv_daily._StreamLoopDetector()
+
+        assert detector.feed("abc") is False
+        assert detector.feed("def\n") is False
+        assert detector.total_chars == len("abcdef\n")
+
+    def test_window_slides(self):
+        detector = arxiv_daily._StreamLoopDetector(window_size=3, threshold=2, min_len=1)
+
+        assert detector.feed("early\n") is False
+        assert detector.feed("one\n") is False
+        assert detector.feed("two\n") is False
+        assert detector.feed("three\n") is False
+        assert detector.feed("early\n") is False
+
+
+# ===========================================================================
 # TestCallLlm
 # ===========================================================================
 
@@ -926,6 +976,54 @@ class TestCallLlm:
         )
         stream_files = list(tmp_path.glob("*stream*"))
         assert len(stream_files) > 0
+
+
+# ===========================================================================
+# TestCallLlmLoopDetection
+# ===========================================================================
+
+class TestCallLlmLoopDetection:
+    def _build_single_paper_messages(self):
+        return arxiv_daily.build_prompt(
+            [{"id": "2604.00001", "title": "Test", "abstract": "Abstract text"}], [],
+        )
+
+    def test_reasoning_loop_triggers_retry(self, fake_llm_server, logger):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_sequence = ["reasoning_loop", "none"]
+        handler_cls.request_counter = 0
+
+        result, _ = arxiv_daily.call_llm(
+            self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+        )
+
+        assert "papers" in result
+        assert handler_cls.request_counter > 1
+
+    def test_content_loop_triggers_retry(self, fake_llm_server, logger):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_sequence = ["content_loop", "none"]
+        handler_cls.request_counter = 0
+
+        result, _ = arxiv_daily.call_llm(
+            self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+        )
+
+        assert "papers" in result
+        assert handler_cls.request_counter > 1
+
+    def test_no_false_positive_normal_stream(self, fake_llm_server, logger):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_mode = "none"
+        handler_cls.request_counter = 0
+
+        result, _ = arxiv_daily.call_llm(
+            self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+        )
+
+        assert "papers" in result
+        assert result["papers"][0]["id"] == "2604.00001"
+        assert handler_cls.request_counter == 1
 
 
 # ===========================================================================

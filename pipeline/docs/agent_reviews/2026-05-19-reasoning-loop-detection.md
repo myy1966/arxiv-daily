@@ -311,7 +311,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 ---
 
-#### [TASK ID: 004] [状态: OPEN]
+#### [TASK ID: 004] [状态: RESOLVED]
 
 - **定位**: `arxiv-update/scripts/tests/test_arxiv_daily.py`
 - **目标描述**: 为 `_StreamLoopDetector` 和 `call_llm` 集成循环检测补充单元测试与集成测试
@@ -349,6 +349,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
      ./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q
      ```
      全部通过后方可标记 RESOLVED。
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准；已在 `arxiv-update/scripts/tests/test_arxiv_daily.py` 新增 `TestStreamLoopDetector` 单元测试类和 `TestCallLlmLoopDetection` 集成测试类，覆盖重复阈值、短行过滤、partial line buffering、窗口滑动、字符计数、reasoning/content loop 重试和正常流无误报。验证：`python3 -m py_compile arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；在 `arxiv-update/scripts` 下运行 `./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestStreamLoopDetector tests/test_arxiv_daily.py::TestCallLlmLoopDetection -v`，9 passed；运行 `./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q`，161 passed, 1 xfailed。
 
 ---
 
