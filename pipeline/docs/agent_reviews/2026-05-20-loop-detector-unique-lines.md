@@ -159,7 +159,7 @@ for raw_line in resp:
 
 ---
 
-#### [TASK ID: 001] [状态: OPEN]
+#### [TASK ID: 001] [状态: RESOLVED]
 
 - **定位**: `arxiv-update/scripts/arxiv_daily.py`
   - 常量区：替换 `STREAM_LOOP_*` 常量
@@ -230,6 +230,8 @@ for raw_line in resp:
   3. **不修改任何其他已有代码**。`from collections import deque` 仍放在 `__init__` 内（与上一版保持一致）。
 
   4. 完成后运行 `python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 验证语法。
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准；已在 `arxiv-update/scripts/arxiv_daily.py` 将 `_StreamLoopDetector` 从单行重复次数判据重构为窗口内唯一行数判据，替换常量为 `STREAM_LOOP_WINDOW = 30` 与 `STREAM_LOOP_MAX_UNIQUE = 12`，并删除旧的 threshold/min_len 参数使用；未修改 `call_llm` 调用点或测试文件。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过。
 
 ---
 
