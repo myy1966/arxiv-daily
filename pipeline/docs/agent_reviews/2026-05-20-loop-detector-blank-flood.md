@@ -312,7 +312,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 ---
 
-#### [TASK ID: 004] [状态: OPEN]
+#### [TASK ID: 004] [状态: RESOLVED]
 
 - **定位**: `arxiv-update/scripts/tests/test_arxiv_daily.py`
 - **目标描述**: 扩充 `TestStreamLoopDetector` 与 `TestCallLlmLoopDetection`，覆盖空白配额相关场景
@@ -352,6 +352,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
      ./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q
      ```
      全部通过后方可标记 RESOLVED。
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准；已在 `arxiv-update/scripts/tests/test_arxiv_daily.py` 扩充 `TestStreamLoopDetector`，覆盖单次空白洪流触发、跨 chunk 累计达到 `STREAM_LOOP_MAX_BLANK_CHARS` 时触发、非空白 chunk 重置计数、空格/tab/换行组合触发、正常 JSON 缩进不误报、空白 chunk 不污染 unique window、自定义 `max_blank_chars` 生效；同时扩充 `TestCallLlmLoopDetection`，使用 `blank_flood_loop` 验证 `call_llm` 能中止并重试。验证：`python3 -m py_compile arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；在 `arxiv-update/scripts` 下运行 `./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestStreamLoopDetector tests/test_arxiv_daily.py::TestCallLlmLoopDetection -v`，23 passed；运行 `./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q`，175 passed, 1 xfailed。
 
 ---
 
