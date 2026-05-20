@@ -868,29 +868,65 @@ class TestFetchPage:
 # ===========================================================================
 
 class TestStreamLoopDetector:
-    def test_no_loop_short_text(self):
+    def test_window_not_full_no_trigger(self):
         detector = arxiv_daily._StreamLoopDetector()
+        line = "This line repeats but the window is not full yet.\n"
 
-        assert detector.feed("This is a normal reasoning line.\n") is False
-        assert detector.feed("This is another normal output line.\n") is False
+        for _ in range(arxiv_daily.STREAM_LOOP_WINDOW - 1):
+            assert detector.feed(line) is False
 
-    def test_detects_loop_after_threshold(self):
+    def test_literal_loop_triggers(self):
         detector = arxiv_daily._StreamLoopDetector()
         line = "This line is repeating in the stream.\n"
 
-        for _ in range(arxiv_daily.STREAM_LOOP_THRESHOLD - 1):
+        for _ in range(arxiv_daily.STREAM_LOOP_WINDOW - 1):
             assert detector.feed(line) is False
 
         assert detector.feed(line) is True
 
-    def test_short_lines_ignored(self):
+    def test_varying_loop_triggers(self):
+        detector = arxiv_daily._StreamLoopDetector()
+        lines = [
+            "Let me assume the ID is `2605.17108`? No.\n",
+            "Wait, I see `ID: 2605.17108`? No.\n",
+            "Okay, I will just use the ID `2605.17108`? No.\n",
+            "Actually, the ID is `2605.17108`? No.\n",
+        ]
+
+        for i in range(arxiv_daily.STREAM_LOOP_WINDOW - 1):
+            assert detector.feed(lines[i % len(lines)]) is False
+
+        assert detector.feed(lines[-1]) is True
+
+    def test_template_repetition_no_false_positive(self):
+        detector = arxiv_daily._StreamLoopDetector()
+        template = [
+            "**Paper {i}: Unique Title About Topic {i}**\n",
+            "- Summary: This paper {i} proposes a novel method for problem {i}.\n",
+            "- Tags: Tag{i}A, Tag{i}B\n",
+            "- Venue: null (no acceptance info)\n",
+        ]
+
+        for i in range(1, 11):
+            for line_tmpl in template:
+                assert detector.feed(line_tmpl.format(i=i)) is False
+
+    def test_normal_diverse_text_no_trigger(self):
         detector = arxiv_daily._StreamLoopDetector()
 
-        for _ in range(arxiv_daily.STREAM_LOOP_THRESHOLD + 2):
-            assert detector.feed("short\n") is False
+        for i in range(arxiv_daily.STREAM_LOOP_WINDOW + 10):
+            assert detector.feed(f"Unique stream line {i} with varied content.\n") is False
+
+    def test_blank_lines_skipped(self):
+        detector = arxiv_daily._StreamLoopDetector(window_size=10, max_unique=5)
+
+        for i in range(5):
+            assert detector.feed(f"Unique meaningful line {i}.\n") is False
+        for _ in range(50):
+            assert detector.feed("\n   \n\t\n") is False
 
     def test_partial_lines_buffered(self):
-        detector = arxiv_daily._StreamLoopDetector(threshold=2)
+        detector = arxiv_daily._StreamLoopDetector(window_size=3, max_unique=1)
 
         assert detector.feed("This line is incomplete") is False
         assert detector.feed(" and still has no newline") is False
@@ -898,19 +934,27 @@ class TestStreamLoopDetector:
 
     def test_total_chars_accumulated(self):
         detector = arxiv_daily._StreamLoopDetector()
+        chunks = ["abc", "\n\n", "def\n", "   \n"]
 
-        assert detector.feed("abc") is False
-        assert detector.feed("def\n") is False
-        assert detector.total_chars == len("abcdef\n")
+        for chunk in chunks:
+            assert detector.feed(chunk) is False
+        assert detector.total_chars == sum(len(chunk) for chunk in chunks)
 
-    def test_window_slides(self):
-        detector = arxiv_daily._StreamLoopDetector(window_size=3, threshold=2, min_len=1)
+    def test_window_evicts_old_lines(self):
+        detector = arxiv_daily._StreamLoopDetector()
 
-        assert detector.feed("early\n") is False
-        assert detector.feed("one\n") is False
-        assert detector.feed("two\n") is False
-        assert detector.feed("three\n") is False
-        assert detector.feed("early\n") is False
+        for i in range(arxiv_daily.STREAM_LOOP_WINDOW):
+            assert detector.feed(f"Unique line {i}.\n") is False
+        assert detector.feed("Unique line 1.\n") is False
+
+    def test_custom_params(self):
+        detector = arxiv_daily._StreamLoopDetector(window_size=10, max_unique=3)
+        lines = ["pattern one\n", "pattern two\n", "pattern three\n"]
+
+        for i in range(9):
+            assert detector.feed(lines[i % len(lines)]) is False
+
+        assert detector.feed(lines[0]) is True
 
 
 # ===========================================================================
@@ -988,7 +1032,7 @@ class TestCallLlmLoopDetection:
             [{"id": "2604.00001", "title": "Test", "abstract": "Abstract text"}], [],
         )
 
-    def test_reasoning_loop_triggers_retry(self, fake_llm_server, logger):
+    def test_reasoning_literal_loop_triggers_retry(self, fake_llm_server, logger):
         api_url, handler_cls = fake_llm_server
         handler_cls.error_sequence = ["reasoning_loop", "none"]
         handler_cls.request_counter = 0
@@ -1000,7 +1044,7 @@ class TestCallLlmLoopDetection:
         assert "papers" in result
         assert handler_cls.request_counter > 1
 
-    def test_content_loop_triggers_retry(self, fake_llm_server, logger):
+    def test_content_literal_loop_triggers_retry(self, fake_llm_server, logger):
         api_url, handler_cls = fake_llm_server
         handler_cls.error_sequence = ["content_loop", "none"]
         handler_cls.request_counter = 0
@@ -1012,7 +1056,31 @@ class TestCallLlmLoopDetection:
         assert "papers" in result
         assert handler_cls.request_counter > 1
 
-    def test_no_false_positive_normal_stream(self, fake_llm_server, logger):
+    def test_varying_loop_triggers_retry(self, fake_llm_server, logger):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_sequence = ["varying_loop", "none"]
+        handler_cls.request_counter = 0
+
+        result, _ = arxiv_daily.call_llm(
+            self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+        )
+
+        assert "papers" in result
+        assert handler_cls.request_counter > 1
+
+    def test_template_repetition_no_false_positive(self, fake_llm_server, logger):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_mode = "template_repetition"
+        handler_cls.request_counter = 0
+
+        result, _ = arxiv_daily.call_llm(
+            self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+        )
+
+        assert result == {"papers": [], "new_tags": []}
+        assert handler_cls.request_counter == 1
+
+    def test_normal_stream_no_false_positive(self, fake_llm_server, logger):
         api_url, handler_cls = fake_llm_server
         handler_cls.error_mode = "none"
         handler_cls.request_counter = 0

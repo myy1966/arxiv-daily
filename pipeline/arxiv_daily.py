@@ -95,31 +95,32 @@ ARXIV_USER_AGENT = os.environ.get(
     "ARXIV_UPDATE_USER_AGENT",
     f"arxiv-daily-bot/1.0 (contact: {ARXIV_CONTACT})",
 )
-STREAM_LOOP_WINDOW = 60
-STREAM_LOOP_THRESHOLD = 4
-STREAM_LOOP_MIN_LEN = 8
+STREAM_LOOP_WINDOW = 30
+STREAM_LOOP_MAX_UNIQUE = 12
 _last_fetch_time: float | None = None
 
 
 class _StreamLoopDetector:
-    """Sliding-window line-repetition detector for LLM SSE streams.
+    """Sliding-window unique-line detector for LLM SSE streams.
 
-    Detects infinite loops in either reasoning_content or content fields
-    by tracking repeated lines within a fixed-size window of recently seen
-    complete lines. Not thread-safe; create one instance per field per attempt.
+    Detects infinite loops by measuring information entropy in a fixed-size
+    line window. When the window contains too few unique lines, the model is
+    judged to be looping. Robust against template repetition where the same
+    boilerplate line recurs but surrounding context is varied.
+
+    Not thread-safe; create one instance per LLM request attempt.
     """
 
     def __init__(
         self,
         window_size: int = STREAM_LOOP_WINDOW,
-        threshold: int = STREAM_LOOP_THRESHOLD,
-        min_len: int = STREAM_LOOP_MIN_LEN,
+        max_unique: int = STREAM_LOOP_MAX_UNIQUE,
     ) -> None:
         from collections import deque
 
         self._window: deque[str] = deque(maxlen=window_size)
-        self._threshold = threshold
-        self._min_len = min_len
+        self._window_size = window_size
+        self._max_unique = max_unique
         self._buf = ""
         self._total_chars = 0
 
@@ -131,10 +132,13 @@ class _StreamLoopDetector:
         self._buf = lines[-1]  # keep incomplete tail for next chunk
         for line in lines[:-1]:
             stripped = line.strip()
-            if len(stripped) < self._min_len:
-                continue
+            if not stripped:
+                continue  # skip blank lines so they don't fill the window
             self._window.append(stripped)
-            if self._window.count(stripped) >= self._threshold:
+            if (
+                len(self._window) == self._window_size
+                and len(set(self._window)) <= self._max_unique
+            ):
                 return True
         return False
 
