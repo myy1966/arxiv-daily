@@ -357,7 +357,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 ---
 
-### [Round 2] (当前轮次)
+### [Round 2]
 
 - **Reviewer**:
   - **状态判决**: `[STATUS: PASS]`
@@ -390,6 +390,32 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
     - **向后兼容**：`feed`/`total_chars` 签名不变；`__init__` 新增的 `max_blank_chars` 有默认值；`call_llm` 调用点零修改。`test_blank_lines_skipped` 显式传 `max_blank_chars=1000` 是合理的测试隔离，并非接口破坏。
   - **判据顺序的一处微妙观察**: `feed` 中空白配额检测置于主 unique 判据之前。当一个 chunk 同时满足两条件时（实际不可能，因为空白 chunk 不会让任何行入 window，但理论上参数极端情况下可触发），优先返回空白判据 True。该顺序与 ADR 第 80–88 行数据流图一致，行为正确，非问题。
   - **Issue 优先级与依赖总表**: 无 Issue。所有 TASK 实现与 ADR 设计契约严格对齐，测试全绿，无阻塞与非阻塞改进项。
+
+---
+
+### [Round 3] (当前轮次)
+
+- **Reviewer**:
+  - **状态判决**: `[STATUS: PASS]`（不变）
+  - **审查摘要**: 补记一处 ADR 内部不一致——由 Executor 在 PASS 后提出，Reviewer Round 2 审查时漏检，于此追溯记录。
+  - **不一致定位**: TASK-001 算法草案（第 197 行）规定阈值判据为：
+    ```python
+    if self._blank_chars >= self._max_blank_chars:
+        return True
+    ```
+    即 **`>=` 严格阈值**：累计 == 200 即触发。
+
+    而 TASK-004 表格中对单元测试 `test_blank_flood_accumulates_across_chunks` 的描述写为：
+    > 多次 feed 每次 `"\n" * 50`，累计第 5 次（共 250 字符）触发
+
+    按 `>= 200` 语义推演：第 4 次 feed 50 时累计达到 200 即应触发；ADR 的"第 5 次/250 字符触发"暗示阈值为 `> 200`（严格大于），与 TASK-001 草案直接矛盾。
+  - **影响评估**:
+    - **生产代码无歧义**：Executor 以 TASK-001 算法草案为准，实现 `>= 200`；该实现已被全部测试覆盖通过。
+    - **Executor 的测试改写正确**：`test_blank_flood_accumulates_across_chunks` 实际写为 `feed("\n" * 49) × 4 + feed("\n" * 4)`（累计 200 触发），精准验证 `>= 200` 边界，并保留"跨 chunk 累加触发"的测试意图。
+    - **不阻塞 PASS**：Round 2 PASS 判决基于实际代码与测试行为，不依赖 ADR 表格描述的字面值；判决不变。
+  - **Reviewer 自检**: Round 2 审查时未识别此项 ADR 描述与代码草案的内部冲突，是审查工作疏漏；致谢 Executor 在 PASS 后主动提出。
+  - **沉淀建议（非本轮 scope）**: 后续 ADR 草拟与审查中，若「自然语言描述」与「代码草案」冲突，**以代码草案为唯一最高准绳**；Reviewer 应在 Round 1 审查阶段对 ADR 内部一致性做交叉校验。本条规则建议沉淀到下一篇 ADR 或独立 Reviewer 工作准则文档。
+  - **Issue 优先级与依赖总表**: 无新增 Issue。本轮仅作历史记录补充。
 
 ---
 
