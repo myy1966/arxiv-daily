@@ -271,7 +271,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 ---
 
-#### [TASK ID: 003] [状态: OPEN]
+#### [TASK ID: 003] [状态: RESOLVED]
 
 - **定位**: `arxiv-update/scripts/tests/fake_llm_server.py`
 - **目标描述**: 调整现有 `handle_reasoning_loop` / `handle_content_loop` 默认 `repeat_count`；新增 `handle_varying_loop` 与 `handle_template_repetition`
@@ -350,6 +350,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
   5. **写入模式**：所有处理器必须遵循现有 fake server 的 `BrokenPipeError` 处理模式——`call_llm` 触发循环检测后会主动 close 连接，server 后续 write 必须能优雅吞掉异常（参考 `handle_reasoning_loop` 现有写法）。
 
   6. 完成后运行 `python3 -m py_compile arxiv-update/scripts/tests/fake_llm_server.py` 验证语法。
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准；已在 `arxiv-update/scripts/tests/fake_llm_server.py` 将 `handle_reasoning_loop` 与 `handle_content_loop` 默认 `repeat_count` 调整为 35，新增 `handle_varying_loop` 与 `handle_template_repetition`，并按现有模块级 `ERROR_HANDLERS` 路由约定注册 `varying_loop` 和 `template_repetition`；新增 `_write_sse_final` 复用 final/usage/[DONE] 写入，连接提前关闭仍由现有 `do_POST` 外层 BrokenPipe/连接重置捕获处理。验证：`python3 -m py_compile arxiv-update/scripts/tests/fake_llm_server.py` 通过。
 
 ---
 
