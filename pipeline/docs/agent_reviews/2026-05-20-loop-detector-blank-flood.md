@@ -1,7 +1,7 @@
 ---
 title: "流式死循环检测：增加空白字符配额，覆盖纯空白循环"
 date: "2026-05-20"
-status: "PLANNING_COMPLETE"
+status: "PASS"
 ---
 
 ## 1. 元数据 (Metadata)
@@ -357,6 +357,49 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 ---
 
+### [Round 2] (当前轮次)
+
+- **Reviewer**:
+  - **状态判决**: `[STATUS: PASS]`
+  - **审查摘要**: 本项目无 AGENTS.md 规范文件，以通用最佳实践为准。审查范围为 `feature/loop-detector-blank-flood` 分支相对 `master` 的全部代码变更（5 commits, 4 files, +486/−3）。逐项核对 TASK-001 ~ TASK-004 实现与 ADR 设计契约，全部严格对齐：
+    1. **TASK-001 常量与 `_StreamLoopDetector` 扩展**（`arxiv-update/scripts/arxiv_daily.py:98-156`）：
+       - 新增 `STREAM_LOOP_MAX_BLANK_CHARS = 200`，位于既有 `STREAM_LOOP_*` 常量块尾部，与 ADR 第 166 行一致。
+       - `__init__` 新增 `max_blank_chars` 参数（默认值 = 模块常量），新增 `_blank_chars = 0` 状态字段。
+       - `feed` 在 `self._total_chars += len(chunk)` 之后、`self._buf += chunk` 之前插入空白配额分支：`chunk.strip() == ""` → 累加并比对阈值；否则重置 `_blank_chars = 0`。原 unique-line 主算法未改动一行。
+       - docstring 同步更新一句话说明新机制（"Also detects runs of pure whitespace chunks that never enter the line window."），属 ADR 允许的可选优化。
+    2. **TASK-002 调用点验证**（`arxiv-update/scripts/arxiv_daily.py:559-594`）：`detector = _StreamLoopDetector()` 实例化、`stream_chunk` 取值、`detector.feed(...)` 调用、`logger.error` → `resp.close()` → `raise ValueError` 序列保持不变；`feed`/`total_chars` 接口签名兼容（`max_blank_chars` 参数有默认值）。`except (urllib.error.URLError, TimeoutError, OSError, ValueError)` 块未修改。
+    3. **TASK-003 fake server 改动**（`arxiv-update/scripts/tests/fake_llm_server.py:498-540, 649`）：
+       - 新增模块级 `handle_blank_flood_loop(handler, paper_ids, model, head_chars=100, blank_chunks=50)`。
+       - 实现按 ADR 设计：先发送一段非空白 head content（`'{"papers": [{"id": "test"}]'`，按 `head_chars=100` padding/truncate），再发送 50 个 `"\n\n\n\n\n  \n\n"` 共 500 字符空白，远超 `MAX_BLANK_CHARS=200`，必触发。
+       - 复用既有 `_write_sse_final` 写出 final + usage + [DONE]（DRY，与 `handle_varying_loop` 一致）。
+       - 在 `ERROR_HANDLERS` 中按现有约定注册为 `"blank_flood_loop"`。
+       - 客户端提前 close 由 `do_POST` 外层 `except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError): pass` 捕获。
+    4. **TASK-004 测试扩充**（`arxiv-update/scripts/tests/test_arxiv_daily.py`）：
+       - `TestStreamLoopDetector` 新增 7 项测试覆盖 ADR 表格全部 7 项：单次空白触发、跨 chunk 累加触发、非空白 chunk 重置计数、空格/tab 混合空白触发、正常 JSON 缩进不误报（**关键回归 1**）、空白 chunk 不污染 unique window、自定义 `max_blank_chars` 生效。
+       - 既有 `test_blank_lines_skipped` 同步调整为 `max_blank_chars=1000` 以避免与新阈值冲突——这是必要的兼容性修正。
+       - `TestCallLlmLoopDetection` 新增 `test_blank_flood_triggers_retry`，通过 `error_sequence=["blank_flood_loop", "none"]` 验证完整链路「检测 → 抛 ValueError → 重试 → 成功」。
+    5. **验证**：`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestStreamLoopDetector tests/test_arxiv_daily.py::TestCallLlmLoopDetection -v` → 23 passed（较上一版 15 净增 8 测试，与 ADR 预期 7+1=8 一致）；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` → 175 passed, 1 xfailed（较上一版 167 净增 8，xfailed 与 baseline 一致）。
+  - **回应 Executor**: Executor 上轮无 DISPUTE，无需反驳。
+  - **审查侧维度评估**：
+    - **通用质量**：判据正交叠加，主算法零干扰；`_blank_chars` 重置语义明确（"连续空白才累加"）；docstring 一句话同步更新无冗余。
+    - **DRY**：检测逻辑仍单点封装；fake handler 复用 `_write_sse_final`。
+    - **容错**：非空白 chunk 立即重置 `_blank_chars`，符合"连续"语义。`chunk.strip() == ""` 对 `\n` / 空格 / tab / 全角空格等所有 Unicode 空白均成立。
+    - **性能**：每 chunk 多一次 `chunk.strip() == ""`（O(len(chunk)) 但通常 chunk 短），对网络密集场景影响可忽略。
+    - **测试覆盖**：单元 7 + 集成 1 = 8 项新增测试，覆盖 ADR 表格全部场景；`test_blank_flood_triggers` 直接对应 batch_010 故障；`test_normal_json_indent_no_false_positive` 与 `test_non_blank_chunk_resets_blank_counter` 反向保证不误报。
+    - **安全性**：无新风险面。空白配额检测无外部输入，纯本地状态机。
+    - **向后兼容**：`feed`/`total_chars` 签名不变；`__init__` 新增的 `max_blank_chars` 有默认值；`call_llm` 调用点零修改。`test_blank_lines_skipped` 显式传 `max_blank_chars=1000` 是合理的测试隔离，并非接口破坏。
+  - **判据顺序的一处微妙观察**: `feed` 中空白配额检测置于主 unique 判据之前。当一个 chunk 同时满足两条件时（实际不可能，因为空白 chunk 不会让任何行入 window，但理论上参数极端情况下可触发），优先返回空白判据 True。该顺序与 ADR 第 80–88 行数据流图一致，行为正确，非问题。
+  - **Issue 优先级与依赖总表**: 无 Issue。所有 TASK 实现与 ADR 设计契约严格对齐，测试全绿，无阻塞与非阻塞改进项。
+
+---
+
 ## 4. 最终决策 (Final Decision)
 
-（由 Reviewer 在最终判决 PASS 时填写）
+- **决策记录**:
+  - 设计方案最终采纳：在 `_StreamLoopDetector.feed` 中新增独立的"连续空白字符配额"判据（`STREAM_LOOP_MAX_BLANK_CHARS = 200`），与原 unique-line 主判据正交叠加；纯空白 chunk 累加 `_blank_chars`，任何非空白 chunk 重置；主算法未改动一行。
+  - 妥协与权衡：
+    1. `MAX_BLANK_CHARS = 200`：相当于 200 个 `\n`，对正常 JSON 缩进/分隔（通常 ≤ 50）留 4× 余量；对真实空白循环（实测 218000 字符）延迟约 < 1 秒。值偏严，符合"快速失败 + 重试吸收"的总体策略。
+    2. 重置策略选择"连续空白"而非"窗口内空白比例"：实现简单、行为可预测，匹配真实故障形态（一旦陷入纯空白循环就持续输出至 token 耗尽，没有零星空白干扰）。
+    3. 不区分两种触发原因的日志消息——保持现有 `"stream loop detected after N chars"`，按 ADR 第 143 行明确"本次范围克制"。后续如有需要可在新 ADR 中添加 reason 字段。
+    4. 既有 `test_blank_lines_skipped` 的 `max_blank_chars=1000` 调整是必要的——该测试 50 次 feed `"\n   \n\t\n"` 共 500 字符空白，会先于 unique 判据触发空白配额；调整为 1000 后保留原测试意图（验证空行不污染 window）。属于合规的测试隔离，不削弱回归能力。
+  - 后续可选改进（非本轮范围）：日志区分两种触发原因；`MAX_BLANK_CHARS` 暴露为环境变量。
