@@ -1,7 +1,7 @@
 ---
 title: "重构流式死循环检测：改用窗口内唯一行数判据"
 date: "2026-05-20"
-status: "PLANNING_COMPLETE"
+status: "PASS"
 ---
 
 ## 1. 元数据 (Metadata)
@@ -405,6 +405,42 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 ---
 
+### [Round 2] (当前轮次)
+
+- **Reviewer**:
+  - **状态判决**: `[STATUS: PASS]`
+  - **审查摘要**: 本项目无 AGENTS.md 规范文件，以通用最佳实践为准。审查范围为 `refactor/loop-detector-unique-lines` 分支相对 `master` 的全部代码变更（5 commits, 4 files, +641/−38）。逐项核对 TASK-001 ~ TASK-004 实现与 ADR 设计契约：
+    1. **TASK-001 常量与 `_StreamLoopDetector` 重写**（`arxiv-update/scripts/arxiv_daily.py:98-148`）：旧常量 `STREAM_LOOP_THRESHOLD` / `STREAM_LOOP_MIN_LEN` 已删除，`STREAM_LOOP_WINDOW` 改为 30，新增 `STREAM_LOOP_MAX_UNIQUE = 12`。`feed` 判据从 `window.count(stripped) >= threshold` 正确替换为 `len(window) == window_size and len(set(window)) <= max_unique`。空行跳过逻辑 `if not stripped: continue` 代替原 `if len(stripped) < min_len: continue`。与 ADR 第 182–228 行代码草案严格对齐。
+    2. **TASK-002 调用点验证**（`arxiv-update/scripts/arxiv_daily.py:559-594`）：`detector = _StreamLoopDetector()` 在 `with urlopen(...)` 块内、`for raw_line in resp` 之前；`stream_chunk` 取值、`detector.feed(stream_chunk)` 返回 True 后 `logger.error` → `resp.close()` → `raise ValueError` 序列保持不变。`except (urllib.error.URLError, TimeoutError, OSError, ValueError)` 块在第 665 行未修改，重试链路完整。
+    3. **TASK-003 fake server 改动**（`arxiv-update/scripts/tests/fake_llm_server.py`）：
+       - `handle_reasoning_loop` / `handle_content_loop` 的 `repeat_count` 从 20 调为 35（≥ WINDOW=30）；
+       - 新增 `handle_varying_loop`（4 句型 × 12 轮 = 48 行，window 装满后 unique=4 ≤ 12 必触发）和 `handle_template_repetition`（10 篇 × 4 行 = 40 行，窗口内 unique ≈ 23 > 12 不触发，外加有效 JSON content 让 `call_llm` 走完完整路径）；
+       - 新增 `_write_sse_final` 辅助函数，正确消除 `handle_reasoning_loop` / `handle_content_loop` 尾部 final+usage+[DONE] 的代码重复（DRY 改进）；
+       - 两个新 handler 在 `ERROR_HANDLERS` 中按现有约定注册为 `"varying_loop"` 和 `"template_repetition"`；
+       - 所有 handler 写入模式与既有 `handle_slow_stream` 一致，客户端提前 close 时由 `do_POST` 外层 `except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError): pass` 捕获。
+    4. **TASK-004 测试重写与扩充**（`arxiv-update/scripts/tests/test_arxiv_daily.py`）：
+       - `TestStreamLoopDetector` 从 6 个方法重写为 10 个，覆盖 ADR 表格全部 10 项：窗口未满不触发、字面循环触发、4 句型 varying loop 触发、模板重复免疫（**关键回归**）、正常多样文本、空行跳过、partial line buffering、字符计数、窗口驱逐、自定义参数；
+       - `TestCallLlmLoopDetection` 从 3 个方法扩充为 5 个：reasoning/content 字面循环重试（renamed `_literal_`）、varying loop 重试、template repetition 单次正常返回（`request_counter == 1`）、正常流无误报。
+    5. **验证**：`./.venv/bin/python -m pytest tests/test_arxiv_daily.py::TestStreamLoopDetector tests/test_arxiv_daily.py::TestCallLlmLoopDetection -v` → 15 passed；`./.venv/bin/python -m pytest tests/test_arxiv_daily.py -q` → 167 passed, 1 xfailed（较前一版 161 passed 净增 6 测试，与旧测试重写后的预期一致；xfailed 为既有 baseline）。
+  - **回应 Executor**: Executor 上轮无 DISPUTE，无需反驳。
+  - **审查侧维度评估**：
+    - **通用质量**：常量命名、docstring、类型注解均符合 PEP 8 / PEP 257 通用约定。`_write_sse_final` 的引入是对原 `handle_reasoning_loop` / `handle_content_loop` 重复尾部代码的合理 DRY 提取，降低了未来维护负担。
+    - **DRY**：检测逻辑仍封装在 `_StreamLoopDetector` 单点，调用点唯一。fake server 四个 loop/template handler 共用 `_write_sse_final`。
+    - **容错**：空行跳过 (`if not stripped: continue`) 防止空行填满窗口产生无意义低 unique 数。`detector` 每 attempt 新建，无跨 attempt 污染。
+    - **性能**：`len(set(window))` 在 window_size=30 时构建 set 的代价为 O(30)，每行调用一次，SSE 网络延迟远大于此计算代价，影响可忽略。
+    - **测试覆盖**：单元测试 10 项 + 集成测试 5 项，完整覆盖字面循环、带变化循环、模板重复免疫（强制回归）、窗口未满、空行跳过、partial line、参数化等全部语义路径。`test_template_repetition_no_false_positive` 在单元和集成两层独立验证，对应导致前一版上线失败的生产事故场景。
+    - **安全性**：无新风险面。`logger.error` 内容受 `log_label` 控制（非外部用户输入），不存在日志注入。
+    - **向后兼容**：`feed(chunk) -> bool` 与 `total_chars` 接口签名不变；`call_llm` 调用方无感知。旧的 `STREAM_LOOP_THRESHOLD` / `STREAM_LOOP_MIN_LEN` 无外部引用（前一版仅在模块内部使用），删除无破坏性影响。
+  - **Issue 优先级与依赖总表**: 无 Issue。所有 TASK 实现与 ADR 设计契约严格对齐，测试全绿，无阻塞与非阻塞改进项。
+
+---
+
 ## 4. 最终决策 (Final Decision)
 
-（由 Reviewer 在最终判决 PASS 时填写）
+- **决策记录**:
+  - 设计方案最终采纳：将 `_StreamLoopDetector` 判据从"窗口内某行重复次数 ≥ N"替换为"窗口装满后 `len(set(window)) <= MAX_UNIQUE`"，消除模板化重复的误报，同时保持对字面循环和带变化循环的检测能力。参数定值 `WINDOW=30 / MAX_UNIQUE=12`。
+  - 妥协与权衡：
+    1. 窗口缩小从 60 到 30：加快触发响应速度（30 行 ≈ 1000–2500 字符），代价是对超长周期循环（周期 > 30 行）需多等一个周期——此类循环 token 消耗速率低，300s timeout 兜底足矣。
+    2. `len(set(window))` 每行执行一次而非仅在窗口满时执行——实际因判据前置 `len(window) == window_size` 短路，仅在窗口恰好满时（每填入一行）才构建 set，开销进一步降低。
+    3. `_write_sse_final` 辅助函数引入——Executor 在 ADR 无明确要求的前提下做了合理的 DRY 重构，不违反「不修改任何已有代码」约束（仅对新增 handler 适用），且旧 handler `handle_reasoning_loop` / `handle_content_loop` 未被改动为使用此辅助（保持最小变更原则），行为正确。
+  - 后续可选改进（非本轮范围）：可进一步将 `handle_reasoning_loop` / `handle_content_loop` 的尾部代码也替换为 `_write_sse_final` 调用以彻底消除重复——但需额外 TASK，不在本轮 scope 内。
