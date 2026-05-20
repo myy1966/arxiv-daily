@@ -235,7 +235,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 ---
 
-#### [TASK ID: 002] [状态: OPEN]
+#### [TASK ID: 002] [状态: RESOLVED]
 
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — `call_llm` 函数内 SSE 解析循环
 - **目标描述**: 验证 `call_llm` 内的检测器调用点无需修改（`feed` / `total_chars` 接口签名不变）
@@ -266,6 +266,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
      - **输出路径说明**：循环检测触发后产生两条 `logger.error` 记录——①检测点，②现有 `except (... ValueError)` 入口；不向 stderr `print`。
 
   5. 完成后运行 `python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 验证语法。
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准；已核验 `arxiv-update/scripts/arxiv_daily.py` 中 `call_llm` 的 `_StreamLoopDetector()` 实例化位置、`stream_chunk` 取值、`detector.feed(...)` 调用、`logger.error`、`resp.close()` 与 `ValueError` 抛出逻辑均与要求一致；因 `feed` / `total_chars` 接口签名未变，源码无需修改，且未修改任何 `except` 块。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过。
 
 ---
 
