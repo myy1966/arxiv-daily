@@ -495,6 +495,52 @@ def handle_template_repetition(handler, paper_ids, model, paper_count: int = 10)
     _write_sse_final(handler, req_id, model, paper_count * len(template) + 1)
 
 
+def handle_blank_flood_loop(handler, paper_ids, model, head_chars: int = 100, blank_chunks: int = 50):
+    """Simulate content blank-flood loop (e.g., batch_010 production case)."""
+    model = "fake-blank-flood-model"
+    req_id = "fake-blank-flood-001"
+    head_content = '{"papers": [{"id": "test"}]'
+    if head_chars > len(head_content):
+        head_content += " " * (head_chars - len(head_content))
+    else:
+        head_content = head_content[:head_chars]
+
+    handler.send_response(200)
+    handler.send_header("Content-Type", "text/event-stream")
+    handler.send_header("Cache-Control", "no-cache")
+    handler.end_headers()
+
+    head_chunk = {
+        "id": req_id,
+        "object": "chat.completion.chunk",
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "delta": {"content": head_content},
+            "flag": 0,
+        }],
+    }
+    handler.wfile.write(f"data: {json.dumps(head_chunk)}\n\n".encode())
+    handler.wfile.flush()
+
+    blank_payload = "\n\n\n\n\n  \n\n"
+    for _ in range(blank_chunks):
+        chunk = {
+            "id": req_id,
+            "object": "chat.completion.chunk",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {"content": blank_payload},
+                "flag": 0,
+            }],
+        }
+        handler.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
+        handler.wfile.flush()
+
+    _write_sse_final(handler, req_id, model, blank_chunks + 1)
+
+
 def handle_versioned_ids(handler, paper_ids, model):
     """Return paper IDs with version suffixes (e.g., 2501.12345v2)."""
     papers = []
@@ -600,6 +646,7 @@ ERROR_HANDLERS = {
     "content_loop": handle_content_loop,
     "varying_loop": handle_varying_loop,
     "template_repetition": handle_template_repetition,
+    "blank_flood_loop": handle_blank_flood_loop,
     "versioned_ids": handle_versioned_ids,
     "malformed_sse": handle_malformed_sse,
 }

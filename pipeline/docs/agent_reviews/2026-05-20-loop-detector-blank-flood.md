@@ -260,7 +260,7 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
 
 ---
 
-#### [TASK ID: 003] [状态: OPEN]
+#### [TASK ID: 003] [状态: RESOLVED]
 
 - **定位**: `arxiv-update/scripts/tests/fake_llm_server.py`
 - **目标描述**: 新增 `handle_blank_flood_loop` 处理器，模拟 batch_010 的纯空白循环场景
@@ -307,6 +307,8 @@ Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以
   3. **写入模式**：必须遵循现有 fake server 的 `BrokenPipeError` 处理模式——`call_llm` 触发循环检测后会主动 close 连接，server 后续 write 必须能优雅吞掉异常。
 
   4. 完成后运行 `python3 -m py_compile arxiv-update/scripts/tests/fake_llm_server.py` 验证语法。
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准；已在 `arxiv-update/scripts/tests/fake_llm_server.py` 新增模块级 `handle_blank_flood_loop`，先发送一段非空白 content，再发送 50 个纯空白 content chunk，累计空白字符远超 `STREAM_LOOP_MAX_BLANK_CHARS = 200`；已按现有 `ERROR_HANDLERS` 路由约定注册 `blank_flood_loop`，连接提前关闭仍由现有 `do_POST` 外层 BrokenPipe/连接重置捕获处理。验证：`python3 -m py_compile arxiv-update/scripts/tests/fake_llm_server.py` 通过。
 
 ---
 
