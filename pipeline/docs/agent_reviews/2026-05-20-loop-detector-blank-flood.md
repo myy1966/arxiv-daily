@@ -152,7 +152,7 @@ class _StreamLoopDetector:
 
 ---
 
-#### [TASK ID: 001] [状态: OPEN]
+#### [TASK ID: 001] [状态: RESOLVED]
 
 - **定位**: `arxiv-update/scripts/arxiv_daily.py`
   - 常量区（`STREAM_LOOP_*` 同处）：新增 `STREAM_LOOP_MAX_BLANK_CHARS`
@@ -219,6 +219,8 @@ class _StreamLoopDetector:
   4. **不修改任何其他已有代码**。docstring 可适度更新以反映新增机制（可选，不强制）。
 
   5. 完成后运行 `python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 验证语法。
+
+Executor: [RESOLVED] 同意并执行。本项目无 AGENTS.md 规范文件，以通用最佳实践为准；已在 `arxiv-update/scripts/arxiv_daily.py` 新增 `STREAM_LOOP_MAX_BLANK_CHARS = 200`，扩展 `_StreamLoopDetector.__init__` 的 `max_blank_chars` 默认参数与 `_blank_chars` 状态，并在 `feed` 中于主 unique-line 判据前增加连续纯空白字符配额检测；`call_llm` 调用点未修改。验证：`python3 -m py_compile arxiv-update/scripts/arxiv_daily.py` 通过。
 
 ---
 
