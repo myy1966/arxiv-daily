@@ -97,16 +97,18 @@ ARXIV_USER_AGENT = os.environ.get(
 )
 STREAM_LOOP_WINDOW = 30
 STREAM_LOOP_MAX_UNIQUE = 12
+STREAM_LOOP_MAX_BLANK_CHARS = 200
 _last_fetch_time: float | None = None
 
 
 class _StreamLoopDetector:
-    """Sliding-window unique-line detector for LLM SSE streams.
+    """Sliding-window unique-line detector with blank-flood quota for LLM SSE streams.
 
     Detects infinite loops by measuring information entropy in a fixed-size
     line window. When the window contains too few unique lines, the model is
     judged to be looping. Robust against template repetition where the same
-    boilerplate line recurs but surrounding context is varied.
+    boilerplate line recurs but surrounding context is varied. Also detects
+    runs of pure whitespace chunks that never enter the line window.
 
     Not thread-safe; create one instance per LLM request attempt.
     """
@@ -115,18 +117,28 @@ class _StreamLoopDetector:
         self,
         window_size: int = STREAM_LOOP_WINDOW,
         max_unique: int = STREAM_LOOP_MAX_UNIQUE,
+        max_blank_chars: int = STREAM_LOOP_MAX_BLANK_CHARS,
     ) -> None:
         from collections import deque
 
         self._window: deque[str] = deque(maxlen=window_size)
         self._window_size = window_size
         self._max_unique = max_unique
+        self._max_blank_chars = max_blank_chars
         self._buf = ""
         self._total_chars = 0
+        self._blank_chars = 0
 
     def feed(self, chunk: str) -> bool:
         """Ingest a text chunk and return True if a loop is detected."""
         self._total_chars += len(chunk)
+        if chunk.strip() == "":
+            self._blank_chars += len(chunk)
+            if self._blank_chars >= self._max_blank_chars:
+                return True
+        else:
+            self._blank_chars = 0
+
         self._buf += chunk
         lines = self._buf.split("\n")
         self._buf = lines[-1]  # keep incomplete tail for next chunk

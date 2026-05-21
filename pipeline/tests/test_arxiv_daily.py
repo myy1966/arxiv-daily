@@ -918,12 +918,62 @@ class TestStreamLoopDetector:
             assert detector.feed(f"Unique stream line {i} with varied content.\n") is False
 
     def test_blank_lines_skipped(self):
-        detector = arxiv_daily._StreamLoopDetector(window_size=10, max_unique=5)
+        detector = arxiv_daily._StreamLoopDetector(
+            window_size=10, max_unique=5, max_blank_chars=1000,
+        )
 
         for i in range(5):
             assert detector.feed(f"Unique meaningful line {i}.\n") is False
         for _ in range(50):
             assert detector.feed("\n   \n\t\n") is False
+
+    def test_blank_flood_triggers(self):
+        detector = arxiv_daily._StreamLoopDetector()
+
+        assert detector.feed("\n" * 250) is True
+
+    def test_blank_flood_accumulates_across_chunks(self):
+        detector = arxiv_daily._StreamLoopDetector()
+
+        for _ in range(4):
+            assert detector.feed("\n" * 49) is False
+
+        assert detector.feed("\n" * 4) is True
+
+    def test_non_blank_chunk_resets_blank_counter(self):
+        detector = arxiv_daily._StreamLoopDetector()
+
+        assert detector.feed("\n" * 100) is False
+        assert detector.feed("x") is False
+        assert detector.feed("\n" * 150) is False
+
+    def test_blank_flood_via_spaces_and_tabs(self):
+        detector = arxiv_daily._StreamLoopDetector()
+        blank_payload = "   \t  \n  "
+
+        while detector.total_chars + len(blank_payload) < arxiv_daily.STREAM_LOOP_MAX_BLANK_CHARS:
+            assert detector.feed(blank_payload) is False
+
+        assert detector.feed(blank_payload) is True
+
+    def test_normal_json_indent_no_false_positive(self):
+        detector = arxiv_daily._StreamLoopDetector()
+        content = '{\n  "key": "val",\n  "k2": "v2"\n}'
+
+        assert detector.feed(content) is False
+
+    def test_blank_chunk_does_not_pollute_window(self):
+        detector = arxiv_daily._StreamLoopDetector(max_blank_chars=1000)
+
+        assert detector.feed("\n" * 300) is False
+        for i in range(arxiv_daily.STREAM_LOOP_WINDOW):
+            assert detector.feed(f"Unique line after blanks {i}.\n") is False
+
+    def test_custom_max_blank_chars(self):
+        detector = arxiv_daily._StreamLoopDetector(max_blank_chars=50)
+
+        assert detector.feed(" " * 49) is False
+        assert detector.feed("\t") is True
 
     def test_partial_lines_buffered(self):
         detector = arxiv_daily._StreamLoopDetector(window_size=3, max_unique=1)
@@ -1079,6 +1129,18 @@ class TestCallLlmLoopDetection:
 
         assert result == {"papers": [], "new_tags": []}
         assert handler_cls.request_counter == 1
+
+    def test_blank_flood_triggers_retry(self, fake_llm_server, logger):
+        api_url, handler_cls = fake_llm_server
+        handler_cls.error_sequence = ["blank_flood_loop", "none"]
+        handler_cls.request_counter = 0
+
+        result, _ = arxiv_daily.call_llm(
+            self._build_single_paper_messages(), api_url, "test-key", "test-model", logger,
+        )
+
+        assert "papers" in result
+        assert handler_cls.request_counter > 1
 
     def test_normal_stream_no_false_positive(self, fake_llm_server, logger):
         api_url, handler_cls = fake_llm_server
