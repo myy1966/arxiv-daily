@@ -63,5 +63,27 @@ status: "STATUS: REJECT"
   - 验证回归：新增 `test_load_cached_batches_writes_hash_atomically`，monkeypatch `os.replace` 抛异常以模拟写入中断，断言原 hash 文件内容保留、目录无残留 `*.tmp`。
   - 验证：`.venv/bin/pytest tests/test_arxiv_daily.py -q` → `181 passed, 1 xfailed in 17.26s`。
 
+### [Round 2] (2026-05-25)
+- **Reviewer**:
+  - **状态判决**: `STATUS: REJECT`
+    - Executor 已覆盖 Round 1 的主体方向，且 `metadata_hash` 原子写入可接受；但 retry tag 回填仍会在跨原始 batch 的 retry 场景中污染较早 batch cache，`_patch_batch_cache()` 也没有清理历史重复 ID cache，两个问题仍会破坏 cache replay 语义。
+  - **审查摘要**: 复核 `review(arxiv): REJECT cache write recovery semantics` 之后的修复提交，确认 `_write_batch_cache()` 改为写 `matched`、普通 retry patch 改为 id upsert、`metadata_hash` 改为 `_atomic_write_text()`，这些方向正确。现有测试 `181 passed, 1 xfailed`，但测试缺少两个边界：mixed retry batch 的 per-original-batch tag 归属，以及旧 cache 已存在重复 ID 时的去重自愈。
+  - **回应 Executor**: 接受 ISSUE 003 的下限修复；不接受 ISSUE 001/002 完全关闭的结论。ISSUE 001 仍缺少对历史重复 ID cache 的去重自愈；ISSUE 002 的 `processed.new_tags` 被无差别写入同一个 retry batch 涉及的所有原始 batch cache，会把属于后续原始 batch 的 tag 注入较早 batch cache。
+  - **Issue 优先级与依赖总表**: 先修 ISSUE 004，再修 ISSUE 005；ISSUE 004 直接影响 tag 顺序语义，ISSUE 005 影响旧污染 cache 的恢复能力；两者均修复并补测试后才可 PASS。
+
+#### [ISSUE ID: 004] [状态: OPEN] (blocking)
+- **定位**: `arxiv-update/scripts/arxiv_daily.py:run_phase2`
+- **问题描述**: retry 阶段可能把来自多个原始 batch 的 unresolved papers 合并到同一个 retry batch。当前实现按 `original_batch_num` 分组 patch papers，但给每个分组都传同一个 `processed.new_tags`。如果 retry batch 同时包含 batch 1 和 batch 2 的 paper，而新 tag 只由 batch 2 的 paper 产生，`_patch_batch_cache()` 仍会把该 tag 写入 batch 1 的 `new_tags/current_tags`。下一次 cache replay 处理 batch 1 时，该 future tag 会提前进入 `current_tags`，违反 Round 1 明确要求保留的“后续 batch cache 的 future tags 不泄漏到前序 uncached/cached batch prompt”约束。该判断基于通用状态恢复一致性要求。
+- **严重程度**: 阻塞合并。
+- **修复指令**: retry patch 时必须按 `original_batch_num` 计算该分组自己的 `new_tags`，不能把整个 retry batch 的 `processed.new_tags` 传给所有分组。可接受实现：对每个 `papers` 分组取其 paper `tags` 与 `processed.new_tags` 的交集，并按 `processed.new_tags` 原顺序去重后传给 `_patch_batch_cache()`；或在 `BatchProcessResult` 中携带更精确的 paper-to-new-tag 归属。必须补充回归测试：构造一个 retry batch 同时包含两个原始 batch 的 unresolved papers，其中只有后一个原始 batch 的 retry paper 引入 `FutureTag`；首次 run 后检查 `batch_001.json` 不包含 `FutureTag`，`batch_002.json` 包含 `FutureTag`，二次 cache replay 不会在处理 batch 1 前看到该 tag。
+- **前置依赖**: ISSUE 002。
+
+#### [ISSUE ID: 005] [状态: OPEN] (blocking)
+- **定位**: `arxiv-update/scripts/arxiv_daily.py:_patch_batch_cache`
+- **问题描述**: 当前 `_patch_batch_cache()` 构建 `index_by_id` 时，如果已有 cache 中同一个 id 出现多次，只记录最后一个位置；随后 incoming paper 只覆盖最后一个条目，前面的重复条目仍保留。也就是说，它能避免普通 append 产生的新重复，但不能清理已经被旧实现或历史 cache 污染出的重复 ID。下一次 `match_llm_results()` 读取该 cache 时仍会因重复 ID 将该 paper 判为 unresolved，retry patch 的自愈能力不完整。该判断基于通用 cache 修复与幂等 upsert 要求。
+- **严重程度**: 阻塞合并。
+- **修复指令**: `_patch_batch_cache()` 应先将 existing 与 incoming 合并为按 id 去重的列表，再写回 cache。建议保留第一次出现的顺序位置，但内容以后出现的同 id 或 incoming 结果为准；无 id 的异常条目可保留或丢弃，但行为必须明确。补充测试：已有 `batch_001.json` 中同一 id 出现两次，调用 `_patch_batch_cache()` patch 同一 id 后，输出文件中该 id 只能出现一次，且内容为 incoming 的 fresh 结果；随后用 `match_llm_results()` replay 不应产生 duplicate diagnostics。
+- **前置依赖**: ISSUE 001。
+
 ## 4. 最终决策 (Final Decision)
 （仅在当前轮次给出 `STATUS: PASS` 时填写。）
