@@ -1,7 +1,7 @@
 ---
 title: "arxiv cache write recovery review"
 date: "2026-05-25"
-status: "STATUS: REJECT"
+status: "STATUS: PASS"
 ---
 
 ## 1. 元数据 (Metadata)
@@ -13,6 +13,7 @@ status: "STATUS: REJECT"
 ## 2. 设计概要 (Design Overview)
 - 当前脚本在 Phase 2 对 LLM batch 结果进行缓存：先基于 metadata hash 复用 `batch_*.json`，未命中的 batch 调用 LLM 后写入 batch cache，失败 paper 在 retry 成功后再 patch 回原始 batch cache。
 - cache 写入路径已使用临时文件加 `os.replace()` 写 JSON，但 batch cache 的内容语义、retry patch 的合并策略、tag 快照更新，以及 cache 目录级一致性仍存在缺陷。
+- 最终实现改为只缓存已通过校验的 `matched` 结果，retry patch 按 id 去重 upsert 并按原始 batch 过滤 retry 新标签，`metadata_hash` 也改为原子写入；目录级并发 lock 作为未来并发运行需求处理。
 
 ## 3. 交互历史 (The Thread)
 
@@ -93,5 +94,13 @@ status: "STATUS: REJECT"
   - 验证回归：新增 `test_patch_batch_cache_dedupes_existing_duplicates`，构造 `batch_001.json` 已含重复 id `2604.00002`（模拟旧 append 实现遗留的污染），调用 `_patch_batch_cache()` 用一条 incoming 条目替换该 id；断言文件中三条 id 顺序为 `00001, 00002, 00003`、id 唯一出现一次、`00002` 内容为 incoming 的 fresh summary/tags；并以三个 id 跑 `match_llm_results()` 确认 `duplicate_ids/missing_ids/quality_failed` 全部为空，证明 cache 在下一轮 replay 时具备自愈能力。
   - 验证：`.venv/bin/pytest tests/test_arxiv_daily.py -q` → `183 passed, 1 xfailed in 17.28s`。
 
+### [Round 3] (2026-05-25)
+- **Reviewer**:
+  - **状态判决**: `STATUS: PASS`
+    - Executor 针对 Round 2 的两个阻塞问题均已按指令修复，并补充了覆盖 mixed retry tag 归属和历史重复 ID 自愈的回归测试。
+  - **审查摘要**: 复核 `review(arxiv): REJECT cache replay edge cases` 之后的修复提交，确认 retry patch 现在按 `original_batch_num` 分组过滤 `new_tags`，避免跨原始 batch 写入 future tags；`_patch_batch_cache()` 现在会先将既有 cache 条目压缩为按 id 唯一的列表，再应用 incoming 结果，旧污染 cache 可自愈。未发现新的阻塞问题。
+  - **回应 Executor**: 接受 ISSUE 004 与 ISSUE 005 的 RESOLVED 记录。ISSUE 003 的下限修复在 Round 2 已接受；并发 lock 与 ownership-aware 清理由于当前无并发运行契约，保持后续需求触发时再处理。
+  - **Issue 优先级与依赖总表**: 所有阻塞 Issue 已关闭：ISSUE 001 → ISSUE 005 均已具备对应实现与测试；ISSUE 003 的非阻塞剩余并发增强不影响本轮合并。
+
 ## 4. 最终决策 (Final Decision)
-（仅在当前轮次给出 `STATUS: PASS` 时填写。）
+- **决策记录**: 接受当前实现并判定可合并。最终方案采用“只缓存已通过匹配与质量校验的 `matched` 结果”、“retry patch 按 id 幂等 upsert 并清理历史重复 id”、“retry 新标签按原始 batch 分组过滤后写回 cache”、“metadata_hash 原子写入”的组合。field-level lock 与 ownership-aware cleanup 暂不纳入本轮，因为当前项目未体现并发运行契约；若未来引入 cron/GitHub Actions/多进程触发，应单独设计目录级互斥与 cache ownership。
