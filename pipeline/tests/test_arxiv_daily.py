@@ -777,6 +777,57 @@ class TestPhase2Helpers:
         ids = [p["id"] for p in cached["papers"]]
         assert ids == list(dict.fromkeys(ids)), "patched cache must not contain duplicate ids"
 
+    def test_patch_batch_cache_dedupes_existing_duplicates(self, tmp_path, logger):
+        field_cache = tmp_path / "cache"
+        field_cache.mkdir()
+        cache_path = field_cache / "batch_001.json"
+        long_summary = "这是一篇用于测试的论文摘要，内容足够长，可以通过质量检查并验证缓存自愈。"
+        seed_summary = "这是一段长度足以通过质量阈值的论文摘要，用于初始化缓存条目。"
+        cache_path.write_text(
+            json.dumps(
+                {
+                    "papers": [
+                        {"id": "2604.00001", "summary": seed_summary, "tags": ["T1"], "venue": None},
+                        {"id": "2604.00002", "summary": seed_summary, "tags": ["T2"], "venue": None},
+                        {"id": "2604.00002", "summary": seed_summary + "重复", "tags": ["T2"], "venue": None},
+                        {"id": "2604.00003", "summary": seed_summary, "tags": ["T3"], "venue": None},
+                    ],
+                    "new_tags": [],
+                    "current_tags": [],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        arxiv_daily._patch_batch_cache(
+            field_cache,
+            1,
+            [
+                {"id": "2604.00002", "summary": long_summary, "tags": ["T2b"], "venue": None},
+            ],
+            logger,
+        )
+
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        ids = [p["id"] for p in cached["papers"]]
+        assert ids == list(dict.fromkeys(ids)), "patched cache must dedupe pre-existing duplicates"
+        assert ids == ["2604.00001", "2604.00002", "2604.00003"]
+        recovered = next(p for p in cached["papers"] if p["id"] == "2604.00002")
+        assert recovered["summary"] == long_summary
+        assert recovered["tags"] == ["T2b"]
+
+        batch = [
+            {"id": pid, "title": f"T-{pid}", "abstract": "A"}
+            for pid in ["2604.00001", "2604.00002", "2604.00003"]
+        ]
+        _, diagnostics = arxiv_daily.match_llm_results(
+            batch, cached["papers"], logger, batch_num=1
+        )
+        assert diagnostics.duplicate_ids == []
+        assert diagnostics.missing_ids == []
+        assert diagnostics.quality_failed == []
+
     def test_patch_batch_cache_corrupt_file(self, tmp_path, logger):
         field_cache = tmp_path / "cache"
         field_cache.mkdir()

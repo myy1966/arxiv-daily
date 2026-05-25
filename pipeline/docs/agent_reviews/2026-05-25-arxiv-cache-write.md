@@ -82,12 +82,16 @@ status: "STATUS: REJECT"
   - 验证回归：新增 `test_retry_patch_does_not_leak_cross_batch_tags`，通过 monkeypatch `_process_batch` 构造一个混合 retry batch（同时含 batch 1 与 batch 2 的 unresolved paper），仅 batch 2 的 retry paper 携带 `FutureTag`；断言首次 run 后 `batch_001.json` 的 `new_tags`/`current_tags` 不含 `FutureTag`，而 `batch_002.json` 两者均含；二次 `run_phase2()` 完整命中 cache（拦截 `_process_batch` 与 `build_prompt` 验证零 LLM 调用）。
   - 验证：`.venv/bin/pytest tests/test_arxiv_daily.py -q` → `182 passed, 1 xfailed in 17.28s`。
 
-#### [ISSUE ID: 005] [状态: OPEN] (blocking)
+#### [ISSUE ID: 005] [状态: RESOLVED] (blocking)
 - **定位**: `arxiv-update/scripts/arxiv_daily.py:_patch_batch_cache`
 - **问题描述**: 当前 `_patch_batch_cache()` 构建 `index_by_id` 时，如果已有 cache 中同一个 id 出现多次，只记录最后一个位置；随后 incoming paper 只覆盖最后一个条目，前面的重复条目仍保留。也就是说，它能避免普通 append 产生的新重复，但不能清理已经被旧实现或历史 cache 污染出的重复 ID。下一次 `match_llm_results()` 读取该 cache 时仍会因重复 ID 将该 paper 判为 unresolved，retry patch 的自愈能力不完整。该判断基于通用 cache 修复与幂等 upsert 要求。
 - **严重程度**: 阻塞合并。
 - **修复指令**: `_patch_batch_cache()` 应先将 existing 与 incoming 合并为按 id 去重的列表，再写回 cache。建议保留第一次出现的顺序位置，但内容以后出现的同 id 或 incoming 结果为准；无 id 的异常条目可保留或丢弃，但行为必须明确。补充测试：已有 `batch_001.json` 中同一 id 出现两次，调用 `_patch_batch_cache()` patch 同一 id 后，输出文件中该 id 只能出现一次，且内容为 incoming 的 fresh 结果；随后用 `match_llm_results()` replay 不应产生 duplicate diagnostics。
 - **前置依赖**: ISSUE 001。
+- Executor: [RESOLVED] 同意并执行。
+  - 修改 `arxiv-update/scripts/arxiv_daily.py:_patch_batch_cache` 的 paper 合并逻辑：单次遍历 `cached["papers"]` 构建 `deduped` 列表与 `index_by_id`，对每个 id 保留**首次出现的顺序位置**但**用后续同 id 条目覆盖内容**（“先到位置 + 最新内容”）；无 id 的异常条目按原顺序保留。再以同样的 id-keyed 规则消化 incoming `new_papers`：命中已有 id 即覆盖该位置，新 id 追加到末尾。最终 `cached["papers"]` 中每个 id 唯一出现一次，权威性顺序为 incoming > 后出现的 existing > 先出现的 existing。tag 合并段保持不变。
+  - 验证回归：新增 `test_patch_batch_cache_dedupes_existing_duplicates`，构造 `batch_001.json` 已含重复 id `2604.00002`（模拟旧 append 实现遗留的污染），调用 `_patch_batch_cache()` 用一条 incoming 条目替换该 id；断言文件中三条 id 顺序为 `00001, 00002, 00003`、id 唯一出现一次、`00002` 内容为 incoming 的 fresh summary/tags；并以三个 id 跑 `match_llm_results()` 确认 `duplicate_ids/missing_ids/quality_failed` 全部为空，证明 cache 在下一轮 replay 时具备自愈能力。
+  - 验证：`.venv/bin/pytest tests/test_arxiv_daily.py -q` → `183 passed, 1 xfailed in 17.28s`。
 
 ## 4. 最终决策 (Final Decision)
 （仅在当前轮次给出 `STATUS: PASS` 时填写。）

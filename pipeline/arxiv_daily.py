@@ -990,19 +990,27 @@ def _patch_batch_cache(
     cached.setdefault("new_tags", [])
     cached.setdefault("current_tags", [])
 
+    deduped: list[dict] = []
     index_by_id: dict[str, int] = {}
-    for i, paper in enumerate(cached["papers"]):
+    for paper in cached["papers"]:
         pid = paper.get("id")
-        if pid is not None:
-            index_by_id[pid] = i
+        if pid is None:
+            deduped.append(paper)
+            continue
+        if pid in index_by_id:
+            deduped[index_by_id[pid]] = paper
+        else:
+            index_by_id[pid] = len(deduped)
+            deduped.append(paper)
     for paper in new_papers:
         pid = paper.get("id")
         if pid is not None and pid in index_by_id:
-            cached["papers"][index_by_id[pid]] = paper
+            deduped[index_by_id[pid]] = paper
         else:
-            cached["papers"].append(paper)
             if pid is not None:
-                index_by_id[pid] = len(cached["papers"]) - 1
+                index_by_id[pid] = len(deduped)
+            deduped.append(paper)
+    cached["papers"] = deduped
 
     if new_tags:
         for tag in new_tags:
