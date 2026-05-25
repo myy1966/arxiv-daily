@@ -37,12 +37,19 @@ status: "STATUS: REJECT"
   - 同步更新 `tests/test_arxiv_daily.py::test_write_batch_cache_replaces_existing_file` 以匹配新签名；新增 `test_patch_batch_cache_upserts_by_id` 验证同 id 覆盖行为；新增 `test_quality_failure_then_retry_then_cache_replay` 端到端回归：首轮 quality failed → retry 成功回填 → 二次 `run_phase2()` 仅走 cache 路径（`call_llm` 零调用，`MatchDiagnostics` 无 duplicate/missing/quality_failed）。
   - 验证：`.venv/bin/pytest tests/test_arxiv_daily.py -q` → `177 passed, 1 xfailed in 17.36s`。
 
-#### [ISSUE ID: 002] [状态: OPEN] (blocking)
+#### [ISSUE ID: 002] [状态: RESOLVED] (blocking)
 - **定位**: `arxiv-update/scripts/arxiv_daily.py:_patch_batch_cache`, `arxiv-update/scripts/arxiv_daily.py:run_phase2`
 - **问题描述**: retry batch 调用 `_process_batch()` 时仍会根据 LLM 返回的 `new_tags` 修改运行时 `current_tags`，但 `_patch_batch_cache()` 只把 retry 成功的 `papers` 写回原始 batch cache，完全不更新该 cache 文件中的 `new_tags` 和 `current_tags`。后续重跑命中该 batch cache 时，代码会执行 `current_tags = cached["current_tags"]`，可能把 `load_tags()` 读到的较新标签状态覆盖成旧快照。结果是 retry 阶段新发现的 tag 可能从后续 prompt 和最终 `tags.json` 中消失，尤其是在“部分 paper retry 成功但整轮仍因其它 paper 失败，cache 未清理，下一次用 `--date` 续跑”的场景。该判断基于通用状态恢复一致性要求。
 - **严重程度**: 阻塞合并。
 - **修复指令**: `BatchProcessResult` 需要携带本次 LLM 返回的 `new_tags` 以及处理后的 `current_tags` 快照，或提供等价机制让 retry 回填时能更新对应 batch cache 的 tag 状态。`_patch_batch_cache()` 不应只接受 `new_papers`，还应明确处理 `new_tags/current_tags` 的合并或替换策略。修复时必须保留现有“不要让后续 batch cache 的 future tags 泄漏到前序 uncached batch prompt”的约束。补充测试：首轮 batch 部分失败，retry 产生新 tag 并回填 cache，下一轮从 cache 恢复后 `current_tags` 不丢 retry tag，且未提前读取后续 batch cache 的 tags。
 - **前置依赖**: ISSUE 001。
+- Executor: [RESOLVED] 同意并执行。
+  - 扩展 `BatchProcessResult` 字段：新增 `new_tags: list[str]` 与 `current_tags_snapshot: list[str]`，由 `_process_batch` 在成功/部分失败路径填充本次 LLM 返回的 `new_tags` 与 merge 后的 `current_tags`，异常路径保持空列表默认值（无新增 tag）。
+  - 修改 `_patch_batch_cache`：新增可选 `new_tags` 参数；当传入时，将其按 append-if-absent 同时合并到 `cached["new_tags"]` 与 `cached["current_tags"]`，避免追加重复元素。未传时保持纯 paper upsert 行为，向后兼容。决定不引入 `current_tags` 参数：因为 retry 批次的运行时 `current_tags` 是跨 batch 的累积快照，写入单个 batch cache 会把无关 tag 串入该 batch 的标签上下文；单纯 union 当前 retry 调用产生的 `new_tags` 即可保证“原 cache 状态 ∪ retry 发现的新 tag”，与下一轮 `load_tags()` 的初始集合协同后能完整恢复。
+  - 修改 `run_phase2` 的 retry 回填：将 `processed.new_tags` 透传给 `_patch_batch_cache`。
+  - 修改 `run_phase2` 缓存复用路径：将 `current_tags = cached["current_tags"]` 整体覆盖改为 append-if-absent 的 union（仅追加 `current_tags` 中尚未存在的 tag），既保留 `load_tags()` 与已处理 batch 累积的最新 tag，又不会让某个 batch cache 的快照倒退状态。该写法仍维持原“cache 命中按 batch 顺序处理”不变量，故未破坏“后续 batch cache 的 future tags 不泄漏到前序 uncached batch prompt”的现有约束。
+  - 验证回归：新增 `test_patch_batch_cache_unions_retry_tags`（单元）、`test_retry_tags_persist_across_cache_replay`（端到端：首轮 retry 产生 RetryTag，二次 `run_phase2()` 命中缓存且 RetryTag 不丢）、`test_cache_replay_does_not_leak_future_retry_tags`（重申 future tag 不泄漏不变量）。同时既有 `test_cache_preload_does_not_leak_future_tags` 在新实现下仍 PASS。
+  - 验证：`.venv/bin/pytest tests/test_arxiv_daily.py -q` → `180 passed, 1 xfailed in 17.37s`。
 
 #### [ISSUE ID: 003] [状态: OPEN] (non-blocking)
 - **定位**: `arxiv-update/scripts/arxiv_daily.py:load_cached_batches`, `arxiv-update/scripts/arxiv_daily.py:run_normal_mode`

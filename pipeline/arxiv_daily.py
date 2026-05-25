@@ -33,7 +33,7 @@ import urllib.error
 import urllib.request
 from collections import defaultdict
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from html import unescape
 from pathlib import Path
@@ -165,6 +165,8 @@ class BatchProcessResult:
     matched: dict[str, dict]
     unresolved: list[dict]
     failed: bool
+    new_tags: list[str] = field(default_factory=list)
+    current_tags_snapshot: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -967,8 +969,14 @@ def _patch_batch_cache(
     batch_num: int,
     new_papers: list[dict],
     logger: logging.Logger,
+    new_tags: list[str] | None = None,
 ) -> None:
-    """Upsert retry-successful papers into an original batch cache file by id."""
+    """Upsert retry-successful papers into an original batch cache file by id.
+
+    When new_tags is provided, retry-discovered tags are unioned into both
+    cached["new_tags"] and cached["current_tags"] so subsequent cache-replay
+    runs do not lose tags first surfaced during retry.
+    """
     cache_path = field_cache / f"batch_{batch_num:03d}.json"
     cached = {"papers": [], "new_tags": [], "current_tags": []}
     if cache_path.exists():
@@ -995,6 +1003,13 @@ def _patch_batch_cache(
             cached["papers"].append(paper)
             if pid is not None:
                 index_by_id[pid] = len(cached["papers"]) - 1
+
+    if new_tags:
+        for tag in new_tags:
+            if tag not in cached["new_tags"]:
+                cached["new_tags"].append(tag)
+            if tag not in cached["current_tags"]:
+                cached["current_tags"].append(tag)
 
     _atomic_write_json(cache_path, cached)
 
@@ -1048,10 +1063,18 @@ def _process_batch(
                 matched,
                 _unresolved_papers(batch, matched, diagnostics.all_failed_ids),
                 True,
+                new_tags=list(new_tags),
+                current_tags_snapshot=list(current_tags),
             )
 
         print(f"[{batch_num}/{total}] {blabel} done ({elapsed:.1f}s{usage_str})", file=sys.stderr)
-        return BatchProcessResult(matched, [], False)
+        return BatchProcessResult(
+            matched,
+            [],
+            False,
+            new_tags=list(new_tags),
+            current_tags_snapshot=list(current_tags),
+        )
 
     except Exception as e:
         elapsed = time.monotonic() - t0
@@ -1168,8 +1191,9 @@ def run_phase2(
                 batch, cached.get("papers", []), logger, batch_num, cached, debug_dir, batch_label=blabel
             )
             results_by_id.update(matched)
-            if cached.get("current_tags"):
-                current_tags = cached["current_tags"]
+            for tag in cached.get("current_tags") or []:
+                if tag not in current_tags:
+                    current_tags.append(tag)
             unresolved_papers = _unresolved_papers(batch, matched, diagnostics.all_failed_ids)
             if unresolved_papers:
                 status = f"cached (partial: {len(matched)}/{len(batch)} matched)"
@@ -1228,7 +1252,13 @@ def run_phase2(
                             {"id": pid, **processed.matched[pid]}
                         )
                 for original_batch_num, papers in patch_groups.items():
-                    _patch_batch_cache(field_cache, original_batch_num, papers, logger)
+                    _patch_batch_cache(
+                        field_cache,
+                        original_batch_num,
+                        papers,
+                        logger,
+                        new_tags=processed.new_tags,
+                    )
 
         _add_summary_failure_placeholders(results_by_id, still_failed_papers, logger, "retry")
 
