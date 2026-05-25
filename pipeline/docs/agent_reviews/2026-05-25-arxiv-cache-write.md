@@ -24,12 +24,18 @@ status: "STATUS: REJECT"
   - **回应 Executor**: 暂无 Executor 回复。本轮为初始审查。
   - **Issue 优先级与依赖总表**: ISSUE 001 必须先修；ISSUE 002 依赖 ISSUE 001；ISSUE 003 可后置，除非该脚本存在并发触发场景。
 
-#### [ISSUE ID: 001] [状态: OPEN] (blocking)
+#### [ISSUE ID: 001] [状态: RESOLVED] (blocking)
 - **定位**: `arxiv-update/scripts/arxiv_daily.py:_write_batch_cache`, `arxiv-update/scripts/arxiv_daily.py:_process_batch`, `arxiv-update/scripts/arxiv_daily.py:_patch_batch_cache`
 - **问题描述**: `_process_batch()` 在确认 `diagnostics.total_failed` 之前调用 `_write_batch_cache()`，而 `_write_batch_cache()` 写入的是原始 `result.get("papers", [])`，不是 `match_llm_results()` 已接受的 `matched`。因此 quality failed、duplicate ID、或其它未被接受的 LLM 条目仍可能落入 cache。随后 retry 成功时，`_patch_batch_cache()` 使用 `cached["papers"].extend(new_papers)` 追加结果，而不是按 paper id upsert。下一次读取同一 cache 时，同一 paper id 可能同时存在旧失败条目和新成功条目，`match_llm_results()` 会把重复 ID 判为失败，导致已经通过 retry 修复的 paper 再次 unresolved，cache 不可复用。该判断基于通用失败恢复与缓存一致性要求。
 - **严重程度**: 阻塞合并。
 - **修复指令**: 初始 batch cache 只能写入 `matched` 中已通过 ID 匹配和质量校验的结果，格式应为 `{"id": pid, **matched[pid]}`。`_patch_batch_cache()` 必须改为按 `id` upsert，而不是 append；新结果应覆盖旧结果，同时保持稳定顺序。补充回归测试：首轮某个 paper quality failed，retry 成功回填 cache，第二次 `run_phase2()` 应直接命中 cache，不应再次调用 LLM，也不应触发 duplicate diagnostics。
 - **前置依赖**: 无。
+- Executor: [RESOLVED] 同意并执行。
+  - 修改 `arxiv-update/scripts/arxiv_daily.py:_write_batch_cache`：签名由 `result: dict` 改为 `matched: dict[str, dict]`，仅序列化 `[{"id": pid, **payload} for pid, payload in matched.items()]`，杜绝 quality failed / duplicate / missing 条目落入 cache。
+  - 修改 `arxiv-update/scripts/arxiv_daily.py:_patch_batch_cache`：用 `id` 索引对 `cached["papers"]` 做 upsert，已存在的 id 覆盖原条目，新 id 追加，并保持稳定顺序；空 id 的边缘条目按 append 处理。
+  - 修改 `arxiv-update/scripts/arxiv_daily.py:_process_batch` 调用处：改为传 `matched` 而非 `result`，对齐新签名。
+  - 同步更新 `tests/test_arxiv_daily.py::test_write_batch_cache_replaces_existing_file` 以匹配新签名；新增 `test_patch_batch_cache_upserts_by_id` 验证同 id 覆盖行为；新增 `test_quality_failure_then_retry_then_cache_replay` 端到端回归：首轮 quality failed → retry 成功回填 → 二次 `run_phase2()` 仅走 cache 路径（`call_llm` 零调用，`MatchDiagnostics` 无 duplicate/missing/quality_failed）。
+  - 验证：`.venv/bin/pytest tests/test_arxiv_daily.py -q` → `177 passed, 1 xfailed in 17.36s`。
 
 #### [ISSUE ID: 002] [状态: OPEN] (blocking)
 - **定位**: `arxiv-update/scripts/arxiv_daily.py:_patch_batch_cache`, `arxiv-update/scripts/arxiv_daily.py:run_phase2`

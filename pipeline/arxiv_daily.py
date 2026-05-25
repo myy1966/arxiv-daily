@@ -946,9 +946,15 @@ def _atomic_write_text(path: Path, text: str) -> None:
         raise
 
 
-def _write_batch_cache(field_cache: Path, batch_num: int, result: dict, new_tags: list, current_tags: list) -> None:
+def _write_batch_cache(
+    field_cache: Path,
+    batch_num: int,
+    matched: dict[str, dict],
+    new_tags: list,
+    current_tags: list,
+) -> None:
     cache_entry = {
-        "papers": result.get("papers", []),
+        "papers": [{"id": pid, **payload} for pid, payload in matched.items()],
         "new_tags": new_tags,
         "current_tags": list(current_tags),
     }
@@ -962,7 +968,7 @@ def _patch_batch_cache(
     new_papers: list[dict],
     logger: logging.Logger,
 ) -> None:
-    """Append retry-successful papers to an original batch cache file."""
+    """Upsert retry-successful papers into an original batch cache file by id."""
     cache_path = field_cache / f"batch_{batch_num:03d}.json"
     cached = {"papers": [], "new_tags": [], "current_tags": []}
     if cache_path.exists():
@@ -975,7 +981,21 @@ def _patch_batch_cache(
     cached.setdefault("papers", [])
     cached.setdefault("new_tags", [])
     cached.setdefault("current_tags", [])
-    cached["papers"].extend(new_papers)
+
+    index_by_id: dict[str, int] = {}
+    for i, paper in enumerate(cached["papers"]):
+        pid = paper.get("id")
+        if pid is not None:
+            index_by_id[pid] = i
+    for paper in new_papers:
+        pid = paper.get("id")
+        if pid is not None and pid in index_by_id:
+            cached["papers"][index_by_id[pid]] = paper
+        else:
+            cached["papers"].append(paper)
+            if pid is not None:
+                index_by_id[pid] = len(cached["papers"]) - 1
+
     _atomic_write_json(cache_path, cached)
 
 
@@ -1016,7 +1036,7 @@ def _process_batch(
         elapsed = time.monotonic() - t0
         usage_str = _format_usage(usage)
         if save_cache and cache_allowed and matched:
-            _write_batch_cache(field_cache, batch_num, result, new_tags, current_tags)
+            _write_batch_cache(field_cache, batch_num, matched, new_tags, current_tags)
 
         if diagnostics.total_failed > 0:
             failure_summary = _format_match_failures(diagnostics)

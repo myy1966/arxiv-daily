@@ -660,13 +660,15 @@ class TestPhase2Helpers:
         arxiv_daily._write_batch_cache(
             field_cache,
             1,
-            {"papers": [{"id": "2604.00001"}], "new_tags": ["新标签"]},
+            {"2604.00001": {"summary": "ok", "tags": ["T1"], "venue": None}},
             ["新标签"],
             ["旧标签", "新标签"],
         )
 
         cached = json.loads(cache_path.read_text(encoding="utf-8"))
-        assert cached["papers"] == [{"id": "2604.00001"}]
+        assert cached["papers"] == [
+            {"id": "2604.00001", "summary": "ok", "tags": ["T1"], "venue": None}
+        ]
         assert cached["new_tags"] == ["新标签"]
         assert cached["current_tags"] == ["旧标签", "新标签"]
         assert list(field_cache.glob("*.json.tmp")) == []
@@ -719,6 +721,44 @@ class TestPhase2Helpers:
         ]
         assert cached["new_tags"] == ["T1"]
         assert cached["current_tags"] == ["Existing", "T1"]
+
+    def test_patch_batch_cache_upserts_by_id(self, tmp_path, logger):
+        field_cache = tmp_path / "cache"
+        field_cache.mkdir()
+        cache_path = field_cache / "batch_001.json"
+        cache_path.write_text(
+            json.dumps(
+                {
+                    "papers": [
+                        {"id": "2604.00001", "summary": "old", "tags": ["T1"], "venue": None},
+                        {"id": "2604.00002", "summary": "stale", "tags": ["T2"], "venue": None},
+                    ],
+                    "new_tags": ["T1", "T2"],
+                    "current_tags": ["Existing", "T1", "T2"],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        arxiv_daily._patch_batch_cache(
+            field_cache,
+            1,
+            [
+                {"id": "2604.00002", "summary": "refreshed", "tags": ["T2b"], "venue": None},
+                {"id": "2604.00003", "summary": "fresh", "tags": ["T3"], "venue": None},
+            ],
+            logger,
+        )
+
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        assert cached["papers"] == [
+            {"id": "2604.00001", "summary": "old", "tags": ["T1"], "venue": None},
+            {"id": "2604.00002", "summary": "refreshed", "tags": ["T2b"], "venue": None},
+            {"id": "2604.00003", "summary": "fresh", "tags": ["T3"], "venue": None},
+        ]
+        ids = [p["id"] for p in cached["papers"]]
+        assert ids == list(dict.fromkeys(ids)), "patched cache must not contain duplicate ids"
 
     def test_patch_batch_cache_corrupt_file(self, tmp_path, logger):
         field_cache = tmp_path / "cache"
@@ -1567,6 +1607,88 @@ class TestRunPhase2:
         assert failed == 1
         assert results["2604.00001"]["summary"] == arxiv_daily.SUMMARY_FAILURE_PLACEHOLDER
         assert results["2604.00001"]["tags"] == [arxiv_daily.SUMMARY_FAILURE_TAG]
+
+    def test_quality_failure_then_retry_then_cache_replay(
+        self, monkeypatch, logger, tags_file, tmp_path, sample_data
+    ):
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        long_summary = "这是一篇用于回归测试的论文摘要，内容足够长，可以通过质量检查并验证缓存复用。"
+        papers = [
+            {"id": "2604.00001", "title": "Paper 1", "abstract": "Abstract 1"},
+            {"id": "2604.00002", "title": "Paper 2", "abstract": "Abstract 2"},
+        ]
+        data = {
+            "field": sample_data["field"],
+            "listing_date": sample_data["listing_date"],
+            "page_type": "new",
+            "sections": [{"name": "New submissions", "count": 2, "papers": papers}],
+        }
+
+        prompt_batches: list[list[str]] = []
+
+        def fake_build_prompt(batch, current_tags):
+            prompt_batches.append([paper["id"] for paper in batch])
+            return [{"role": "user", "content": "fake prompt"}]
+
+        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None):
+            if len(prompt_batches) == 1:
+                return {
+                    "papers": [
+                        {"id": "2604.00001", "summary": long_summary, "tags": ["T1"], "venue": None},
+                        {"id": "2604.00002", "summary": "short", "tags": ["T2"], "venue": None},
+                    ],
+                    "new_tags": [],
+                }, {}
+            return {
+                "papers": [
+                    {"id": "2604.00002", "summary": long_summary, "tags": ["T2"], "venue": None},
+                ],
+                "new_tags": [],
+            }, {}
+
+        monkeypatch.setattr(arxiv_daily, "build_prompt", fake_build_prompt)
+        monkeypatch.setattr(arxiv_daily, "call_llm", fake_call_llm)
+
+        first_results, first_failed = arxiv_daily.run_phase2(
+            data, tags_file, cache_dir, no_cache=False,
+            api_endpoint="http://unused", api_key="test-key", model="test-model", logger=logger,
+        )
+        assert first_failed == 0
+        assert set(first_results) == {"2604.00001", "2604.00002"}
+        assert prompt_batches == [["2604.00001", "2604.00002"], ["2604.00002"]]
+
+        field_cache = cache_dir / data["field"]
+        cache_path = field_cache / "batch_001.json"
+        cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        cached_ids = [paper["id"] for paper in cached["papers"]]
+        assert cached_ids == list(dict.fromkeys(cached_ids)), "cache must not hold duplicate ids"
+        assert set(cached_ids) == {"2604.00001", "2604.00002"}
+
+        prompt_batches.clear()
+        diagnostics_records: list[arxiv_daily.MatchDiagnostics] = []
+        original_match = arxiv_daily.match_llm_results
+
+        def capturing_match(*args, **kwargs):
+            matched, diagnostics = original_match(*args, **kwargs)
+            diagnostics_records.append(diagnostics)
+            return matched, diagnostics
+
+        monkeypatch.setattr(arxiv_daily, "match_llm_results", capturing_match)
+
+        second_results, second_failed = arxiv_daily.run_phase2(
+            data, tags_file, cache_dir, no_cache=False,
+            api_endpoint="http://unused", api_key="test-key", model="test-model", logger=logger,
+        )
+
+        assert second_failed == 0
+        assert set(second_results) == {"2604.00001", "2604.00002"}
+        assert prompt_batches == [], "second run must not invoke LLM"
+        assert diagnostics_records, "cache replay should still run match_llm_results"
+        for diag in diagnostics_records:
+            assert diag.duplicate_ids == []
+            assert diag.missing_ids == []
+            assert diag.quality_failed == []
 
     def test_no_cache_flag(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
         api_url, handler_cls = fake_llm_server
