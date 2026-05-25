@@ -1252,12 +1252,19 @@ def run_phase2(
                             {"id": pid, **processed.matched[pid]}
                         )
                 for original_batch_num, papers in patch_groups.items():
+                    group_paper_tags: set[str] = set()
+                    for paper in papers:
+                        for tag in paper.get("tags") or []:
+                            group_paper_tags.add(tag)
+                    filtered_new_tags = [
+                        tag for tag in processed.new_tags if tag in group_paper_tags
+                    ]
                     _patch_batch_cache(
                         field_cache,
                         original_batch_num,
                         papers,
                         logger,
-                        new_tags=processed.new_tags,
+                        new_tags=filtered_new_tags or None,
                     )
 
         _add_summary_failure_placeholders(results_by_id, still_failed_papers, logger, "retry")

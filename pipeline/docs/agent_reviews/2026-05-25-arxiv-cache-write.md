@@ -71,12 +71,16 @@ status: "STATUS: REJECT"
   - **回应 Executor**: 接受 ISSUE 003 的下限修复；不接受 ISSUE 001/002 完全关闭的结论。ISSUE 001 仍缺少对历史重复 ID cache 的去重自愈；ISSUE 002 的 `processed.new_tags` 被无差别写入同一个 retry batch 涉及的所有原始 batch cache，会把属于后续原始 batch 的 tag 注入较早 batch cache。
   - **Issue 优先级与依赖总表**: 先修 ISSUE 004，再修 ISSUE 005；ISSUE 004 直接影响 tag 顺序语义，ISSUE 005 影响旧污染 cache 的恢复能力；两者均修复并补测试后才可 PASS。
 
-#### [ISSUE ID: 004] [状态: OPEN] (blocking)
+#### [ISSUE ID: 004] [状态: RESOLVED] (blocking)
 - **定位**: `arxiv-update/scripts/arxiv_daily.py:run_phase2`
 - **问题描述**: retry 阶段可能把来自多个原始 batch 的 unresolved papers 合并到同一个 retry batch。当前实现按 `original_batch_num` 分组 patch papers，但给每个分组都传同一个 `processed.new_tags`。如果 retry batch 同时包含 batch 1 和 batch 2 的 paper，而新 tag 只由 batch 2 的 paper 产生，`_patch_batch_cache()` 仍会把该 tag 写入 batch 1 的 `new_tags/current_tags`。下一次 cache replay 处理 batch 1 时，该 future tag 会提前进入 `current_tags`，违反 Round 1 明确要求保留的“后续 batch cache 的 future tags 不泄漏到前序 uncached/cached batch prompt”约束。该判断基于通用状态恢复一致性要求。
 - **严重程度**: 阻塞合并。
 - **修复指令**: retry patch 时必须按 `original_batch_num` 计算该分组自己的 `new_tags`，不能把整个 retry batch 的 `processed.new_tags` 传给所有分组。可接受实现：对每个 `papers` 分组取其 paper `tags` 与 `processed.new_tags` 的交集，并按 `processed.new_tags` 原顺序去重后传给 `_patch_batch_cache()`；或在 `BatchProcessResult` 中携带更精确的 paper-to-new-tag 归属。必须补充回归测试：构造一个 retry batch 同时包含两个原始 batch 的 unresolved papers，其中只有后一个原始 batch 的 retry paper 引入 `FutureTag`；首次 run 后检查 `batch_001.json` 不包含 `FutureTag`，`batch_002.json` 包含 `FutureTag`，二次 cache replay 不会在处理 batch 1 前看到该 tag。
 - **前置依赖**: ISSUE 002。
+- Executor: [RESOLVED] 同意并执行。
+  - 修改 `arxiv-update/scripts/arxiv_daily.py:run_phase2` 的 retry 回填环节：在按 `original_batch_num` 分组之后、调用 `_patch_batch_cache()` 之前，先收集本组所有 retry paper 的 `tags` 并集 `group_paper_tags`，再以 `processed.new_tags` 的原顺序过滤出 `filtered_new_tags = [t for t in processed.new_tags if t in group_paper_tags]`。仅把 `filtered_new_tags`（若为空则传 `None`）作为 `new_tags` 参数传给 `_patch_batch_cache()`，保证只有真正由本组 paper 引入的 tag 才会写入该 batch 的 cache。该实现采用 Reviewer 列出的“按 paper tags 与 `processed.new_tags` 求交集并按原顺序去重”路径，避免在 `BatchProcessResult` 上额外增加 paper-to-new-tag 映射，改动半径最小。
+  - 验证回归：新增 `test_retry_patch_does_not_leak_cross_batch_tags`，通过 monkeypatch `_process_batch` 构造一个混合 retry batch（同时含 batch 1 与 batch 2 的 unresolved paper），仅 batch 2 的 retry paper 携带 `FutureTag`；断言首次 run 后 `batch_001.json` 的 `new_tags`/`current_tags` 不含 `FutureTag`，而 `batch_002.json` 两者均含；二次 `run_phase2()` 完整命中 cache（拦截 `_process_batch` 与 `build_prompt` 验证零 LLM 调用）。
+  - 验证：`.venv/bin/pytest tests/test_arxiv_daily.py -q` → `182 passed, 1 xfailed in 17.28s`。
 
 #### [ISSUE ID: 005] [状态: OPEN] (blocking)
 - **定位**: `arxiv-update/scripts/arxiv_daily.py:_patch_batch_cache`
