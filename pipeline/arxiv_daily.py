@@ -1127,7 +1127,7 @@ def load_cached_batches(field_cache: Path, hash_file: Path, current_hash: str, n
         else:
             for bf in field_cache.glob("batch_*.json"):
                 bf.unlink()
-    hash_file.write_text(current_hash)
+    _atomic_write_text(hash_file, current_hash)
     return cached_batches
 
 

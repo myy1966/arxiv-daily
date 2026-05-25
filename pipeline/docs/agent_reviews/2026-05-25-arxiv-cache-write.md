@@ -51,12 +51,17 @@ status: "STATUS: REJECT"
   - 验证回归：新增 `test_patch_batch_cache_unions_retry_tags`（单元）、`test_retry_tags_persist_across_cache_replay`（端到端：首轮 retry 产生 RetryTag，二次 `run_phase2()` 命中缓存且 RetryTag 不丢）、`test_cache_replay_does_not_leak_future_retry_tags`（重申 future tag 不泄漏不变量）。同时既有 `test_cache_preload_does_not_leak_future_tags` 在新实现下仍 PASS。
   - 验证：`.venv/bin/pytest tests/test_arxiv_daily.py -q` → `180 passed, 1 xfailed in 17.37s`。
 
-#### [ISSUE ID: 003] [状态: OPEN] (non-blocking)
+#### [ISSUE ID: 003] [状态: RESOLVED] (non-blocking)
 - **定位**: `arxiv-update/scripts/arxiv_daily.py:load_cached_batches`, `arxiv-update/scripts/arxiv_daily.py:run_normal_mode`
 - **问题描述**: 单个 `batch_*.json` 文件通过临时文件加 `os.replace()` 写入，但 cache 目录整体没有一致性边界。`metadata_hash` 使用 `hash_file.write_text(current_hash)` 非原子写入；hash 不匹配时直接删除所有 `batch_*.json`；成功后 `run_normal_mode()` 直接 `shutil.rmtree(field_cache)`。如果同一 field 有两个进程并发运行，或进程在 `metadata_hash` 写入中断，可能出现一个进程删除另一个进程刚写好的 batch cache、hash 文件半写导致下次误删有效 cache、或成功进程清掉另一个失败恢复进程正在使用的 cache。该判断基于通用并发与崩溃恢复最佳实践。
 - **严重程度**: 信息性（不阻塞合并）；如果该脚本会被 cron、GitHub Actions 或人工重试并发触发，应升级为阻塞合并。
 - **修复指令**: 至少将 `metadata_hash` 写入改为 `_atomic_write_text()`。如果需要支持并发运行，应在 `field_cache` 级别增加 lock file，并让 `load_cached_batches()`、batch 写入、retry patch、成功清理处于同一互斥范围。成功清理也应只清理由当前 run 拥有或确认 hash 匹配的 cache，避免跨进程误删。
 - **前置依赖**: 无。
+- Executor: [RESOLVED] 同意并执行修复指令的下限部分（Reviewer 表述为“至少将 `metadata_hash` 写入改为 `_atomic_write_text()`”）。
+  - 修改 `arxiv-update/scripts/arxiv_daily.py:load_cached_batches`：将 `hash_file.write_text(current_hash)` 替换为 `_atomic_write_text(hash_file, current_hash)`，复用现有 atomic 写入工具（temp file + `os.replace`），消除 hash 文件半写场景。
+  - 决定**不引入** field-level lock file 与 ownership-aware 清理：当前仓库无 `.github/workflows/`、`SKILL.md` 描述的也是单次人工触发，没有 cron / GitHub Actions / 多进程契约；按 Reviewer“如果存在并发触发场景应升级为阻塞合并”的条件分支，未触发该升级条件。引入 lock 会增加非必要的复杂度（违反 YAGNI），等真正出现并发触发需求时再迭代。
+  - 验证回归：新增 `test_load_cached_batches_writes_hash_atomically`，monkeypatch `os.replace` 抛异常以模拟写入中断，断言原 hash 文件内容保留、目录无残留 `*.tmp`。
+  - 验证：`.venv/bin/pytest tests/test_arxiv_daily.py -q` → `181 passed, 1 xfailed in 17.26s`。
 
 ## 4. 最终决策 (Final Decision)
 （仅在当前轮次给出 `STATUS: PASS` 时填写。）

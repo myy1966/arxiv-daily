@@ -651,6 +651,23 @@ class TestPhase2Helpers:
         assert hash_file.read_text(encoding="utf-8") == "new"
         assert not stale_cache.exists()
 
+    def test_load_cached_batches_writes_hash_atomically(self, monkeypatch, tmp_path):
+        field_cache = tmp_path / "cache"
+        field_cache.mkdir()
+        hash_file = field_cache / "metadata_hash"
+        hash_file.write_text("good", encoding="utf-8")
+
+        def boom(src, dst):
+            raise RuntimeError("simulated crash mid-write")
+
+        monkeypatch.setattr(arxiv_daily.os, "replace", boom)
+
+        with pytest.raises(RuntimeError, match="simulated crash mid-write"):
+            arxiv_daily.load_cached_batches(field_cache, hash_file, "good", no_cache=False)
+
+        assert hash_file.read_text(encoding="utf-8") == "good"
+        assert list(field_cache.glob("*.tmp")) == []
+
     def test_write_batch_cache_replaces_existing_file(self, tmp_path):
         field_cache = tmp_path / "cache"
         field_cache.mkdir()
