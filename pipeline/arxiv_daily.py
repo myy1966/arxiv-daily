@@ -33,7 +33,7 @@ import urllib.error
 import urllib.request
 from collections import defaultdict
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from html import unescape
 from pathlib import Path
@@ -165,6 +165,8 @@ class BatchProcessResult:
     matched: dict[str, dict]
     unresolved: list[dict]
     failed: bool
+    new_tags: list[str] = field(default_factory=list)
+    current_tags_snapshot: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -946,9 +948,15 @@ def _atomic_write_text(path: Path, text: str) -> None:
         raise
 
 
-def _write_batch_cache(field_cache: Path, batch_num: int, result: dict, new_tags: list, current_tags: list) -> None:
+def _write_batch_cache(
+    field_cache: Path,
+    batch_num: int,
+    matched: dict[str, dict],
+    new_tags: list,
+    current_tags: list,
+) -> None:
     cache_entry = {
-        "papers": result.get("papers", []),
+        "papers": [{"id": pid, **payload} for pid, payload in matched.items()],
         "new_tags": new_tags,
         "current_tags": list(current_tags),
     }
@@ -961,8 +969,14 @@ def _patch_batch_cache(
     batch_num: int,
     new_papers: list[dict],
     logger: logging.Logger,
+    new_tags: list[str] | None = None,
 ) -> None:
-    """Append retry-successful papers to an original batch cache file."""
+    """Upsert retry-successful papers into an original batch cache file by id.
+
+    When new_tags is provided, retry-discovered tags are unioned into both
+    cached["new_tags"] and cached["current_tags"] so subsequent cache-replay
+    runs do not lose tags first surfaced during retry.
+    """
     cache_path = field_cache / f"batch_{batch_num:03d}.json"
     cached = {"papers": [], "new_tags": [], "current_tags": []}
     if cache_path.exists():
@@ -975,7 +989,36 @@ def _patch_batch_cache(
     cached.setdefault("papers", [])
     cached.setdefault("new_tags", [])
     cached.setdefault("current_tags", [])
-    cached["papers"].extend(new_papers)
+
+    deduped: list[dict] = []
+    index_by_id: dict[str, int] = {}
+    for paper in cached["papers"]:
+        pid = paper.get("id")
+        if pid is None:
+            deduped.append(paper)
+            continue
+        if pid in index_by_id:
+            deduped[index_by_id[pid]] = paper
+        else:
+            index_by_id[pid] = len(deduped)
+            deduped.append(paper)
+    for paper in new_papers:
+        pid = paper.get("id")
+        if pid is not None and pid in index_by_id:
+            deduped[index_by_id[pid]] = paper
+        else:
+            if pid is not None:
+                index_by_id[pid] = len(deduped)
+            deduped.append(paper)
+    cached["papers"] = deduped
+
+    if new_tags:
+        for tag in new_tags:
+            if tag not in cached["new_tags"]:
+                cached["new_tags"].append(tag)
+            if tag not in cached["current_tags"]:
+                cached["current_tags"].append(tag)
+
     _atomic_write_json(cache_path, cached)
 
 
@@ -1016,7 +1059,7 @@ def _process_batch(
         elapsed = time.monotonic() - t0
         usage_str = _format_usage(usage)
         if save_cache and cache_allowed and matched:
-            _write_batch_cache(field_cache, batch_num, result, new_tags, current_tags)
+            _write_batch_cache(field_cache, batch_num, matched, new_tags, current_tags)
 
         if diagnostics.total_failed > 0:
             failure_summary = _format_match_failures(diagnostics)
@@ -1028,10 +1071,18 @@ def _process_batch(
                 matched,
                 _unresolved_papers(batch, matched, diagnostics.all_failed_ids),
                 True,
+                new_tags=list(new_tags),
+                current_tags_snapshot=list(current_tags),
             )
 
         print(f"[{batch_num}/{total}] {blabel} done ({elapsed:.1f}s{usage_str})", file=sys.stderr)
-        return BatchProcessResult(matched, [], False)
+        return BatchProcessResult(
+            matched,
+            [],
+            False,
+            new_tags=list(new_tags),
+            current_tags_snapshot=list(current_tags),
+        )
 
     except Exception as e:
         elapsed = time.monotonic() - t0
@@ -1084,7 +1135,7 @@ def load_cached_batches(field_cache: Path, hash_file: Path, current_hash: str, n
         else:
             for bf in field_cache.glob("batch_*.json"):
                 bf.unlink()
-    hash_file.write_text(current_hash)
+    _atomic_write_text(hash_file, current_hash)
     return cached_batches
 
 
@@ -1148,8 +1199,9 @@ def run_phase2(
                 batch, cached.get("papers", []), logger, batch_num, cached, debug_dir, batch_label=blabel
             )
             results_by_id.update(matched)
-            if cached.get("current_tags"):
-                current_tags = cached["current_tags"]
+            for tag in cached.get("current_tags") or []:
+                if tag not in current_tags:
+                    current_tags.append(tag)
             unresolved_papers = _unresolved_papers(batch, matched, diagnostics.all_failed_ids)
             if unresolved_papers:
                 status = f"cached (partial: {len(matched)}/{len(batch)} matched)"
@@ -1208,7 +1260,20 @@ def run_phase2(
                             {"id": pid, **processed.matched[pid]}
                         )
                 for original_batch_num, papers in patch_groups.items():
-                    _patch_batch_cache(field_cache, original_batch_num, papers, logger)
+                    group_paper_tags: set[str] = set()
+                    for paper in papers:
+                        for tag in paper.get("tags") or []:
+                            group_paper_tags.add(tag)
+                    filtered_new_tags = [
+                        tag for tag in processed.new_tags if tag in group_paper_tags
+                    ]
+                    _patch_batch_cache(
+                        field_cache,
+                        original_batch_num,
+                        papers,
+                        logger,
+                        new_tags=filtered_new_tags or None,
+                    )
 
         _add_summary_failure_placeholders(results_by_id, still_failed_papers, logger, "retry")
 
