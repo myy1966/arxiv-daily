@@ -480,3 +480,29 @@ def extract_venues_batch(
 - **命令入口**: `pytest tests/ -k “<selector>”`
 - **覆盖要求**: 自然语言描述 Executor 须新增的测试场景
 - **TASK 005** 保留 CLI smoke test（已标注为人工验证、依赖本地环境），可重复单元验证由 TASK 001-004 的 pytest 覆盖。
+
+### Architect Re-Review: Verification Ownership Boundary
+
+当前 ADR 已经把多行 `python -c` 测试实现收敛为 pytest 命令入口和覆盖要求，这比上一版更符合 Architect 边界。但验证部分仍然偏重复、偏执行细节。建议进一步调整职责边界：通用验证纪律放入 Executor skill / Executor 执行规范；ADR 只保留本特性的验收点，即“必须验证什么行为”，不规定具体测试入口、selector 或命令组织方式。
+
+1. **建议修改 ADR 表达方式**
+   - 将每个 TASK 中的具体 `pytest -k ...` 验证命令改为“验收标准 / 特性验证点”。
+   - 保留本任务必须覆盖的行为约束和边界条件。
+   - 统一写明：验证要求遵循 Executor 通用验证规范；由 Executor 选择项目原生测试入口，并在执行记录中写明实际命令与结果。
+
+2. **各 TASK 应保留的特性验收点**
+   - TASK 001: `has_acceptance_signal` 必须覆盖 accepted/published/to appear/camera-ready/presented/forthcoming 等正例；submitted/under review/style/code available/空值等反例。
+   - TASK 002: venue prompt 只能包含 `id` 和 `comments`，不得包含 title/abstract；venue LLM parser 必须接受 `{"venues": [...]}` 并拒绝非法 schema；grounding 失败必须置 `None`；超长 venue 只 warning 不截断；API 失败不阻塞整体流程。
+   - TASK 003: summary/tag prompt 中必须移除 venue 指令和 `"venue"` JSON 字段；summary/tag 指令必须保留；Comments 仍应传入 papers 文本。
+   - TASK 004: `venue_cache.json` hash match 时复用且不调用 LLM；hash mismatch 时丢弃旧 cache；`field_cache=None` 时不读写 cache；每个 batch 后原子写入。
+   - TASK 005: normal mode 在 markdown 生成前 merge venue；patch mode 在 patch 前 merge venue；merge 只更新 `results_by_id` 已存在的 paper；`args.no_cache=True` 时禁用 venue cache；venue 提取失败不阻塞 summary/markdown 流程。
+
+3. **建议沉淀到 Executor skill 的通用验证纪律**
+   - Executor 必须选择项目原生验证入口。
+   - Executor 必须为变更行为新增或更新自动化测试，除非明确不可行。
+   - 涉及外部 API 的场景应优先使用 mock/fake server 做确定性测试。
+   - Executor 应先运行相关 targeted tests，再按需要运行更广测试。
+   - Executor 必须在 ADR 执行记录中写明实际命令、结果、未验证项和剩余风险。
+   - 如果无法运行验证，Executor 必须说明 blocker 和替代验证方式。
+
+结论：ADR 不需要每个 TASK 写具体 pytest selector。保留特性验收点即可；验证命令和测试入口交给 Executor 决定，并由 Reviewer 检查执行记录是否覆盖这些验收点。
