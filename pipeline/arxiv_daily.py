@@ -1291,6 +1291,23 @@ def run_phase2(
 
 
 # ---------------------------------------------------------------------------
+# Phase 2.5: Venue Extraction
+# ---------------------------------------------------------------------------
+
+_ACCEPTANCE_SIGNAL_RE = re.compile(
+    r"\b(?:accepted|published|to appear|camera[- ]ready|appearing at|presented at|forthcoming|to be presented)\b",
+    re.IGNORECASE,
+)
+
+
+def has_acceptance_signal(comments: str | None) -> bool:
+    """Deterministic keyword gate: True if comments contain an acceptance/publication signal."""
+    if not comments:
+        return False
+    return bool(_ACCEPTANCE_SIGNAL_RE.search(comments))
+
+
+# ---------------------------------------------------------------------------
 # Phase 3: Markdown Generation
 # ---------------------------------------------------------------------------
 

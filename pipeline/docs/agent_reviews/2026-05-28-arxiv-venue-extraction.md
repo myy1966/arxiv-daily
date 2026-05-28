@@ -108,7 +108,7 @@ def extract_venues_batch(
 
 *(Architect 寄语：以下任务已就绪，请 Executor 严格按照顺序和规范执行)*
 
-#### [TASK ID: 001] [状态: OPEN]
+#### [TASK ID: 001] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 新增 `has_acceptance_signal` 函数
 - **目标描述**: 实现确定性 keyword gate，判断 comments 是否包含论文被接收/发表的信号
 - **前置依赖**: 无
@@ -130,6 +130,8 @@ def extract_venues_batch(
     - "published in Advancements in AI..., Springer, 2026" → True
     - "Codes are available" → False
   - 验收标准: `has_acceptance_signal` 必须覆盖 accepted/published/to appear/camera-ready/presented at/forthcoming 等正例；submitted/under review/style-only/code available/None/空字符串等反例。上述验证样例全部通过。
+
+Executor: [RESOLVED] 同意并执行。已在 `arxiv-update/scripts/arxiv_daily.py` Phase 2 与 Phase 3 之间新增 Phase 2.5 section，实现 `has_acceptance_signal` 函数。使用预编译正则 `_ACCEPTANCE_SIGNAL_RE` 进行大小写不敏感的 `\b` word-boundary 匹配。验证：`python3 -m py_compile` 通过；7 条正/反例断言全部通过（含 None、空字符串、submitted/under review/style/code available 反例）。
 
 #### [TASK ID: 002] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 新增 `build_venue_prompt`、`call_venue_llm` 和 `extract_venues_batch` 函数
