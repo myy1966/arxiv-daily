@@ -324,3 +324,54 @@ def extract_venues_batch(
 8. **接受**。全部 5 个 TASK 均已补充验证命令。
 
 9. **不接受**。模板中 `[STATUS: PLANNING_COMPLETE]` 的方括号是占位符标记（与 `[YYYY-MM-DD]`、`[特性简述]` 同理），不是字面值。实际填写时不应保留方括号，`"PLANNING_COMPLETE"` 是正确格式。不作修改。
+
+### Architect Re-Review
+
+第二轮评审结论：本轮修订解决了 schema 冲突、temperature 冲突、normal/patch 覆盖和临时 cache 定位等核心方向问题，但当前蓝图仍不建议直接进入 Executor 阶段。剩余问题集中在可执行契约不完整、验证命令不可运行、文档段落互相矛盾，以及新增独立 LLM caller 后缺少 API 防御约束。
+
+1. **验证命令不可直接运行**
+   - TASK 001/002/003 的验证命令使用 `from arxiv_update.scripts.arxiv_daily import ...`，但当前项目目录是 `arxiv-update/`，不是 Python package `arxiv_update`。
+   - 现有测试的导入方式是将 `arxiv-update/scripts` 加入 `sys.path` 后 `import arxiv_daily`。
+   - TASK 004 的 CLI 示例使用 `--field cs.AR`，但实际 CLI 中 `field` 是位置参数；同时 `--tags` 是必填参数。
+   - 建议将验证命令统一调整为现有项目可运行形式，例如通过 `PYTHONPATH=arxiv-update/scripts` 导入，CLI 使用位置参数 `cs.AR` 并显式传入 `--tags`。
+
+2. **Venue cache 设计缺少必要接口契约**
+   - `extract_venues_batch` 的接口只接收 papers、API 配置、model 和 logger。
+   - TASK 005 要求该函数读取/写入 `field_cache/venue_cache.json`、判断 metadata hash、遵守 cache/no-cache 生命周期，但这些上下文没有通过参数传入，也没有定义独立 helper。
+   - 建议明确新增参数或拆出 cache helper，至少表达 `field_cache`、`metadata_hash`、`cache_enabled` 三类信息。
+
+3. **`venue_cache.json` schema 无法支持 hash 判断**
+   - TASK 005 定义格式为 `{"venues": {"paper_id": "venue_or_null", ...}}`。
+   - 同一任务又要求“若 metadata_hash 未变化则复用”，但 cache 文件本身没有保存 `metadata_hash`。
+   - 如果复用现有 `field_cache/metadata_hash`，需要明确读取顺序与写入时机；否则建议把 schema 调整为包含 hash 的 object，例如 `metadata_hash + venues`。
+
+4. **Grounding 行为前后矛盾**
+   - TASK 002 写明无法 grounding 的 venue 置为 None 并记录 warning。
+   - Architect Response 又写“宽松匹配 + warning（而非硬拦截）”。
+   - 这两者会导致 Executor 无法判断最终行为。建议采用“宽松匹配规则，但 grounding 失败必须置 None 并 warning”，这样既允许缩写/年份格式化，又符合原始需求中杜绝假阳性的目标。
+
+5. **设计概要仍保留旧契约**
+   - 数据流中仍写 LLM 输出为 `[{id, venue}]`，但 API Contract 和 TASK 002 已改为 `{"venues": [...]}`。
+   - 数据流中仍写 `venue` 长度大于 60 时截断/缩写，但 TASK 002 改为只记录 warning、不自动截断。
+   - 建议统一设计概要、API Contract 和 TASK 行为，以 TASK 执行时不会出现多义解释为准。
+
+6. **独立 `call_venue_llm` 缺少外部 API 防御约束**
+   - 新增独立 caller 是合理选择，但它绕过了现有 `call_llm` 中的重试、429 退避、HTTP 错误分流和 debug 保存能力。
+   - ADR 当前只要求“超时/异常时返回 None”，不足以防止瞬时网络波动、限流或不可诊断的 JSON 解析失败。
+   - 建议补充行为约束：有限重试、429 遵守 `Retry-After` 或指数退避、非 429 的 4xx 不重试、超时阈值常量化、失败时保存 prompt 与原始响应到 debug 目录。
+
+7. **TASK 004 的 papers 输入边界不够明确**
+   - TASK 004 写“传入 `data["sections"]` 中的所有 papers”，但 `extract_venues_batch` 的入参是 `list[dict]` papers，不是 sections。
+   - 应明确要求 flatten sections 中的 papers，并且 merge 时只更新 `results_by_id` 中已存在的 paper id，避免无摘要 paper 或未成功 summary 的 paper 触发 KeyError。
+
+8. **`call_venue_llm` 返回类型与异常策略不一致**
+   - API Contract 写 `call_venue_llm(...) -> dict`。
+   - TASK 002 又要求超时/异常时返回 None。
+   - 建议将接口签名调整为 `dict | None`，或要求异常向上抛出并由 `extract_venues_batch` 统一捕获。两种策略只能保留一种。
+
+9. **TASK 005 的验证命令无法验证 cache resume**
+   - 当前验证步骤主要是注释，最后只检查 `~/.cache/arxiv-update/cs.AR/venue_cache.json` 是否存在。
+   - 正常流程成功后 field cache 会被删除，因此该检查与“成功后随 field_cache 删除”的生命周期设计冲突。
+   - 建议改为测试级验证：使用临时 cache dir、mock `call_venue_llm`、调用 venue cache helper 或 `extract_venues_batch` 两次，断言第二次命中 cache 且不触发 LLM。
+
+建议修订优先级：先修验证命令和 cache 接口/schema，再统一 grounding、schema 与长度策略，最后补齐独立 API caller 的防御约束和 TASK 004 的 flatten/merge 边界。
