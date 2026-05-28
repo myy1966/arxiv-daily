@@ -28,10 +28,11 @@ Phase 2: LLM Summarization           Phase 2.5: Venue Extraction (NEW)
                                         ├─ Step B: LLM extraction (batch=16)
                                         │   仅对通过 gate 的论文调用 LLM
                                         │   输入: 每 batch 16 篇的 comments 文本
-                                        │   输出: [{id, venue}]
+                                        │   输出: {"venues": [{"id", "venue"}]}
                                         │
                                         └─ Step C: 后处理校验
-                                            venue 字符串长度 > 60 → 截断/缩写
+                                            grounding 失败 → venue = None
+                                            venue 长度 > 60 → warning (不截断)
           │                                  │
           ▼                                  ▼
 Phase 3: Merge results_by_id = {summary, tags, venue}
@@ -61,26 +62,35 @@ def build_venue_prompt(papers: list[dict]) -> list[dict]: ...
 def call_venue_llm(
     messages: list[dict],
     api_endpoint: str, api_key: str, model: str, logger,
-) -> dict: ...
+    debug_dir: Path | None = None,
+) -> dict | None: ...
     # 行为:
     #   - temperature=0 (确定性提取)
     #   - 不使用 streaming (响应极短)
     #   - 独立 schema 校验: 顶层为 dict 且含 "venues" list
-    #   - 返回解析后的 dict
+    #   - 重试策略: 最多 2 次重试，429 遵守 Retry-After 或指数退避 (2s, 4s)
+    #   - 非 429 的 4xx 不重试，直接返回 None
+    #   - 超时阈值: 30s (常量化)
+    #   - 失败时: 若 debug_dir 提供，保存 prompt 和原始响应到 debug_dir
+    #   - 返回: 解析后的 dict，或 None (所有异常由本函数处理，不向上抛出)
 
 # Batch venue 提取入口
 def extract_venues_batch(
     papers: list[dict],
     api_endpoint, api_key, model, logger,
+    field_cache: Path | None = None,
+    metadata_hash: str | None = None,
 ) -> dict[str, str | None]: ...
-    # 入参: 所有论文列表
+    # 入参: 所有论文列表; field_cache 和 metadata_hash 用于 cache resume
     # 出参: {paper_id: venue_or_none}
     # 行为:
     #   1. 对每篇论文执行 has_acceptance_signal 过滤
     #   2. 未通过 gate 的 → venue = None
-    #   3. 通过 gate 的 → 按 batch_size=16 分组，调用 call_venue_llm
-    #   4. 对每条 LLM 返回的 venue 执行 grounding 校验 (见后处理规约)
-    #   5. 合并结果返回
+    #   3. 若 field_cache 提供且 venue_cache.json 存在且 hash 匹配，加载已有结果
+    #   4. 通过 gate 但未缓存的 → 按 batch_size=16 分组，调用 call_venue_llm
+    #   5. 对每条 LLM 返回的 venue 执行 grounding 校验 (见后处理规约)
+    #   6. 写入 venue_cache.json (若 field_cache 提供)
+    #   7. 合并结果返回
 ```
 
 ### 风险预警 (Risk Assessment)
@@ -121,8 +131,8 @@ def extract_venues_batch(
     - "Codes are available" → False
   - 验证命令:
     ```bash
-    python -c "
-    from arxiv_update.scripts.arxiv_daily import has_acceptance_signal
+    PYTHONPATH=arxiv-update/scripts python -c "
+    from arxiv_daily import has_acceptance_signal
     assert has_acceptance_signal('Accepted at OccuSys 2026') == True
     assert has_acceptance_signal('7 pages') == False
     assert has_acceptance_signal('Submitted to ICML 2026') == False
@@ -151,20 +161,22 @@ def extract_venues_batch(
     - **不复用**现有 `call_llm` — 独立实现，逻辑更简单
     - temperature=0，不使用 streaming，response_format=json_object
     - 独立 schema 校验: 顶层为 dict 且含 `"venues"` list，每条须含 `"id"` 和 `"venue"` 字段
-    - 超时/异常时返回 None（由上层处理）
+    - 返回类型: `dict | None` — 所有异常在函数内处理，不向上抛出
+    - 重试策略: 最多 2 次重试；429 遵守 Retry-After 或指数退避 (2s, 4s)；非 429 的 4xx 不重试
+    - 超时阈值: 30s（定义为模块常量 `VENUE_LLM_TIMEOUT`）
+    - 失败时: 若传入 debug_dir，保存 prompt 和原始响应到 `debug_dir/venue_batch_NNN_error.json`
   - `extract_venues_batch`:
     - 先过滤 `has_acceptance_signal`
     - 通过 gate 的论文按 batch_size=16 分组，每组调用 `call_venue_llm`
-    - **Grounding 后处理**: 对每条返回的 venue，验证其关键词能在对应论文的 Comments 中找到匹配（大小写不敏感、允许缩写展开），无法 grounding 的 venue 置为 None 并记录 warning
+    - **Grounding 后处理**: 对每条返回的 venue，执行宽松匹配校验 — venue 中至少有一个非停用词 token（大小写不敏感）出现在对应论文的 Comments 中。允许 LLM 对年份格式化（'26 → 2026）和常见缩写展开。宽松匹配失败的 venue 置为 None 并记录 warning。
     - **长度限制**: venue 字符串超过 60 字符时记录 warning（不自动截断，留给 Reviewer 评估）
     - 超时/网络错误时该 batch 所有 venue 设为 None（不阻塞整体流程）
     - 返回完整的 {paper_id: venue_or_none} 映射
   - 验证命令:
     ```bash
-    # TASK 002: 验证 build_venue_prompt 输出格式和 grounding 逻辑
-    python -c "
-    from arxiv_update.scripts.arxiv_daily import build_venue_prompt, extract_venues_batch, has_acceptance_signal
-    # build_venue_prompt 应返回 list[dict] (chat messages)
+    # TASK 002: 验证 build_venue_prompt 输出格式
+    PYTHONPATH=arxiv-update/scripts python -c "
+    from arxiv_daily import build_venue_prompt
     papers = [{'id': '2605.27446', 'comments': 'Accepted at SMACD 2026'}]
     msgs = build_venue_prompt(papers)
     assert isinstance(msgs, list) and len(msgs) == 2
@@ -184,8 +196,8 @@ def extract_venues_batch(
   - 不修改 `build_prompt` 中 summary 和 tag 相关的指令
   - 验证命令:
     ```bash
-    python -c "
-    from arxiv_update.scripts.arxiv_daily import build_prompt
+    PYTHONPATH=arxiv-update/scripts python -c "
+    from arxiv_daily import build_prompt
     msgs = build_prompt([{'id': 'test', 'title': 'T', 'abstract': 'A', 'comments': 'Accepted at X'}], ['tag1'])
     content = msgs[1]['content']
     assert 'venue' not in content.lower(), 'venue instruction still present in prompt'
@@ -201,8 +213,9 @@ def extract_venues_batch(
 - **执行指令与限制**:
   - **Normal mode** (`run_normal_mode`):
     - 在 `run_phase2` 返回 `results_by_id` 之后、`generate_markdown` 之前调用 `extract_venues_batch`
-    - 传入 `data["sections"]` 中的所有 papers
-    - 将返回的 venue 映射 merge: `results_by_id[pid]["venue"] = venues[pid]`
+    - 传入所有 papers（从 `data["sections"]` 中 flatten: `[p for s in data["sections"] for p in s["papers"]]`）
+    - 传入 `field_cache` 和 `metadata_hash`（复用已计算的值）
+    - 将返回的 venue 映射 merge: 仅更新 `results_by_id` 中已存在的 paper id — `if pid in results_by_id: results_by_id[pid]["venue"] = venues[pid]`
   - **Patch mode** (`run_patch_mode`):
     - 在 `run_phase2` 返回 `results_by_id` 之后、`patch_markdown` 之前调用 `extract_venues_batch`
     - 传入 `patch_papers` 列表
@@ -215,11 +228,11 @@ def extract_venues_batch(
     ```bash
     # TASK 004: 端到端验证 (使用已有 HTML cache)
     # Normal mode: 验证输出 markdown 包含 **Venue** 行
-    python arxiv-update/scripts/arxiv_daily.py --field cs.AR --date 2026-05-28 --output /tmp/test_venue
-    grep -q "**Venue**" /tmp/test_venue/2026-05-28-cs.AR.md && echo "TASK 004 normal: venue present"
+    python arxiv-update/scripts/arxiv_daily.py cs.AR --date 2026-05-28 --tags arxiv-update/data/tags.json --output /tmp/test_venue
+    grep -q "Venue" /tmp/test_venue/2026-05-28-cs.AR.md && echo "TASK 004 normal: venue present"
 
     # Patch mode: 验证 patch 也包含 venue
-    python arxiv-update/scripts/arxiv_daily.py --field cs.AR --date 2026-05-28 --patch 2605.27446 --output /tmp/test_venue
+    python arxiv-update/scripts/arxiv_daily.py cs.AR --date 2026-05-28 --tags arxiv-update/data/tags.json --patch 2605.27446 --output /tmp/test_venue
     grep -q "SMACD" /tmp/test_venue/2026-05-28-cs.AR.md && echo "TASK 004 patch: venue patched"
     ```
 
@@ -228,22 +241,43 @@ def extract_venues_batch(
 - **目标描述**: 将 venue 提取结果写入临时 cache 文件，作为中断恢复的检查点
 - **前置依赖**: TASK 002
 - **执行指令与限制**:
-  - 在 `field_cache` 目录下创建 `venue_cache.json`，格式: `{"venues": {"paper_id": "venue_or_null", ...}}`
-  - 每完成一个 batch 的 venue 提取即追加写入（增量 merge）
-  - `extract_venues_batch` 启动时先检查 `venue_cache.json` 是否存在:
-    - 若存在且 metadata_hash 未变化，跳过已有结果的论文，仅处理缺失的
-    - 若 hash 变化（comments 内容变了），丢弃旧 cache 重新提取
+  - 在 `field_cache` 目录下创建 `venue_cache.json`，格式:
+    ```json
+    {"metadata_hash": "<hash_string>", "venues": {"paper_id": "venue_or_null", ...}}
+    ```
+  - 每完成一个 batch 的 venue 提取即追加写入（增量 merge venues 字典）
+  - `extract_venues_batch` 的 cache 逻辑（当 field_cache 不为 None 时）:
+    - 读取 `venue_cache.json`，比较 `metadata_hash` 字段与传入的 `metadata_hash` 参数
+    - 若 hash 匹配，跳过已有结果的论文 ID，仅对缺失的论文调用 LLM
+    - 若 hash 不匹配或文件不存在，丢弃旧 cache，从零开始提取
+    - 每个 batch 完成后立即写入（原子写），确保中断安全
   - **生命周期**: 与 summary batch cache 一致 — 正常流程成功完成后，`field_cache` 整个目录被 `shutil.rmtree` 删除，venue_cache.json 随之消失
   - **不是持久化 cache** — 其价值仅在于中断重跑时避免重复 LLM 调用
+  - 当 `field_cache=None`（如 patch mode）时不读写 cache
   - 不修改现有 batch_NNN.json 的结构（summary/tag cache 不受影响）
   - 验证命令:
     ```bash
-    # TASK 005: 验证 cache resume — 中断后重跑不重复调用 LLM
-    # 1. 运行一次 normal mode (会生成 venue_cache.json)
-    # 2. 模拟中断: 在 markdown 生成前 kill
-    # 3. 重跑: 验证 venue_cache.json 被读取，LLM 调用数为 0
-    # (具体验证通过检查 log 中 "Venue cache hit" 或类似消息)
-    ls ~/.cache/arxiv-update/cs.AR/venue_cache.json 2>/dev/null && echo "TASK 005: venue cache file exists"
+    # TASK 005: 验证 cache resume 逻辑
+    PYTHONPATH=arxiv-update/scripts python -c "
+    import json, tempfile
+    from pathlib import Path
+    from unittest.mock import patch as mock_patch
+    from arxiv_daily import extract_venues_batch, has_acceptance_signal
+
+    # Setup: 预填充 venue_cache.json
+    tmp = Path(tempfile.mkdtemp())
+    cache_data = {'metadata_hash': 'test_hash', 'venues': {'2605.27446': 'SMACD 2026'}}
+    (tmp / 'venue_cache.json').write_text(json.dumps(cache_data))
+
+    papers = [{'id': '2605.27446', 'comments': 'Accepted at SMACD 2026'}]
+
+    # Mock call_venue_llm to track if it's called
+    with mock_patch('arxiv_daily.call_venue_llm') as mock_llm:
+        result = extract_venues_batch(papers, '', '', '', None, field_cache=tmp, metadata_hash='test_hash')
+        assert mock_llm.call_count == 0, 'LLM should not be called when cache hit'
+        assert result['2605.27446'] == 'SMACD 2026'
+    print('TASK 005: cache resume verified')
+    "
     ```
 
 ## 4. 最终决策 (Final Decision)
@@ -375,3 +409,25 @@ def extract_venues_batch(
    - 建议改为测试级验证：使用临时 cache dir、mock `call_venue_llm`、调用 venue cache helper 或 `extract_venues_batch` 两次，断言第二次命中 cache 且不触发 LLM。
 
 建议修订优先级：先修验证命令和 cache 接口/schema，再统一 grounding、schema 与长度策略，最后补齐独立 API caller 的防御约束和 TASK 004 的 flatten/merge 边界。
+
+### Architect Response (Round 2)
+
+全部接受，逐条已落实：
+
+1. **接受**。验证命令统一为 `PYTHONPATH=arxiv-update/scripts` 导入方式，CLI 改为位置参数 + 显式 `--tags`。
+
+2. **接受**。`extract_venues_batch` 新增 `field_cache: Path | None` 和 `metadata_hash: str | None` 参数。`field_cache=None` 时不读写 cache（patch mode 语义）。
+
+3. **接受**。`venue_cache.json` schema 改为 `{"metadata_hash": "...", "venues": {...}}`，hash 存在 cache 文件内部，读取时直接比较。
+
+4. **接受**。统一为：宽松匹配规则（至少一个非停用词 token 出现在 Comments 中，允许年份格式化和缩写展开），宽松匹配仍失败的 venue 置为 None 并记录 warning。两处描述不再矛盾。
+
+5. **接受**。数据流图中 LLM 输出已改为 `{"venues": [{"id", "venue"}]}`，后处理改为 `grounding 失败 → None` + `长度 > 60 → warning`。
+
+6. **接受**。`call_venue_llm` 补充：最多 2 次重试、429 遵守 Retry-After 或指数退避 (2s, 4s)、非 429 4xx 不重试、超时 30s 常量化、失败保存 prompt+响应到 debug_dir。
+
+7. **接受**。TASK 004 明确 flatten 表达式 `[p for s in data["sections"] for p in s["papers"]]`，merge 时用 `if pid in results_by_id` 守卫。
+
+8. **接受**。`call_venue_llm` 返回类型统一为 `dict | None`，所有异常在函数内部处理不向上抛出，`extract_venues_batch` 对 None 返回值将该 batch 所有 venue 设为 None。
+
+9. **接受**。TASK 005 验证命令改为使用 tempdir + mock `call_venue_llm` 的可执行单元测试，验证 cache hit 时不触发 LLM 调用。
