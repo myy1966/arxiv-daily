@@ -199,7 +199,7 @@ Executor: [RESOLVED] 同意并执行。已从 `build_prompt` 中删除第 3 条 
 
 Executor: [RESOLVED] 同意并执行。cache 逻辑已在 TASK 002 中与 `extract_venues_batch` 一并实现。验证：mock 测试覆盖 hash match 复用（0 次 LLM 调用）、hash mismatch 丢弃旧 cache、`field_cache=None` 不读写 cache、每 batch 后原子写入（tmp→rename）。
 
-#### [TASK ID: 005] [状态: OPEN]
+#### [TASK ID: 005] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 修改 `run_normal_mode` 和 `run_patch_mode`，集成 venue 提取阶段
 - **目标描述**: 在两条执行路径中，于 `run_phase2` 完成后、markdown 生成/patch 之前插入 venue 提取
 - **前置依赖**: TASK 001, TASK 002, TASK 003, TASK 004
@@ -220,6 +220,8 @@ Executor: [RESOLVED] 同意并执行。cache 逻辑已在 TASK 002 中与 `extra
   - 日志输出: 记录通过 gate 的论文数、成功提取的 venue 数
   - 若 venue 提取整体失败（如 API 不可用），不阻塞流程，所有 venue 设为 None
   - 验收标准: normal mode 在 markdown 生成前 merge venue；patch mode 在 patch 前 merge venue；merge 只更新 `results_by_id` 已存在的 paper；`args.no_cache=True` 时禁用 venue cache；venue 提取失败不阻塞 summary/markdown 流程。人工 smoke test 验证输出 markdown 包含 `Venue` 行。
+
+Executor: [RESOLVED] 同意并执行。已在 `run_normal_mode` 和 `run_patch_mode` 中插入 Phase 2.5 venue extraction。Normal mode: flatten papers, `compute_metadata_hash(data)` 获取 hash, `args.no_cache` 时传 `field_cache=None`。Patch mode: `field_cache=None`。两条路径均用 `if pid in results_by_id` 守卫 merge，整体包裹 try/except 确保 venue 失败不阻塞。验证：`py_compile` 通过；mock 测试确认 merge 仅更新已存在 key、不存在的 paper 不 merge、失败不抛出。
 
 ## 4. 最终决策 (Final Decision)
 （由 Reviewer 在最终判决 PASS 时填写）

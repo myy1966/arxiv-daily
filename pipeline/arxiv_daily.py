@@ -1870,6 +1870,19 @@ def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: L
     if not results_by_id:
         raise PipelineError("No papers successfully matched from LLM response")
 
+    # Phase 2.5: Venue extraction (no cache in patch mode)
+    try:
+        venues = extract_venues_batch(
+            patch_papers, llm_config.api_endpoint, llm_config.api_key,
+            llm_config.model, logger,
+            field_cache=None, metadata_hash=None,
+        )
+        for pid, venue in venues.items():
+            if pid in results_by_id:
+                results_by_id[pid]["venue"] = venue
+    except Exception as e:
+        logger.warning(f"[Venue] extraction failed, continuing without venues: {e}")
+
     # Patch markdown
     output_dir = Path(args.output)
     md_path = output_dir / f"{args.date}-{args.field}.md"
@@ -2025,6 +2038,22 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
             f"{failed_papers} paper(s) failed. Markdown not generated. "
             f"Re-run with --date {date_str} to retry (cached batches will be reused)."
         )
+
+    # Phase 2.5: Venue extraction
+    all_papers = [p for s in data["sections"] for p in s["papers"]]
+    venue_cache_dir = None if args.no_cache else field_cache
+    venue_hash = compute_metadata_hash(data) if venue_cache_dir else None
+    try:
+        venues = extract_venues_batch(
+            all_papers, llm_config.api_endpoint, llm_config.api_key,
+            llm_config.model, logger,
+            field_cache=venue_cache_dir, metadata_hash=venue_hash,
+        )
+        for pid, venue in venues.items():
+            if pid in results_by_id:
+                results_by_id[pid]["venue"] = venue
+    except Exception as e:
+        logger.warning(f"[Venue] extraction failed, continuing without venues: {e}")
 
     output_file = generate_markdown(data, results_by_id, output_dir, date_str)
 
