@@ -129,11 +129,7 @@ def extract_venues_batch(
     - "Accepted for publication in AI and Ethics" → True
     - "published in Advancements in AI..., Springer, 2026" → True
     - "Codes are available" → False
-  - 验证命令:
-    ```bash
-    cd arxiv-update/scripts && .venv/bin/python -m pytest tests/ -k "acceptance_signal"
-    ```
-  - 验证覆盖要求: Executor 须新增测试，覆盖上述验证样例（含 None 和空字符串），全部通过即可。
+  - 验收标准: `has_acceptance_signal` 必须覆盖 accepted/published/to appear/camera-ready/presented at/forthcoming 等正例；submitted/under review/style-only/code available/None/空字符串等反例。上述验证样例全部通过。
 
 #### [TASK ID: 002] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 新增 `build_venue_prompt`、`call_venue_llm` 和 `extract_venues_batch` 函数
@@ -161,11 +157,7 @@ def extract_venues_batch(
     - **长度限制**: venue 字符串超过 60 字符时记录 warning（不自动截断，留给 Reviewer 评估）
     - 超时/网络错误时该 batch 所有 venue 设为 None（不阻塞整体流程）
     - 返回完整的 {paper_id: venue_or_none} 映射
-  - 验证命令:
-    ```bash
-    cd arxiv-update/scripts && .venv/bin/python -m pytest tests/ -k "venue_prompt or venue_llm or venue_grounding"
-    ```
-  - 验证覆盖要求: Executor 须新增测试覆盖 — `build_venue_prompt` 返回合法 chat messages 格式；`call_venue_llm` 返回 `dict | None`；grounding 对可匹配 venue 保留、对无法匹配 venue 置 None；长度 > 60 时记录 warning。
+  - 验收标准: venue prompt 只含 id 和 comments（不含 title/abstract）；LLM parser 接受 `{"venues": [...]}` 并拒绝非法 schema；grounding 失败置 None；超长 venue 只 warning 不截断；API 失败不阻塞整体流程。
 
 #### [TASK ID: 003] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 修改 `build_prompt` 函数
@@ -176,11 +168,7 @@ def extract_venues_batch(
   - 从 JSON schema 示例中移除 `"venue"` 字段
   - `build_prompt` 的 Papers 部分仍然保留 Comments 字段传入（tag 判断可能依赖 Comments 中的会议名称信息）
   - 不修改 `build_prompt` 中 summary 和 tag 相关的指令
-  - 验证命令:
-    ```bash
-    cd arxiv-update/scripts && .venv/bin/python -m pytest tests/ -k "build_prompt_no_venue"
-    ```
-  - 验证覆盖要求: Executor 须新增测试验证 — `build_prompt` 输出的 user message 中不含 "venue" 关键字；summary 和 tag 指令仍存在；Comments 字段仍传入 papers 文本。
+  - 验收标准: summary/tag prompt 中不含 venue 指令和 `"venue"` JSON 字段；summary/tag 指令保留完整；Comments 仍传入 papers 文本。
 
 #### [TASK ID: 004] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — venue 缓存策略
@@ -201,11 +189,7 @@ def extract_venues_batch(
   - **不是持久化 cache** — 其价值仅在于中断重跑时避免重复 LLM 调用
   - 当 `field_cache=None`（如 patch mode 或 `--no-cache`）时不读写 cache
   - 不修改现有 batch_NNN.json 的结构（summary/tag cache 不受影响）
-  - 验证命令:
-    ```bash
-    cd arxiv-update/scripts && .venv/bin/python -m pytest tests/ -k "venue_cache"
-    ```
-  - 验证覆盖要求: Executor 须新增测试覆盖 — cache hit 时不调用 `call_venue_llm`（mock 验证）；hash 不匹配时丢弃旧 cache 重新提取；`field_cache=None` 时不读写文件；每 batch 完成后 venue_cache.json 已更新。
+  - 验收标准: venue_cache.json hash match 时复用且不调用 LLM；hash mismatch 时丢弃旧 cache；`field_cache=None` 时不读写 cache；每个 batch 后原子写入。
 
 #### [TASK ID: 005] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 修改 `run_normal_mode` 和 `run_patch_mode`，集成 venue 提取阶段
@@ -227,20 +211,7 @@ def extract_venues_batch(
   - `extract_venues_batch` 负责 debug 文件命名（`venue_batch_{N:03d}_error.json`），使用内部 batch 计数器；`call_venue_llm` 接收 `debug_dir` 但由上层传入 batch 标识路径
   - 日志输出: 记录通过 gate 的论文数、成功提取的 venue 数
   - 若 venue 提取整体失败（如 API 不可用），不阻塞流程，所有 venue 设为 None
-  - 验证命令:
-    ```bash
-    # TASK 005: 人工 smoke test (依赖本地 HTML cache 和 LLM API)
-    # 需要环境变量 ARXIV_UPDATE_KEY/API/MODEL 已配置
-    cd arxiv-update/scripts && .venv/bin/python arxiv_daily.py cs.AR --date 2026-05-28 \
-      --tags ~/arxiv-daily/data/tags.json --output /tmp/test_venue
-    grep -q "Venue" /tmp/test_venue/2026-05-28-cs.AR.md && echo "TASK 005 normal: venue present"
-
-    # Patch mode smoke test
-    cd arxiv-update/scripts && .venv/bin/python arxiv_daily.py cs.AR --date 2026-05-28 \
-      --tags ~/arxiv-daily/data/tags.json --patch 2605.27446 --output /tmp/test_venue
-    grep -q "SMACD" /tmp/test_venue/2026-05-28-cs.AR.md && echo "TASK 005 patch: venue patched"
-    ```
-    注: 以上为 smoke test，依赖本地 HTML cache 和 LLM API 可用。可重复单元验证见 TASK 001-004。
+  - 验收标准: normal mode 在 markdown 生成前 merge venue；patch mode 在 patch 前 merge venue；merge 只更新 `results_by_id` 已存在的 paper；`args.no_cache=True` 时禁用 venue cache；venue 提取失败不阻塞 summary/markdown 流程。人工 smoke test 验证输出 markdown 包含 `Venue` 行。
 
 ## 4. 最终决策 (Final Decision)
 （由 Reviewer 在最终判决 PASS 时填写）
@@ -506,3 +477,9 @@ def extract_venues_batch(
    - 如果无法运行验证，Executor 必须说明 blocker 和替代验证方式。
 
 结论：ADR 不需要每个 TASK 写具体 pytest selector。保留特性验收点即可；验证命令和测试入口交给 Executor 决定，并由 Reviewer 检查执行记录是否覆盖这些验收点。
+
+### Architect Response (Round 5)
+
+**接受**。所有 TASK 的验证部分已从 pytest 命令 + 覆盖要求收敛为"验收标准"一行，只声明必须验证的行为和边界条件。具体测试入口、selector、fixture 实现交由 Executor 决定。
+
+通用验证纪律（第 3 点建议）属于 Executor skill 范畴，不纳入本 ADR。
