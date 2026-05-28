@@ -1307,6 +1307,239 @@ def has_acceptance_signal(comments: str | None) -> bool:
     return bool(_ACCEPTANCE_SIGNAL_RE.search(comments))
 
 
+VENUE_LLM_TIMEOUT = 30
+VENUE_BATCH_SIZE = 16
+VENUE_MAX_RETRIES = 2
+VENUE_RETRY_DELAYS = [2, 4]
+_VENUE_STOPWORDS = frozenset({
+    "a", "an", "the", "in", "at", "of", "for", "and", "on", "to", "is", "was",
+    "by", "with", "from", "or", "as", "it", "its", "that", "this", "are", "be",
+})
+
+
+def build_venue_prompt(papers: list[dict]) -> list[dict]:
+    """Build chat messages for venue extraction LLM call."""
+    entries = []
+    for p in papers:
+        entries.append(f"ID: {p['id']}\nComments: {p.get('comments', '')}")
+    user_content = f"""Below are {len(papers)} paper comment fields. For each paper, extract the venue (conference or journal) where the paper was accepted/published.
+
+Rules:
+- Extract ONLY from the Comments text provided. Do NOT guess or infer venues not mentioned.
+- Use the most specific venue name mentioned.
+- Include the year ONLY if it explicitly appears in Comments. Do NOT infer or add a year.
+- Journals count as venues.
+- If you cannot determine a venue from the Comments, set venue to null.
+
+Papers:
+{PAPER_SEPARATOR.join(entries)}
+
+Respond in strict JSON format:
+{{"venues": [{{"id": "...", "venue": "VENUE or null"}}]}}"""
+
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are a metadata extraction assistant. "
+                "Extract venue information from paper comment fields. "
+                "Output valid JSON only, no markdown fences."
+            ),
+        },
+        {"role": "user", "content": user_content},
+    ]
+
+
+def call_venue_llm(
+    messages: list[dict],
+    api_endpoint: str,
+    api_key: str,
+    model: str,
+    logger: logging.Logger,
+    debug_dir: Path | None = None,
+) -> dict | None:
+    """Call LLM for venue extraction with retries. Returns parsed dict or None on failure."""
+    url = f"{api_endpoint.rstrip('/')}/chat/completions"
+    payload = json.dumps(
+        {
+            "model": model,
+            "messages": messages,
+            "temperature": 0,
+            "max_tokens": 4096,
+            "response_format": {"type": "json_object"},
+        }
+    ).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    last_error = None
+    for attempt in range(VENUE_MAX_RETRIES + 1):
+        try:
+            req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=VENUE_LLM_TIMEOUT) as resp:
+                body = resp.read().decode("utf-8")
+            data = json.loads(body)
+            content = data["choices"][0]["message"]["content"]
+            if content.startswith("```"):
+                content = re.sub(r"^```(?:json)?\s*", "", content)
+                content = re.sub(r"\s*```$", "", content)
+            result = json.loads(content)
+            if not isinstance(result, dict) or not isinstance(result.get("venues"), list):
+                logger.warning("[Venue] LLM response schema invalid, expected {\"venues\": [...]}")
+                last_error = ValueError("invalid venue schema")
+                continue
+            for item in result["venues"]:
+                if not isinstance(item, dict) or "id" not in item or "venue" not in item:
+                    logger.warning("[Venue] LLM response contains malformed venue entry")
+                    last_error = ValueError("malformed venue entry")
+                    break
+            else:
+                return result
+            continue
+        except urllib.error.HTTPError as e:
+            last_error = e
+            logger.warning(f"[Venue] LLM call attempt {attempt + 1} HTTP {e.code}")
+            if 400 <= e.code < 500 and e.code != 429:
+                break
+            if e.code == 429 and attempt < VENUE_MAX_RETRIES:
+                delay = _retry_after_delay(e.headers, VENUE_RETRY_DELAYS[min(attempt, len(VENUE_RETRY_DELAYS) - 1)])
+                logger.warning(f"[Venue] rate limited, waiting {delay:g}s")
+                time.sleep(delay)
+                continue
+            if attempt < VENUE_MAX_RETRIES:
+                time.sleep(VENUE_RETRY_DELAYS[min(attempt, len(VENUE_RETRY_DELAYS) - 1)])
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, KeyError) as e:
+            last_error = e
+            logger.warning(f"[Venue] LLM call attempt {attempt + 1} failed: {e}")
+            if attempt < VENUE_MAX_RETRIES:
+                time.sleep(VENUE_RETRY_DELAYS[min(attempt, len(VENUE_RETRY_DELAYS) - 1)])
+
+    if debug_dir is not None:
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        debug_path = debug_dir / "venue_error.json"
+        debug_data = {
+            "error": str(last_error),
+            "prompt": messages[-1]["content"] if messages else "",
+        }
+        with open(debug_path, "w", encoding="utf-8") as df:
+            json.dump(debug_data, df, ensure_ascii=False, indent=2)
+    return None
+
+
+def _venue_grounding_check(venue: str, comments: str) -> bool:
+    """Check that at least one non-stopword token from venue appears in comments."""
+    tokens = re.findall(r"[a-z0-9]+", venue.lower())
+    meaningful = [t for t in tokens if t not in _VENUE_STOPWORDS]
+    if not meaningful:
+        return True
+    comments_lower = comments.lower()
+    return any(token in comments_lower for token in meaningful)
+
+
+def extract_venues_batch(
+    papers: list[dict],
+    api_endpoint: str,
+    api_key: str,
+    model: str,
+    logger: logging.Logger,
+    field_cache: Path | None = None,
+    metadata_hash: str | None = None,
+) -> dict[str, str | None]:
+    """Extract venues for all papers using keyword gate + LLM."""
+    venues: dict[str, str | None] = {}
+    gated_papers = []
+
+    for p in papers:
+        pid = p["id"]
+        if has_acceptance_signal(p.get("comments")):
+            gated_papers.append(p)
+        else:
+            venues[pid] = None
+
+    logger.info(f"[Venue] {len(gated_papers)}/{len(papers)} papers passed acceptance gate")
+
+    if not gated_papers:
+        return venues
+
+    # Cache resume logic (TASK 004 will implement full cache read/write)
+    cached_ids: set[str] = set()
+    if field_cache is not None and metadata_hash is not None:
+        cache_file = field_cache / "venue_cache.json"
+        if cache_file.exists():
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    cache_data = json.load(f)
+                if cache_data.get("metadata_hash") == metadata_hash:
+                    cached_venues = cache_data.get("venues", {})
+                    for pid, v in cached_venues.items():
+                        venues[pid] = v
+                        cached_ids.add(pid)
+                    logger.info(f"[Venue] loaded {len(cached_ids)} cached venue results")
+                else:
+                    logger.info("[Venue] cache hash mismatch, discarding old cache")
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"[Venue] failed to read cache: {e}")
+
+    remaining = [p for p in gated_papers if p["id"] not in cached_ids]
+    if not remaining:
+        return venues
+
+    debug_dir = field_cache if field_cache is not None else None
+    batch_count = 0
+    for i in range(0, len(remaining), VENUE_BATCH_SIZE):
+        batch = remaining[i:i + VENUE_BATCH_SIZE]
+        batch_debug_dir = None
+        if debug_dir is not None:
+            batch_debug_dir = debug_dir
+        messages = build_venue_prompt(batch)
+        result = call_venue_llm(
+            messages, api_endpoint, api_key, model, logger,
+            debug_dir=batch_debug_dir,
+        )
+        if result is None:
+            for p in batch:
+                venues[p["id"]] = None
+            logger.warning(f"[Venue] batch {batch_count:03d} failed, setting all venues to None")
+        else:
+            venue_map = {item["id"]: item.get("venue") for item in result["venues"]}
+            for p in batch:
+                pid = p["id"]
+                raw_venue = venue_map.get(pid)
+                if raw_venue is None or not isinstance(raw_venue, str) or not raw_venue.strip():
+                    venues[pid] = None
+                    continue
+                venue_str = raw_venue.strip()
+                if not _venue_grounding_check(venue_str, p.get("comments", "")):
+                    logger.warning(f"[Venue] grounding failed for {pid}: '{venue_str}' not in comments")
+                    venues[pid] = None
+                    continue
+                if len(venue_str) > 60:
+                    logger.warning(f"[Venue] long venue for {pid} ({len(venue_str)} chars): '{venue_str}'")
+                venues[pid] = venue_str
+
+        # Incremental cache write
+        if field_cache is not None and metadata_hash is not None:
+            cache_file = field_cache / "venue_cache.json"
+            field_cache.mkdir(parents=True, exist_ok=True)
+            processed_ids = cached_ids | {p["id"] for p in remaining[:i + VENUE_BATCH_SIZE]}
+            cache_data = {
+                "metadata_hash": metadata_hash,
+                "venues": {pid: venues[pid] for pid in processed_ids if pid in venues},
+            }
+            tmp_path = cache_file.with_suffix(".tmp")
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+            tmp_path.replace(cache_file)
+
+        batch_count += 1
+
+    successful = sum(1 for pid in venues if venues[pid] is not None)
+    logger.info(f"[Venue] extraction complete: {successful} venues extracted from {len(papers)} papers")
+    return venues
+
+
 # ---------------------------------------------------------------------------
 # Phase 3: Markdown Generation
 # ---------------------------------------------------------------------------

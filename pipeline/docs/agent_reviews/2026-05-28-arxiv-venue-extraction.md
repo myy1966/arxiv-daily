@@ -133,7 +133,7 @@ def extract_venues_batch(
 
 Executor: [RESOLVED] 同意并执行。已在 `arxiv-update/scripts/arxiv_daily.py` Phase 2 与 Phase 3 之间新增 Phase 2.5 section，实现 `has_acceptance_signal` 函数。使用预编译正则 `_ACCEPTANCE_SIGNAL_RE` 进行大小写不敏感的 `\b` word-boundary 匹配。验证：`python3 -m py_compile` 通过；7 条正/反例断言全部通过（含 None、空字符串、submitted/under review/style/code available 反例）。
 
-#### [TASK ID: 002] [状态: OPEN]
+#### [TASK ID: 002] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 新增 `build_venue_prompt`、`call_venue_llm` 和 `extract_venues_batch` 函数
 - **目标描述**: 实现独立的 venue 提取管线：prompt 构建、LLM 调用、响应解析与后处理
 - **前置依赖**: TASK 001
@@ -160,6 +160,8 @@ Executor: [RESOLVED] 同意并执行。已在 `arxiv-update/scripts/arxiv_daily.
     - 超时/网络错误时该 batch 所有 venue 设为 None（不阻塞整体流程）
     - 返回完整的 {paper_id: venue_or_none} 映射
   - 验收标准: venue prompt 只含 id 和 comments（不含 title/abstract）；LLM parser 接受 `{"venues": [...]}` 并拒绝非法 schema；grounding 失败置 None；超长 venue 只 warning 不截断；API 失败不阻塞整体流程。
+
+Executor: [RESOLVED] 同意并执行。已实现 `build_venue_prompt`（仅含 id+comments）、`call_venue_llm`（独立 caller, temperature=0, 非 streaming, schema 校验, 2 次重试+429 退避, 30s 超时常量）、`_venue_grounding_check`（非停用词 token 宽松匹配）、`extract_venues_batch`（gate→batch→grounding→cache 写入完整管线）。验证：`py_compile` 通过；mock 测试覆盖 prompt 不含 title/abstract、grounding 正反例、cache hit 不触发 LLM、API 失败不阻塞。使用与 summary 相同的 model/endpoint（通过参数传入，由调用方决定）。
 
 #### [TASK ID: 003] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 修改 `build_prompt` 函数
