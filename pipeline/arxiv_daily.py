@@ -488,12 +488,6 @@ def build_prompt(batch_papers: list[dict], current_tags: list[str]) -> list[dict
    - New tags must be in English, concise (1-3 words), and at a similar granularity as existing specific tags.
    - BAD granularity: "LLM", "NLP", "Computer Vision" (too broad)
    - GOOD granularity: "LLM Reasoning", "LLM Alignment", "Object Detection", "Code Generation"
-3. If Comments indicate the paper is accepted/published (keywords: accepted, published, to appear, camera-ready, appearing at, presented at), extract the venue.
-   - Use the most specific venue name mentioned (e.g. "CLPsych 2026" not "ACL 2026 Workshop"; "OccuSys 2026" not "ACM Sustainability Week 2026 Workshop").
-   - If the venue is explicitly a workshop, append " Workshop" unless the workshop has its own name (e.g. "Accepted at CompLearn Workshop at ICML 2026" → "ICML 2026 Workshop"; "Accepted to CLPsych 2026, part of ACL 2026" → "CLPsych 2026").
-   - Journals count as venues (e.g. "Accepted for publication in AI and Ethics" → "AI and Ethics"; "published in ..., Springer, 2026" → extract the book/journal name).
-   - Include the year ONLY if explicitly stated in Comments. Do NOT infer or add a year.
-   - If Comments only say "submitted", "under review", "preprint", or merely reference a style/format (e.g. "ICML 2026 style, 9 pages"), set venue to null.
 
 Current tag list: {tags_str}
 
@@ -503,7 +497,7 @@ Papers:
 Respond in strict JSON format:
 {{
   "papers": [
-    {{"id": "...", "summary": "Chinese summary", "tags": ["tag1", "tag2"], "venue": "VENUE or null"}}
+    {{"id": "...", "summary": "Chinese summary", "tags": ["tag1", "tag2"]}}
   ],
   "new_tags": ["new_tag1"]
 }}"""

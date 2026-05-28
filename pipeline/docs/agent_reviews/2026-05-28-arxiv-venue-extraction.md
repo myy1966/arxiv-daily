@@ -163,7 +163,7 @@ Executor: [RESOLVED] 同意并执行。已在 `arxiv-update/scripts/arxiv_daily.
 
 Executor: [RESOLVED] 同意并执行。已实现 `build_venue_prompt`（仅含 id+comments）、`call_venue_llm`（独立 caller, temperature=0, 非 streaming, schema 校验, 2 次重试+429 退避, 30s 超时常量）、`_venue_grounding_check`（非停用词 token 宽松匹配）、`extract_venues_batch`（gate→batch→grounding→cache 写入完整管线）。验证：`py_compile` 通过；mock 测试覆盖 prompt 不含 title/abstract、grounding 正反例、cache hit 不触发 LLM、API 失败不阻塞。使用与 summary 相同的 model/endpoint（通过参数传入，由调用方决定）。
 
-#### [TASK ID: 003] [状态: OPEN]
+#### [TASK ID: 003] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 修改 `build_prompt` 函数
 - **目标描述**: 从 summary/tag 的 LLM prompt 中移除 venue 相关指令和 JSON 字段
 - **前置依赖**: TASK 001, TASK 002
@@ -173,6 +173,8 @@ Executor: [RESOLVED] 同意并执行。已实现 `build_venue_prompt`（仅含 i
   - `build_prompt` 的 Papers 部分仍然保留 Comments 字段传入（tag 判断可能依赖 Comments 中的会议名称信息）
   - 不修改 `build_prompt` 中 summary 和 tag 相关的指令
   - 验收标准: summary/tag prompt 中不含 venue 指令和 `"venue"` JSON 字段；summary/tag 指令保留完整；Comments 仍传入 papers 文本。
+
+Executor: [RESOLVED] 同意并执行。已从 `build_prompt` 中删除第 3 条 venue 提取指令（6 行）及 JSON schema 中的 `"venue"` 字段。验证：`py_compile` 通过；断言 prompt 中不含 "venue"、Comments 仍传入、summary/tags 指令完整保留。
 
 #### [TASK ID: 004] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — venue 缓存策略
