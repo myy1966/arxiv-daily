@@ -477,7 +477,10 @@ def build_prompt(batch_papers: list[dict], current_tags: list[str]) -> list[dict
         papers_text.append(entry)
 
     user_content = f"""Below are {len(batch_papers)} papers. For each paper:
-1. Write a 1-3 sentence Chinese summary of the abstract.
+1. Write a 1-3 sentence Chinese summary following this structure:
+   - What problem or gap does the paper address?
+   - What is the proposed method, framework, or main contribution?
+   - What are the key results or findings? Include quantitative metrics when available.
 2. Assign 1-3 tags from the existing tag list.
    - Tags should be at the level of specific research topics or methods, NOT broad categories.
    - If a broad tag (e.g. "LLM") exists but a more specific subtopic tag (e.g. "LLM Reasoning", "LLM Agent") also exists and fits better, prefer the specific one.
