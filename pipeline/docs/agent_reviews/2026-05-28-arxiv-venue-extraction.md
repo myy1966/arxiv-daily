@@ -1,7 +1,7 @@
 ---
 title: "分离 Venue 提取为独立阶段"
 date: "2026-05-28"
-status: "PLANNING_COMPLETE"
+status: "REJECT"
 ---
 
 ## 1. 元数据 (Metadata)
@@ -9,6 +9,7 @@ status: "PLANNING_COMPLETE"
 - **技术翻译**: 将 venue 提取从生成式 batch LLM 调用中剥离，改为确定性规则优先 + 轻量 LLM fallback 的独立阶段，消除 batch 内论文间的信息泄漏，并通过前置 keyword gate 杜绝假阳性。
 - **Scope**: `arxiv`
 - **涉及文件**: `arxiv-update/scripts/arxiv_daily.py`
+- **项目规范**: 本项目无 AGENTS.md 规范文件，以通用最佳实践为准。
 
 ## 2. 设计概要 (Design Overview)
 
@@ -222,6 +223,38 @@ Executor: [RESOLVED] 同意并执行。cache 逻辑已在 TASK 002 中与 `extra
   - 验收标准: normal mode 在 markdown 生成前 merge venue；patch mode 在 patch 前 merge venue；merge 只更新 `results_by_id` 已存在的 paper；`args.no_cache=True` 时禁用 venue cache；venue 提取失败不阻塞 summary/markdown 流程。人工 smoke test 验证输出 markdown 包含 `Venue` 行。
 
 Executor: [RESOLVED] 同意并执行。已在 `run_normal_mode` 和 `run_patch_mode` 中插入 Phase 2.5 venue extraction。Normal mode: flatten papers, `compute_metadata_hash(data)` 获取 hash, `args.no_cache` 时传 `field_cache=None`。Patch mode: `field_cache=None`。两条路径均用 `if pid in results_by_id` 守卫 merge，整体包裹 try/except 确保 venue 失败不阻塞。验证：`py_compile` 通过；mock 测试确认 merge 仅更新已存在 key、不存在的 paper 不 merge、失败不抛出。
+
+### [Round 2]
+- **Reviewer**:
+  - **状态判决**: `[STATUS: REJECT]`
+    - 当前实现已完成独立 venue 提取主链路，但 grounding 后处理过弱，无法兑现本 ADR 的核心防泄漏目标，阻塞合并。
+  - **审查摘要**:
+    - 已确认当前仓库根目录缺失 `AGENTS.md`，以下判断基于本 ADR 的接口契约、行为约束和通用最佳实践。
+    - `build_prompt` 已移除 summary/tag prompt 中的 venue JSON 字段和 venue 提取指令，且仍保留 Comments。
+    - `run_normal_mode` 与 `run_patch_mode` 已在 markdown 生成/patch 之前 merge venue，且仅更新 `results_by_id` 中已有 paper id。
+    - `python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`python3 -m pytest arxiv-update/scripts/tests/test_arxiv_daily.py` 未执行成功，因为当前环境缺少 `pytest`。项目根目录也不存在 ADR 历史命令使用的 `./.venv/bin/python`。
+  - **回应 Executor**: 无上一轮 DISPUTE；本轮直接审查 Executor 标记为 RESOLVED 的 TASK 001-005。
+  - **Issue 优先级与依赖总表**:
+    - P0: ISSUE 001，阻塞合并，必须先修复 grounding 漏判。
+    - P1: ISSUE 002，非阻塞但需跟进，可在 ISSUE 001 后或并行修复；不影响核心 venue 正确性，但影响失败排查契约。
+
+#### [ISSUE ID: 001] [状态: OPEN] (high, blocking)
+- **定位**: `arxiv-update/scripts/arxiv_daily.py:_venue_grounding_check`
+- **问题描述**: 当前 grounding 校验把年份等纯数字 token 当作有效证据，导致跨论文泄漏或幻觉 venue 只要年份相同就能通过。示例：`_venue_grounding_check("NeurIPS 2026", "Accepted at ICML 2026")` 当前返回 `True`，但 `NeurIPS` 并未出现在该论文 Comments 中，应判定 grounding 失败并置为 `None`。这直接削弱了本 ADR 的核心目标：消除 batch 内论文间 venue 信息泄漏。
+- **严重程度**: 阻塞合并。
+- **修复指令**: 调整 `_venue_grounding_check`，要求至少一个非停用词、非纯数字/非年份的核心 venue token 能在对应 Comments 中被 grounding。允许 `'26` 与 `2026` 的年份格式差异，但年份只能作为辅助信息，不能单独使 venue 通过。建议新增回归测试：
+  - `NeurIPS 2026` + `Accepted at ICML 2026` → `False`
+  - `ICML 2026` + `Accepted at ICML 2026` → `True`
+  - `AAAI 2026` + `Accepted at AAAI conference` → `True`
+  - `Journal of AI Research 2026` + `Accepted for publication in Journal of AI Research` → `True`
+- **前置依赖**: 无。
+
+#### [ISSUE ID: 002] [状态: OPEN] (medium, non-blocking)
+- **定位**: `arxiv-update/scripts/arxiv_daily.py:call_venue_llm` / `extract_venues_batch`
+- **问题描述**: ADR 要求 venue LLM 失败时由 `extract_venues_batch` 负责生成 `venue_batch_{N:03d}_error.json`，并保存 prompt 与原始响应；当前实现始终写 `venue_error.json`，多个失败 batch 会互相覆盖，且只保存 `error` 与 `prompt`，没有保存原始 HTTP body 或原始 content。该判断基于 ADR 契约与通用可观测性实践，而非项目 AGENTS 约定。
+- **严重程度**: 信息性（不阻塞合并）。
+- **修复指令**: 将 debug 文件命名下沉到 batch 维度：`extract_venues_batch` 应为第 N 个 batch 提供可区分的目标文件名，或向 `call_venue_llm` 传入 batch label/path；`call_venue_llm` 在拿到 HTTP body、message content、非法 schema content 或 HTTPError body 时，应把可获得的原始响应写入 debug JSON。避免不同 batch 共用 `venue_error.json`。
+- **前置依赖**: 无。
 
 ## 4. 最终决策 (Final Decision)
 （由 Reviewer 在最终判决 PASS 时填写）
