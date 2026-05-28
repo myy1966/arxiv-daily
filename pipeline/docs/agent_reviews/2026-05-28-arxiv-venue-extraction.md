@@ -176,7 +176,7 @@ Executor: [RESOLVED] 同意并执行。已实现 `build_venue_prompt`（仅含 i
 
 Executor: [RESOLVED] 同意并执行。已从 `build_prompt` 中删除第 3 条 venue 提取指令（6 行）及 JSON schema 中的 `"venue"` 字段。验证：`py_compile` 通过；断言 prompt 中不含 "venue"、Comments 仍传入、summary/tags 指令完整保留。
 
-#### [TASK ID: 004] [状态: OPEN]
+#### [TASK ID: 004] [状态: RESOLVED]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — venue 缓存策略
 - **目标描述**: 将 venue 提取结果写入临时 cache 文件，作为中断恢复的检查点
 - **前置依赖**: TASK 002
@@ -196,6 +196,8 @@ Executor: [RESOLVED] 同意并执行。已从 `build_prompt` 中删除第 3 条 
   - 当 `field_cache=None`（如 patch mode 或 `--no-cache`）时不读写 cache
   - 不修改现有 batch_NNN.json 的结构（summary/tag cache 不受影响）
   - 验收标准: venue_cache.json hash match 时复用且不调用 LLM；hash mismatch 时丢弃旧 cache；`field_cache=None` 时不读写 cache；每个 batch 后原子写入。
+
+Executor: [RESOLVED] 同意并执行。cache 逻辑已在 TASK 002 中与 `extract_venues_batch` 一并实现。验证：mock 测试覆盖 hash match 复用（0 次 LLM 调用）、hash mismatch 丢弃旧 cache、`field_cache=None` 不读写 cache、每 batch 后原子写入（tmp→rename）。
 
 #### [TASK ID: 005] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 修改 `run_normal_mode` 和 `run_patch_mode`，集成 venue 提取阶段
