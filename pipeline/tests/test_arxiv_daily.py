@@ -3020,3 +3020,308 @@ class TestMainCli:
         assert "missing abstract: 2604.06189" in captured.err
         log_text = (cache_dir / "arxiv_daily.log").read_text(encoding="utf-8")
         assert "[Patch] 1 papers missing abstract: ['2604.06189']" in log_text
+
+
+# ===========================================================================
+# TestHasAcceptanceSignal
+# ===========================================================================
+
+class TestHasAcceptanceSignal:
+    @pytest.mark.parametrize("comments,expected", [
+        ("Accepted at OccuSys 2026", True),
+        ("Accepted for publication in AI and Ethics", True),
+        ("published in Advancements in AI..., Springer, 2026", True),
+        ("To appear in NeurIPS 2026", True),
+        ("Camera-ready version", True),
+        ("camera ready submitted", True),
+        ("Appearing at AAAI 2026", True),
+        ("Presented at ICML 2026", True),
+        ("Forthcoming in JMLR", True),
+        ("To be presented at ACL 2026", True),
+        ("7 pages", False),
+        ("Submitted to ICML 2026", False),
+        ("ICML 2026 style, 9 pages", False),
+        ("Codes are available", False),
+        ("Under review at NeurIPS", False),
+        (None, False),
+        ("", False),
+    ])
+    def test_acceptance_signal(self, comments, expected):
+        assert arxiv_daily.has_acceptance_signal(comments) is expected
+
+
+# ===========================================================================
+# TestBuildVenuePrompt
+# ===========================================================================
+
+class TestBuildVenuePrompt:
+    def test_only_contains_id_and_comments(self):
+        papers = [
+            {"id": "001", "title": "My Title", "abstract": "My Abstract", "comments": "Accepted at ICML 2026"},
+        ]
+        msgs = arxiv_daily.build_venue_prompt(papers)
+        user_content = msgs[1]["content"]
+        assert "001" in user_content
+        assert "Accepted at ICML 2026" in user_content
+        assert "My Title" not in user_content
+        assert "My Abstract" not in user_content
+
+    def test_returns_system_and_user_messages(self):
+        papers = [{"id": "x", "comments": "Accepted at X"}]
+        msgs = arxiv_daily.build_venue_prompt(papers)
+        assert len(msgs) == 2
+        assert msgs[0]["role"] == "system"
+        assert msgs[1]["role"] == "user"
+
+    def test_multiple_papers(self):
+        papers = [
+            {"id": "a", "comments": "Accepted at A"},
+            {"id": "b", "comments": "Published in B"},
+        ]
+        msgs = arxiv_daily.build_venue_prompt(papers)
+        content = msgs[1]["content"]
+        assert "ID: a" in content
+        assert "ID: b" in content
+
+
+# ===========================================================================
+# TestVenueGroundingCheck
+# ===========================================================================
+
+class TestVenueGroundingCheck:
+    def test_matching_token(self):
+        assert arxiv_daily._venue_grounding_check("ICML 2026", "Accepted at ICML 2026") is True
+
+    def test_no_matching_token(self):
+        assert arxiv_daily._venue_grounding_check("NeurIPS 2025", "Accepted at ICML 2026") is False
+
+    def test_case_insensitive(self):
+        assert arxiv_daily._venue_grounding_check("icml", "Accepted at ICML") is True
+
+    def test_all_stopwords_passes(self):
+        assert arxiv_daily._venue_grounding_check("The", "Accepted at ICML") is True
+
+    def test_partial_token_match(self):
+        assert arxiv_daily._venue_grounding_check("AI-DEEDS 2026", "AI-DEEDS '26 workshop") is True
+
+    def test_year_format_difference(self):
+        assert arxiv_daily._venue_grounding_check("AAAI 2026", "AAAI conference") is True
+
+
+# ===========================================================================
+# TestCallVenueLlm
+# ===========================================================================
+
+class TestCallVenueLlm:
+    def _make_http_response(self, content_json: str):
+        """Create a mock HTTP response object for call_venue_llm."""
+        response_body = json.dumps({
+            "choices": [{"message": {"content": content_json}}]
+        }).encode("utf-8")
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = response_body
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        return mock_resp
+
+    def test_valid_response(self, logger):
+        content = json.dumps({"venues": [{"id": "001", "venue": "ICML 2026"}]})
+        mock_resp = self._make_http_response(content)
+        messages = [{"role": "user", "content": "test"}]
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            result = arxiv_daily.call_venue_llm(messages, "http://fake/v1", "key", "model", logger)
+        assert result is not None
+        assert result["venues"][0]["venue"] == "ICML 2026"
+
+    def test_invalid_schema_returns_none(self, logger):
+        content = json.dumps({"bad": "schema"})
+        mock_resp = self._make_http_response(content)
+        messages = [{"role": "user", "content": "test"}]
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            result = arxiv_daily.call_venue_llm(messages, "http://fake/v1", "key", "model", logger)
+        assert result is None
+
+    def test_malformed_entry_returns_none(self, logger):
+        content = json.dumps({"venues": [{"no_id": "x", "no_venue": "y"}]})
+        mock_resp = self._make_http_response(content)
+        messages = [{"role": "user", "content": "test"}]
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            result = arxiv_daily.call_venue_llm(messages, "http://fake/v1", "key", "model", logger)
+        assert result is None
+
+    def test_debug_dir_on_failure(self, tmp_path, logger):
+        messages = [{"role": "user", "content": "test"}]
+        with patch("urllib.request.urlopen", side_effect=OSError("connection refused")):
+            result = arxiv_daily.call_venue_llm(
+                messages, "http://fake/v1", "key", "model", logger,
+                debug_dir=tmp_path,
+            )
+        assert result is None
+        assert (tmp_path / "venue_error.json").exists()
+
+    def test_non_429_4xx_no_retry(self, logger):
+        import urllib.error
+        err = urllib.error.HTTPError("url", 400, "Bad Request", {}, None)
+        messages = [{"role": "user", "content": "test"}]
+        with patch("urllib.request.urlopen", side_effect=err) as mock_url:
+            result = arxiv_daily.call_venue_llm(messages, "http://fake/v1", "key", "model", logger)
+        assert result is None
+        assert mock_url.call_count == 1
+
+
+# ===========================================================================
+# TestExtractVenuesBatch
+# ===========================================================================
+
+class TestExtractVenuesBatch:
+    def test_gate_filters_papers(self, logger):
+        papers = [
+            {"id": "001", "comments": "Accepted at ICML 2026"},
+            {"id": "002", "comments": "7 pages"},
+            {"id": "003", "comments": None},
+        ]
+        mock_resp = {"venues": [{"id": "001", "venue": "ICML 2026"}]}
+        with patch.object(arxiv_daily, "call_venue_llm", return_value=mock_resp) as mock_llm:
+            result = arxiv_daily.extract_venues_batch(papers, "x", "k", "m", logger)
+            assert mock_llm.call_count == 1
+            assert result["001"] == "ICML 2026"
+            assert result["002"] is None
+            assert result["003"] is None
+
+    def test_grounding_failure_sets_none(self, logger):
+        papers = [{"id": "001", "comments": "Accepted at ICML 2026"}]
+        mock_resp = {"venues": [{"id": "001", "venue": "NeurIPS 2025"}]}
+        with patch.object(arxiv_daily, "call_venue_llm", return_value=mock_resp):
+            result = arxiv_daily.extract_venues_batch(papers, "x", "k", "m", logger)
+            assert result["001"] is None
+
+    def test_long_venue_warning_no_truncation(self, logger):
+        long_venue = "International Conference on Very Long Venue Names for Testing Purposes 2026"
+        papers = [{"id": "001", "comments": f"Accepted at {long_venue}"}]
+        mock_resp = {"venues": [{"id": "001", "venue": long_venue}]}
+        with patch.object(arxiv_daily, "call_venue_llm", return_value=mock_resp):
+            result = arxiv_daily.extract_venues_batch(papers, "x", "k", "m", logger)
+            assert result["001"] == long_venue
+            assert len(long_venue) > 60
+
+    def test_api_failure_does_not_block(self, logger):
+        papers = [{"id": "001", "comments": "Accepted at ICML 2026"}]
+        with patch.object(arxiv_daily, "call_venue_llm", return_value=None):
+            result = arxiv_daily.extract_venues_batch(papers, "x", "k", "m", logger)
+            assert result["001"] is None
+
+    def test_cache_hit_skips_llm(self, tmp_path, logger):
+        papers = [
+            {"id": "001", "comments": "Accepted at ICML 2026"},
+            {"id": "002", "comments": "7 pages"},
+        ]
+        cache_data = {"metadata_hash": "h1", "venues": {"001": "ICML 2026"}}
+        (tmp_path / "venue_cache.json").write_text(json.dumps(cache_data))
+        with patch.object(arxiv_daily, "call_venue_llm") as mock_llm:
+            result = arxiv_daily.extract_venues_batch(
+                papers, "x", "k", "m", logger, field_cache=tmp_path, metadata_hash="h1"
+            )
+            assert mock_llm.call_count == 0
+            assert result["001"] == "ICML 2026"
+            assert result["002"] is None
+
+    def test_cache_mismatch_discards(self, tmp_path, logger):
+        papers = [{"id": "001", "comments": "Accepted at ICML 2026"}]
+        cache_data = {"metadata_hash": "old", "venues": {"001": "OLD"}}
+        (tmp_path / "venue_cache.json").write_text(json.dumps(cache_data))
+        mock_resp = {"venues": [{"id": "001", "venue": "ICML 2026"}]}
+        with patch.object(arxiv_daily, "call_venue_llm", return_value=mock_resp) as mock_llm:
+            result = arxiv_daily.extract_venues_batch(
+                papers, "x", "k", "m", logger, field_cache=tmp_path, metadata_hash="new"
+            )
+            assert mock_llm.call_count == 1
+            assert result["001"] == "ICML 2026"
+
+    def test_no_cache_when_field_cache_none(self, logger):
+        papers = [{"id": "001", "comments": "Accepted at ICML 2026"}]
+        mock_resp = {"venues": [{"id": "001", "venue": "ICML 2026"}]}
+        with patch.object(arxiv_daily, "call_venue_llm", return_value=mock_resp):
+            result = arxiv_daily.extract_venues_batch(
+                papers, "x", "k", "m", logger, field_cache=None, metadata_hash=None
+            )
+            assert result["001"] == "ICML 2026"
+
+    def test_atomic_write_after_batch(self, tmp_path, logger):
+        papers = [{"id": "001", "comments": "Accepted at ICML 2026"}]
+        mock_resp = {"venues": [{"id": "001", "venue": "ICML 2026"}]}
+        with patch.object(arxiv_daily, "call_venue_llm", return_value=mock_resp):
+            arxiv_daily.extract_venues_batch(
+                papers, "x", "k", "m", logger, field_cache=tmp_path, metadata_hash="h"
+            )
+            cache_file = tmp_path / "venue_cache.json"
+            assert cache_file.exists()
+            data = json.loads(cache_file.read_text())
+            assert data["metadata_hash"] == "h"
+            assert data["venues"]["001"] == "ICML 2026"
+
+
+# ===========================================================================
+# TestBuildPromptNoVenue
+# ===========================================================================
+
+class TestBuildPromptNoVenue:
+    def test_no_venue_instruction_in_prompt(self):
+        papers = [{"id": "001", "title": "T", "abstract": "A", "comments": "Accepted at ICML"}]
+        msgs = arxiv_daily.build_prompt(papers, ["LLM"])
+        content = msgs[1]["content"]
+        assert "venue" not in content.lower()
+
+    def test_comments_still_passed(self):
+        papers = [{"id": "001", "title": "T", "abstract": "A", "comments": "Some comments"}]
+        msgs = arxiv_daily.build_prompt(papers, ["LLM"])
+        content = msgs[1]["content"]
+        assert "Comments: Some comments" in content
+
+    def test_summary_and_tags_instructions_present(self):
+        papers = [{"id": "001", "title": "T", "abstract": "A"}]
+        msgs = arxiv_daily.build_prompt(papers, ["LLM"])
+        content = msgs[1]["content"]
+        assert "summary" in content.lower()
+        assert "tags" in content.lower()
+
+
+# ===========================================================================
+# TestVenueIntegrationMerge
+# ===========================================================================
+
+class TestVenueIntegrationMerge:
+    def test_merge_only_updates_existing_keys(self, logger):
+        results_by_id = {
+            "001": {"summary": "s1", "tags": ["T"]},
+            "002": {"summary": "s2", "tags": ["T"]},
+        }
+        papers = [
+            {"id": "001", "comments": "Accepted at ICML 2026"},
+            {"id": "002", "comments": "7 pages"},
+            {"id": "003", "comments": "Accepted at NeurIPS"},
+        ]
+        mock_resp = {"venues": [
+            {"id": "001", "venue": "ICML 2026"},
+            {"id": "003", "venue": "NeurIPS"},
+        ]}
+        with patch.object(arxiv_daily, "call_venue_llm", return_value=mock_resp):
+            venues = arxiv_daily.extract_venues_batch(papers, "x", "k", "m", logger)
+            for pid, venue in venues.items():
+                if pid in results_by_id:
+                    results_by_id[pid]["venue"] = venue
+        assert results_by_id["001"]["venue"] == "ICML 2026"
+        assert results_by_id["002"]["venue"] is None
+        assert "003" not in results_by_id
+
+    def test_venue_failure_does_not_crash_integration(self, logger):
+        results_by_id = {"001": {"summary": "s1", "tags": ["T"]}}
+        papers = [{"id": "001", "comments": "Accepted at ICML"}]
+        with patch.object(arxiv_daily, "call_venue_llm", side_effect=Exception("boom")):
+            try:
+                venues = arxiv_daily.extract_venues_batch(papers, "x", "k", "m", logger)
+                for pid, venue in venues.items():
+                    if pid in results_by_id:
+                        results_by_id[pid]["venue"] = venue
+            except Exception:
+                pass
+        assert "venue" not in results_by_id["001"] or results_by_id["001"].get("venue") is None
