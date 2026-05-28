@@ -131,20 +131,9 @@ def extract_venues_batch(
     - "Codes are available" → False
   - 验证命令:
     ```bash
-    PYTHONPATH=arxiv-update/scripts python -c "
-    from arxiv_daily import has_acceptance_signal
-    assert has_acceptance_signal('Accepted at OccuSys 2026') == True
-    assert has_acceptance_signal('7 pages') == False
-    assert has_acceptance_signal('Submitted to ICML 2026') == False
-    assert has_acceptance_signal('ICML 2026 style, 9 pages') == False
-    assert has_acceptance_signal('Accepted for publication in AI and Ethics') == True
-    assert has_acceptance_signal('published in Advancements in AI, Springer, 2026') == True
-    assert has_acceptance_signal('Codes are available') == False
-    assert has_acceptance_signal(None) == False
-    assert has_acceptance_signal('') == False
-    print('TASK 001: all assertions passed')
-    "
+    cd arxiv-update/scripts && .venv/bin/python -m pytest tests/ -k "acceptance_signal"
     ```
+  - 验证覆盖要求: Executor 须新增测试，覆盖上述验证样例（含 None 和空字符串），全部通过即可。
 
 #### [TASK ID: 002] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 新增 `build_venue_prompt`、`call_venue_llm` 和 `extract_venues_batch` 函数
@@ -174,16 +163,9 @@ def extract_venues_batch(
     - 返回完整的 {paper_id: venue_or_none} 映射
   - 验证命令:
     ```bash
-    # TASK 002: 验证 build_venue_prompt 输出格式
-    PYTHONPATH=arxiv-update/scripts python -c "
-    from arxiv_daily import build_venue_prompt
-    papers = [{'id': '2605.27446', 'comments': 'Accepted at SMACD 2026'}]
-    msgs = build_venue_prompt(papers)
-    assert isinstance(msgs, list) and len(msgs) == 2
-    assert msgs[0]['role'] == 'system'
-    print('TASK 002: build_venue_prompt format OK')
-    "
+    cd arxiv-update/scripts && .venv/bin/python -m pytest tests/ -k "venue_prompt or venue_llm or venue_grounding"
     ```
+  - 验证覆盖要求: Executor 须新增测试覆盖 — `build_venue_prompt` 返回合法 chat messages 格式；`call_venue_llm` 返回 `dict | None`；grounding 对可匹配 venue 保留、对无法匹配 venue 置 None；长度 > 60 时记录 warning。
 
 #### [TASK ID: 003] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 修改 `build_prompt` 函数
@@ -196,15 +178,9 @@ def extract_venues_batch(
   - 不修改 `build_prompt` 中 summary 和 tag 相关的指令
   - 验证命令:
     ```bash
-    PYTHONPATH=arxiv-update/scripts python -c "
-    from arxiv_daily import build_prompt
-    msgs = build_prompt([{'id': 'test', 'title': 'T', 'abstract': 'A', 'comments': 'Accepted at X'}], ['tag1'])
-    content = msgs[1]['content']
-    assert 'venue' not in content.lower(), 'venue instruction still present in prompt'
-    assert 'summary' in content.lower(), 'summary instruction missing'
-    print('TASK 003: venue removed, summary/tag preserved')
-    "
+    cd arxiv-update/scripts && .venv/bin/python -m pytest tests/ -k "build_prompt_no_venue"
     ```
+  - 验证覆盖要求: Executor 须新增测试验证 — `build_prompt` 输出的 user message 中不含 "venue" 关键字；summary 和 tag 指令仍存在；Comments 字段仍传入 papers 文本。
 
 #### [TASK ID: 004] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — venue 缓存策略
@@ -227,28 +203,9 @@ def extract_venues_batch(
   - 不修改现有 batch_NNN.json 的结构（summary/tag cache 不受影响）
   - 验证命令:
     ```bash
-    # TASK 004: 验证 cache resume 逻辑
-    PYTHONPATH=arxiv-update/scripts python -c "
-    import json, tempfile
-    from pathlib import Path
-    from unittest.mock import patch as mock_patch
-    from arxiv_daily import extract_venues_batch, has_acceptance_signal
-
-    # Setup: 预填充 venue_cache.json
-    tmp = Path(tempfile.mkdtemp())
-    cache_data = {'metadata_hash': 'test_hash', 'venues': {'2605.27446': 'SMACD 2026'}}
-    (tmp / 'venue_cache.json').write_text(json.dumps(cache_data))
-
-    papers = [{'id': '2605.27446', 'comments': 'Accepted at SMACD 2026'}]
-
-    # Mock call_venue_llm to track if it's called
-    with mock_patch('arxiv_daily.call_venue_llm') as mock_llm:
-        result = extract_venues_batch(papers, '', '', '', None, field_cache=tmp, metadata_hash='test_hash')
-        assert mock_llm.call_count == 0, 'LLM should not be called when cache hit'
-        assert result['2605.27446'] == 'SMACD 2026'
-    print('TASK 004: cache resume verified')
-    "
+    cd arxiv-update/scripts && .venv/bin/python -m pytest tests/ -k "venue_cache"
     ```
+  - 验证覆盖要求: Executor 须新增测试覆盖 — cache hit 时不调用 `call_venue_llm`（mock 验证）；hash 不匹配时丢弃旧 cache 重新提取；`field_cache=None` 时不读写文件；每 batch 完成后 venue_cache.json 已更新。
 
 #### [TASK ID: 005] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — 修改 `run_normal_mode` 和 `run_patch_mode`，集成 venue 提取阶段
@@ -274,16 +231,16 @@ def extract_venues_batch(
     ```bash
     # TASK 005: 人工 smoke test (依赖本地 HTML cache 和 LLM API)
     # 需要环境变量 ARXIV_UPDATE_KEY/API/MODEL 已配置
-    python arxiv-update/scripts/arxiv_daily.py cs.AR --date 2026-05-28 \
+    cd arxiv-update/scripts && .venv/bin/python arxiv_daily.py cs.AR --date 2026-05-28 \
       --tags ~/arxiv-daily/data/tags.json --output /tmp/test_venue
     grep -q "Venue" /tmp/test_venue/2026-05-28-cs.AR.md && echo "TASK 005 normal: venue present"
 
     # Patch mode smoke test
-    python arxiv-update/scripts/arxiv_daily.py cs.AR --date 2026-05-28 \
+    cd arxiv-update/scripts && .venv/bin/python arxiv_daily.py cs.AR --date 2026-05-28 \
       --tags ~/arxiv-daily/data/tags.json --patch 2605.27446 --output /tmp/test_venue
     grep -q "SMACD" /tmp/test_venue/2026-05-28-cs.AR.md && echo "TASK 005 patch: venue patched"
     ```
-    注: 以上为 smoke test，依赖本地 HTML cache 和 LLM API 可用。可重复单元验证见 TASK 004。
+    注: 以上为 smoke test，依赖本地 HTML cache 和 LLM API 可用。可重复单元验证见 TASK 001-004。
 
 ## 4. 最终决策 (Final Decision)
 （由 Reviewer 在最终判决 PASS 时填写）
@@ -515,4 +472,11 @@ def extract_venues_batch(
    - 将具体断言内容改写为“Executor 必须新增/修改测试覆盖”的自然语言约束。
    - CLI 端到端命令可保留为人工 smoke test，但应明确依赖本地 cache、tags 路径和 LLM API 环境，不作为唯一必跑验证。
 
-结论：前序评审指出“验证命令缺失”是指缺少命令级验证入口和覆盖要求；当前需要修正的是验证命令的表达形式，而不是取消 Architect 对验证策略的定义职责。
+结论：前序评审指出”验证命令缺失”是指缺少命令级验证入口和覆盖要求；当前需要修正的是验证命令的表达形式，而不是取消 Architect 对验证策略的定义职责。
+
+### Architect Response (Round 4)
+
+**接受**。所有 TASK 的验证命令已从多行 `python -c` 断言脚本改为：
+- **命令入口**: `pytest tests/ -k “<selector>”`
+- **覆盖要求**: 自然语言描述 Executor 须新增的测试场景
+- **TASK 005** 保留 CLI smoke test（已标注为人工验证、依赖本地环境），可重复单元验证由 TASK 001-004 的 pytest 覆盖。
