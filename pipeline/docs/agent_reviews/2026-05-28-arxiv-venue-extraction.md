@@ -431,3 +431,44 @@ def extract_venues_batch(
 8. **接受**。`call_venue_llm` 返回类型统一为 `dict | None`，所有异常在函数内部处理不向上抛出，`extract_venues_batch` 对 None 返回值将该 batch 所有 venue 设为 None。
 
 9. **接受**。TASK 005 验证命令改为使用 tempdir + mock `call_venue_llm` 的可执行单元测试，验证 cache hit 时不触发 LLM 调用。
+
+### Architect Re-Review Round 3
+
+第三轮评审结论：本轮修订已解决大多数实质问题，ADR 接近可执行。但仍存在少量会阻断 Executor 严格按任务顺序执行的问题，以及若干需要在蓝图中补齐的边界约束。当前建议状态为 `NEEDS_MINOR_REVISION`。
+
+1. **TASK 编号顺序与显式依赖冲突**
+   - TASK 004 声明依赖 TASK 005，但 TASK 005 排在 TASK 004 之后。
+   - 按任务拆解法则，编号必须代表严格执行顺序，不能出现较小编号依赖较大编号。
+   - 建议将 venue cache 策略调整为 TASK 004，将 normal/patch 集成调整为 TASK 005；或将 cache helper 拆到更早的任务中，再执行主流程集成。
+
+2. **`metadata_hash` 来源仍不可执行**
+   - TASK 004 要求 normal mode 调用 `extract_venues_batch` 时传入 `field_cache` 和 `metadata_hash`，并写“复用已计算的值”。
+   - 当前代码中 `compute_metadata_hash(data)` 只在 `run_phase2` 内部局部计算，`run_normal_mode` 在 `run_phase2` 返回后拿不到该值。
+   - 建议明确其中一种方案：在 `run_normal_mode` 中重新计算 `compute_metadata_hash(data)`；让 `run_phase2` 返回 metadata hash；或把 venue extraction 放进 `run_phase2` 的同一 cache 上下文中。
+
+3. **`--no-cache` 对 venue cache 的语义未定义**
+   - summary 阶段已有 `--no-cache` 语义，用户会预期全链路禁用 cache。
+   - 当前 TASK 005 只定义了 `field_cache=None` 时不读写 venue cache，但 TASK 004 没有说明 normal mode 下 `args.no_cache=True` 时是否应传 `field_cache=None`。
+   - 建议补充约束：`args.no_cache` 为真时，venue extraction 必须禁用 cache，不读取也不写入 `venue_cache.json`。
+
+4. **TASK 004 验证命令仍引用不存在的 tags 路径**
+   - TASK 004 使用 `--tags arxiv-update/data/tags.json`。
+   - 当前仓库中 `arxiv-update/` 下没有 `data/` 目录，`--tags` 又是必填参数，因此该命令不能直接运行。
+   - 建议改为在验证命令中创建临时 tags 文件，或引用当前仓库实际存在的测试 fixture/生成路径。
+
+5. **TASK 004 端到端验证依赖本地 HTML cache 和真实 LLM**
+   - 当前命令固定 `--date 2026-05-28` 并标注“使用已有 HTML cache”。
+   - 若本机没有对应 pages cache，或没有 LLM 环境变量/API 可用，验证会失败。
+   - 建议将该命令标记为人工 smoke test，并补充 Executor 必跑的可重复验证：使用 fake LLM server 或 pytest fixture 覆盖 normal/patch 集成。
+
+6. **`call_venue_llm` debug 文件命名缺少 batch 标识参数**
+   - TASK 002 要求失败时保存到 `debug_dir/venue_batch_NNN_error.json`。
+   - 但 `call_venue_llm` 接口没有 `batch_num` 或 `batch_label` 参数，无法确定 `NNN`。
+   - 建议给 `call_venue_llm` 增加 `batch_label: str`，或明确由 `extract_venues_batch` 负责 debug 文件命名与写入。
+
+7. **风险预警仍保留旧 cache 表述**
+   - 风险预警仍写“venue 结果需写入现有 batch cache 结构，或独立 venue cache”。
+   - 当前设计已经确定使用 `venue_cache.json`，且明确不修改现有 `batch_NNN.json`。
+   - 建议同步风险预警，避免 Executor 误以为仍允许写入 summary/tag batch cache。
+
+修订优先级：先重排 TASK 004/005 或调整依赖，再明确 metadata_hash 与 no-cache 语义；随后修正验证命令和 debug batch label；最后同步风险预警中的 cache 表述。
