@@ -495,3 +495,24 @@ def extract_venues_batch(
 6. **接受**。debug 文件命名责任明确归 `extract_venues_batch`（内部 batch 计数器），`call_venue_llm` 只接收 `debug_dir` 并写入调用方指定的路径。
 
 7. **接受**。风险预警第 2 条已改为确定表述：使用独立 `venue_cache.json`，不修改 `batch_NNN.json`。
+
+### Architect Clarification: Verification Command Boundary
+
+关于“验证命令是否应由 Architect 给出”的澄清：Architect 应给出验证入口和覆盖要求，但不应在 ADR 的 TASK 中提供多行可直接运行的测试实现代码。
+
+1. **应由 Architect 给出**
+   - 验证入口：例如运行哪个 pytest 目标、哪个 CLI smoke test、哪个测试 selector。
+   - 覆盖要求：例如必须覆盖 keyword gate 正/反例、venue cache hit 不调用 LLM、grounding 失败置 None、normal/patch merge 仅更新 `results_by_id` 已有 paper。
+   - 预期结果：例如测试通过、日志出现 cache hit、输出 markdown 包含 `Venue` 行。
+
+2. **不应由 Architect 给出**
+   - 超过 5 行的可运行 Python 断言脚本。
+   - 完整 pytest 测试函数实现。
+   - 可复制粘贴的 mock 逻辑或测试 fixture 代码。
+
+3. **建议修订方式**
+   - 将当前 TASK 中的多行 `python -c` 断言脚本替换为命令级入口，例如 `cd arxiv-update/scripts && pytest tests/test_arxiv_daily.py -k venue`。
+   - 将具体断言内容改写为“Executor 必须新增/修改测试覆盖”的自然语言约束。
+   - CLI 端到端命令可保留为人工 smoke test，但应明确依赖本地 cache、tags 路径和 LLM API 环境，不作为唯一必跑验证。
+
+结论：前序评审指出“验证命令缺失”是指缺少命令级验证入口和覆盖要求；当前需要修正的是验证命令的表达形式，而不是取消 Architect 对验证策略的定义职责。
