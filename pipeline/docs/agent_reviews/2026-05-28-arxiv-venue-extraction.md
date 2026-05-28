@@ -98,7 +98,7 @@ def extract_venues_batch(
 > **注意**: 本项目无 `AGENTS.md` 规范文件，以下设计基于通用最佳实践。各 TASK 中标注了需要人类确认的技术选型决策。
 
 1. **API 调用量**: 通过 gate 的论文约 80-100 篇 (cs.AI)，batch=16 意味着 5-7 次 LLM 调用，开销极低。
-2. **缓存一致性**: venue 结果需写入现有 batch cache 结构，或独立 venue cache。需确保与 summary/tag 的 cache 生命周期一致。
+2. **缓存一致性**: venue 结果写入独立的 `venue_cache.json`（不修改 summary/tag 的 batch_NNN.json），生命周期与 field_cache 目录绑定，正常完成后随目录删除。
 3. **向后兼容**: `generate_markdown` 和 `patch_markdown` 的消费方式不变 — 它们只读 `results_by_id[pid]["venue"]`，无需修改。
 4. **Gate 漏判**: keyword gate 可能漏掉罕见表达（如 "forthcoming in"、"to be presented"）。gate 应设计为宽松匹配（宁可多送 LLM 几篇），不可错杀。
 
@@ -164,7 +164,7 @@ def extract_venues_batch(
     - 返回类型: `dict | None` — 所有异常在函数内处理，不向上抛出
     - 重试策略: 最多 2 次重试；429 遵守 Retry-After 或指数退避 (2s, 4s)；非 429 的 4xx 不重试
     - 超时阈值: 30s（定义为模块常量 `VENUE_LLM_TIMEOUT`）
-    - 失败时: 若传入 debug_dir，保存 prompt 和原始响应到 `debug_dir/venue_batch_NNN_error.json`
+    - 失败时: 若传入 debug_dir，保存 prompt 和原始响应到 debug_dir（文件命名由调用方 `extract_venues_batch` 负责，如 `venue_batch_000_error.json`）
   - `extract_venues_batch`:
     - 先过滤 `has_acceptance_signal`
     - 通过 gate 的论文按 batch_size=16 分组，每组调用 `call_venue_llm`
@@ -207,36 +207,6 @@ def extract_venues_batch(
     ```
 
 #### [TASK ID: 004] [状态: OPEN]
-- **定位**: `arxiv-update/scripts/arxiv_daily.py` — 修改 `run_normal_mode` 和 `run_patch_mode`，集成 venue 提取阶段
-- **目标描述**: 在两条执行路径中，于 `run_phase2` 完成后、markdown 生成/patch 之前插入 venue 提取
-- **前置依赖**: TASK 001, TASK 002, TASK 003, TASK 005
-- **执行指令与限制**:
-  - **Normal mode** (`run_normal_mode`):
-    - 在 `run_phase2` 返回 `results_by_id` 之后、`generate_markdown` 之前调用 `extract_venues_batch`
-    - 传入所有 papers（从 `data["sections"]` 中 flatten: `[p for s in data["sections"] for p in s["papers"]]`）
-    - 传入 `field_cache` 和 `metadata_hash`（复用已计算的值）
-    - 将返回的 venue 映射 merge: 仅更新 `results_by_id` 中已存在的 paper id — `if pid in results_by_id: results_by_id[pid]["venue"] = venues[pid]`
-  - **Patch mode** (`run_patch_mode`):
-    - 在 `run_phase2` 返回 `results_by_id` 之后、`patch_markdown` 之前调用 `extract_venues_batch`
-    - 传入 `patch_papers` 列表
-    - 同样 merge venue 到 `results_by_id`
-    - patch mode 使用 `no_cache=True` 语义（因为 save_cache=False），venue 也不缓存
-  - 如果 LLM 响应中仍然返回了 venue 字段（向后兼容旧 cache），取新提取的值覆盖
-  - 日志输出: 记录通过 gate 的论文数、成功提取的 venue 数
-  - 若 venue 提取整体失败（如 API 不可用），不阻塞流程，所有 venue 设为 None
-  - 验证命令:
-    ```bash
-    # TASK 004: 端到端验证 (使用已有 HTML cache)
-    # Normal mode: 验证输出 markdown 包含 **Venue** 行
-    python arxiv-update/scripts/arxiv_daily.py cs.AR --date 2026-05-28 --tags arxiv-update/data/tags.json --output /tmp/test_venue
-    grep -q "Venue" /tmp/test_venue/2026-05-28-cs.AR.md && echo "TASK 004 normal: venue present"
-
-    # Patch mode: 验证 patch 也包含 venue
-    python arxiv-update/scripts/arxiv_daily.py cs.AR --date 2026-05-28 --tags arxiv-update/data/tags.json --patch 2605.27446 --output /tmp/test_venue
-    grep -q "SMACD" /tmp/test_venue/2026-05-28-cs.AR.md && echo "TASK 004 patch: venue patched"
-    ```
-
-#### [TASK ID: 005] [状态: OPEN]
 - **定位**: `arxiv-update/scripts/arxiv_daily.py` — venue 缓存策略
 - **目标描述**: 将 venue 提取结果写入临时 cache 文件，作为中断恢复的检查点
 - **前置依赖**: TASK 002
@@ -253,11 +223,11 @@ def extract_venues_batch(
     - 每个 batch 完成后立即写入（原子写），确保中断安全
   - **生命周期**: 与 summary batch cache 一致 — 正常流程成功完成后，`field_cache` 整个目录被 `shutil.rmtree` 删除，venue_cache.json 随之消失
   - **不是持久化 cache** — 其价值仅在于中断重跑时避免重复 LLM 调用
-  - 当 `field_cache=None`（如 patch mode）时不读写 cache
+  - 当 `field_cache=None`（如 patch mode 或 `--no-cache`）时不读写 cache
   - 不修改现有 batch_NNN.json 的结构（summary/tag cache 不受影响）
   - 验证命令:
     ```bash
-    # TASK 005: 验证 cache resume 逻辑
+    # TASK 004: 验证 cache resume 逻辑
     PYTHONPATH=arxiv-update/scripts python -c "
     import json, tempfile
     from pathlib import Path
@@ -276,9 +246,44 @@ def extract_venues_batch(
         result = extract_venues_batch(papers, '', '', '', None, field_cache=tmp, metadata_hash='test_hash')
         assert mock_llm.call_count == 0, 'LLM should not be called when cache hit'
         assert result['2605.27446'] == 'SMACD 2026'
-    print('TASK 005: cache resume verified')
+    print('TASK 004: cache resume verified')
     "
     ```
+
+#### [TASK ID: 005] [状态: OPEN]
+- **定位**: `arxiv-update/scripts/arxiv_daily.py` — 修改 `run_normal_mode` 和 `run_patch_mode`，集成 venue 提取阶段
+- **目标描述**: 在两条执行路径中，于 `run_phase2` 完成后、markdown 生成/patch 之前插入 venue 提取
+- **前置依赖**: TASK 001, TASK 002, TASK 003, TASK 004
+- **执行指令与限制**:
+  - **Normal mode** (`run_normal_mode`):
+    - 在 `run_phase2` 返回 `results_by_id` 之后、`generate_markdown` 之前调用 `extract_venues_batch`
+    - 传入所有 papers（从 `data["sections"]` 中 flatten: `[p for s in data["sections"] for p in s["papers"]]`）
+    - `metadata_hash`: 在 `run_normal_mode` 中调用 `compute_metadata_hash(data)` 获取（该函数为模块级公开函数，可直接调用）
+    - `field_cache`: 传入已创建的 `field_cache` 路径；当 `args.no_cache` 为 True 时传 None（禁用 venue cache）
+    - 将返回的 venue 映射 merge: 仅更新 `results_by_id` 中已存在的 paper id — `if pid in results_by_id: results_by_id[pid]["venue"] = venues[pid]`
+  - **Patch mode** (`run_patch_mode`):
+    - 在 `run_phase2` 返回 `results_by_id` 之后、`patch_markdown` 之前调用 `extract_venues_batch`
+    - 传入 `patch_papers` 列表
+    - `field_cache=None`（patch mode 不使用 venue cache）
+    - 同样 merge venue 到 `results_by_id`（仅更新已存在的 key）
+  - 如果 LLM 响应中仍然返回了 venue 字段（向后兼容旧 cache），取新提取的值覆盖
+  - `extract_venues_batch` 负责 debug 文件命名（`venue_batch_{N:03d}_error.json`），使用内部 batch 计数器；`call_venue_llm` 接收 `debug_dir` 但由上层传入 batch 标识路径
+  - 日志输出: 记录通过 gate 的论文数、成功提取的 venue 数
+  - 若 venue 提取整体失败（如 API 不可用），不阻塞流程，所有 venue 设为 None
+  - 验证命令:
+    ```bash
+    # TASK 005: 人工 smoke test (依赖本地 HTML cache 和 LLM API)
+    # 需要环境变量 ARXIV_UPDATE_KEY/API/MODEL 已配置
+    python arxiv-update/scripts/arxiv_daily.py cs.AR --date 2026-05-28 \
+      --tags ~/arxiv-daily/data/tags.json --output /tmp/test_venue
+    grep -q "Venue" /tmp/test_venue/2026-05-28-cs.AR.md && echo "TASK 005 normal: venue present"
+
+    # Patch mode smoke test
+    python arxiv-update/scripts/arxiv_daily.py cs.AR --date 2026-05-28 \
+      --tags ~/arxiv-daily/data/tags.json --patch 2605.27446 --output /tmp/test_venue
+    grep -q "SMACD" /tmp/test_venue/2026-05-28-cs.AR.md && echo "TASK 005 patch: venue patched"
+    ```
+    注: 以上为 smoke test，依赖本地 HTML cache 和 LLM API 可用。可重复单元验证见 TASK 004。
 
 ## 4. 最终决策 (Final Decision)
 （由 Reviewer 在最终判决 PASS 时填写）
@@ -472,3 +477,21 @@ def extract_venues_batch(
    - 建议同步风险预警，避免 Executor 误以为仍允许写入 summary/tag batch cache。
 
 修订优先级：先重排 TASK 004/005 或调整依赖，再明确 metadata_hash 与 no-cache 语义；随后修正验证命令和 debug batch label；最后同步风险预警中的 cache 表述。
+
+### Architect Response (Round 3)
+
+全部接受，逐条已落实：
+
+1. **接受**。TASK 004/005 已互换：cache 策略现为 TASK 004（依赖 TASK 002），集成现为 TASK 005（依赖 TASK 001-004）。编号严格反映执行顺序。
+
+2. **接受**。TASK 005 明确：`run_normal_mode` 中直接调用 `compute_metadata_hash(data)` 获取 hash（该函数为模块级公开函数），不再依赖 `run_phase2` 内部局部变量。
+
+3. **接受**。TASK 004 补充：`--no-cache` 时传 `field_cache=None`，禁用 venue cache 读写。TASK 005 normal mode 中明确 `args.no_cache` 控制是否传入 field_cache。
+
+4. **接受**。TASK 005 验证命令中 tags 路径改为 `~/arxiv-daily/data/tags.json`（实际部署路径），并标注需要本地环境。
+
+5. **接受**。TASK 005 端到端验证已标记为"人工 smoke test"，注明依赖本地 HTML cache 和 LLM API。可重复单元验证由 TASK 004 的 mock 测试覆盖。
+
+6. **接受**。debug 文件命名责任明确归 `extract_venues_batch`（内部 batch 计数器），`call_venue_llm` 只接收 `debug_dir` 并写入调用方指定的路径。
+
+7. **接受**。风险预警第 2 条已改为确定表述：使用独立 `venue_cache.json`，不修改 `batch_NNN.json`。
