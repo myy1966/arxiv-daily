@@ -159,3 +159,57 @@ def extract_venues_batch(
 
 ## 4. 最终决策 (Final Decision)
 （由 Reviewer 在最终判决 PASS 时填写）
+
+## 5. 架构讨论
+
+### Architect Review
+
+评审结论：方向可接受，但当前蓝图不建议直接交给 Executor 执行。主要问题集中在协议合规、现有代码契约兼容性、缓存生命周期和验证闭环。
+
+1. **项目规范缺失声明不足**
+   - 当前项目根目录未发现 `AGENTS.md`。
+   - 按协作协议，本 ADR 的风险预警应明确标注：本项目无 AGENTS.md 规范文件，以下设计基于通用最佳实践。
+   - 每个 Task 也应注明需要人类确认的技术选型决策，避免 Executor 将默认假设误当作项目规范。
+
+2. **Venue LLM 输出契约与现有 `call_llm` 不兼容**
+   - 当前 ADR 要求 `build_venue_prompt` 返回 JSON 数组：`[{id, venue}]`。
+   - 现有 `call_llm` 会通过 `_validate_llm_schema` 校验响应，要求顶层必须是 JSON object 且包含 `papers` list。
+   - 因此如果复用现有 `call_llm`，数组响应会被直接判为非法。
+   - 建议二选一：将 venue 响应契约调整为兼容现有 schema 的 object，或新增独立 venue LLM 调用/解析接口，不复用 summary/tag 的 schema validator。
+
+3. **`temperature=0` 约束当前不可执行**
+   - ADR 要求 venue 提取使用 `temperature=0`。
+   - 现有 `call_llm` payload 中 temperature 固定为 `0.3`。
+   - 如果继续要求复用 `call_llm`，需要先增加可配置 temperature 参数；否则应明确允许 venue 使用独立 caller。
+
+4. **Batch=16 是需求约束，但仍需 grounding 防御**
+   - Venue 提取继续使用 batch=16 是需求方明确要求，不作为阻断问题。
+   - 但 batch 输出仍应增加确定性后处理校验：每条 LLM 返回的 venue 必须能在同 ID paper 的 Comments 中直接或可解释地匹配到。
+   - 无法在对应 Comments 中 grounding 的 venue 必须置为 `None`，不能仅依赖 prompt 中“不得推测或编造”的声明。
+
+5. **缓存策略与当前生命周期不完全匹配**
+   - 当前 batch cache 受全局 `metadata_hash` 控制，hash 已包含 comments。
+   - 正常流程成功后会删除 field cache，因此“避免重复调用”的收益主要覆盖失败重跑或同轮 retry，不是持久化 venue cache。
+   - TASK 005 又禁止独立 venue cache 文件，因此 ADR 应明确缓存目标只是临时 batch cache 复用，或重新设计持久化 per-paper venue cache。
+   - “已有 venue 且 comments 未变化则跳过 LLM”属于提取前决策，应前置到 venue extractor/cache contract 设计中，而不是在 TASK 004 集成后再补。
+
+6. **集成点需要覆盖 normal 与 patch 两条路径**
+   - 当前 normal mode 与 patch mode 都通过 `run_phase2` 取得 `results_by_id`。
+   - 如果 venue extraction 只插入 normal mode 的 markdown 生成前，patch mode 将无法获得新的 venue。
+   - 建议明确集成点优先放在 `run_phase2` 返回前，或显式要求 normal/patch 两条调用路径都完成 venue merge。
+
+7. **后处理校验未落实到 Task**
+   - 设计概要中提到 `venue` 长度大于 60 时需要截断/缩写。
+   - 现有 TASK 002/004/005 未明确要求实现长度限制、非法类型处理、空值规范化或 markdown 输出安全。
+   - 建议将这些约束并入 TASK 002 的 parser/postprocess 规约。
+
+8. **验证命令缺失**
+   - 当前 TASK 001 提供了样例输入输出，但各 Task 缺少明确验证命令。
+   - 建议补充 gate 单元测试、venue response parser 测试、cache replay 验证，以及 patch mode 最小验证命令。
+
+9. **Front matter 状态格式与协议不完全一致**
+   - 协议要求 `status: "[STATUS: PLANNING_COMPLETE]"`。
+   - 当前文档为 `status: "PLANNING_COMPLETE"`。
+   - 该问题不影响技术设计，但属于文档协议偏差。
+
+建议修订后再进入 Executor 阶段。优先修正顺序为：补 AGENTS.md 缺失声明，统一 venue LLM 响应契约，处理 `temperature` 参数化或独立 caller，前置缓存/grounding/postprocess 约束，最后补齐验证命令。
