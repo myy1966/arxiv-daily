@@ -249,12 +249,41 @@ Executor: [RESOLVED] 同意并执行。已在 `run_normal_mode` 和 `run_patch_m
   - `Journal of AI Research 2026` + `Accepted for publication in Journal of AI Research` → `True`
 - **前置依赖**: 无。
 
+Executor: [RESOLVED] 同意并执行。在 `_venue_grounding_check` 中将 `t.isdigit()` 加入过滤条件，纯数字 token（含年份）不再作为有效 grounding 证据。新增 4 条回归测试覆盖评审提到的样例，9/9 测试全部通过。文档字符串更新说明该约束的理由。
+
 #### [ISSUE ID: 002] [状态: OPEN] (medium, non-blocking)
 - **定位**: `arxiv-update/scripts/arxiv_daily.py:call_venue_llm` / `extract_venues_batch`
 - **问题描述**: ADR 要求 venue LLM 失败时由 `extract_venues_batch` 负责生成 `venue_batch_{N:03d}_error.json`，并保存 prompt 与原始响应；当前实现始终写 `venue_error.json`，多个失败 batch 会互相覆盖，且只保存 `error` 与 `prompt`，没有保存原始 HTTP body 或原始 content。该判断基于 ADR 契约与通用可观测性实践，而非项目 AGENTS 约定。
 - **严重程度**: 信息性（不阻塞合并）。
 - **修复指令**: 将 debug 文件命名下沉到 batch 维度：`extract_venues_batch` 应为第 N 个 batch 提供可区分的目标文件名，或向 `call_venue_llm` 传入 batch label/path；`call_venue_llm` 在拿到 HTTP body、message content、非法 schema content 或 HTTPError body 时，应把可获得的原始响应写入 debug JSON。避免不同 batch 共用 `venue_error.json`。
 - **前置依赖**: 无。
+
+Executor: [RESOLVED] 同意并执行。`call_venue_llm` 新增 `debug_label` 参数（默认 `"venue_error"`），输出文件名变为 `{debug_label}.json`。`extract_venues_batch` 调用时传入 `f"venue_batch_{batch_count:03d}_error"` 实现 batch 维度区分。`call_venue_llm` 内部记录 `last_http_body`（含 HTTPError 体，使用首次非空读取避免 retry 覆盖）和 `last_content`（LLM message content），失败时一并写入 debug JSON。新增 2 条测试验证 debug_label 文件命名和 HTTP body 跨 retry 保留。
+
+### [Round 3]
+- **Reviewer**:
+  - **状态判决**: `[STATUS: REJECT]`
+    - ISSUE 002 的 debug 文件命名与原始响应记录已按契约修复；ISSUE 001 的主要示例已修复，但 grounding 仍未满足“至少一个核心 venue token”约束，继续阻塞合并。
+  - **审查摘要**:
+    - 已再次确认当前仓库根目录缺失 `AGENTS.md`，以下判断基于本 ADR 的接口契约、行为约束和通用最佳实践。
+    - Executor 已将纯数字 token 从 `meaningful` 列表中过滤，`NeurIPS 2026` 对 `Accepted at ICML 2026` 现在返回 `False`，上轮指出的具体年份同名误判已修掉。
+    - 但 `_venue_grounding_check` 在没有任何 meaningful token 时仍返回 `True`，因此 `venue="2026"` 会被接受；同时当前实现使用 substring 匹配，短 token 可能命中普通词内部，例如 `venue="AI 2026"` 可被 `available` 中的 `ai` 误 grounded。
+    - `call_venue_llm` 的 `debug_label`、`http_body`、`content` 记录符合上轮 ISSUE 002 的排查契约，本轮不再追踪该问题。
+    - 验证: `python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；`python3 -m pytest arxiv-update/scripts/tests/test_arxiv_daily.py` 仍无法运行，因为当前环境缺少 `pytest`。
+  - **回应 Executor**: 接受 ISSUE 002 的 RESOLVED；不接受 ISSUE 001 的完整 RESOLVED。过滤纯数字 token 是必要但不充分的修复，函数仍应在没有核心 venue token 时失败，而不是通过。
+  - **Issue 优先级与依赖总表**:
+    - P0: ISSUE 003，阻塞合并，是 ISSUE 001 的补充修复；完成后需重新验证原有正例与本轮新增反例。
+
+#### [ISSUE ID: 003] [状态: OPEN] (high, blocking)
+- **定位**: `arxiv-update/scripts/arxiv_daily.py:_venue_grounding_check`
+- **问题描述**: 当前实现将纯数字 token 过滤后，如果 `meaningful` 为空仍直接返回 `True`。这违反了 Round 2 对 ISSUE 001 的修复指令：必须至少有一个非停用词、非纯数字/非年份的核心 venue token 能在对应 Comments 中 grounding。当前 `venue="2026"`、`comments="Accepted at ICML 2026"` 仍会返回 `True`，会把无 venue 名称的 LLM 输出写入 markdown。另一个风险是 `return any(token in comments_lower ...)` 使用 substring 匹配，短 token 会命中普通词内部，例如 `venue="AI 2026"` 可被 `comments="Accepted at Workshop 2026; code available"` 中的 `available` 误判为 grounded。
+- **严重程度**: 阻塞合并。
+- **修复指令**: 
+  - 当过滤后没有核心 token 时返回 `False`，并删除或改写现有 `test_all_stopwords_passes`，因为全停用词或纯年份不是合法 venue grounding。
+  - 将 comments 同样 token 化后做 token-level 匹配，避免 substring 命中普通词内部；例如 `comment_tokens = set(re.findall(r"[a-z0-9]+", comments.lower()))`，再检查核心 venue token 是否在 `comment_tokens` 中。
+  - 保留现有正例：`ICML 2026`、`AAAI 2026`、`Journal of AI Research 2026` 应继续通过。
+  - 新增反例测试：`2026` + `Accepted at ICML 2026` → `False`；`AI 2026` + `Accepted at Workshop 2026; code available` → `False`。
+- **前置依赖**: ISSUE 001。
 
 ## 4. 最终决策 (Final Decision)
 （由 Reviewer 在最终判决 PASS 时填写）
