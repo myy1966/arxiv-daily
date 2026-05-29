@@ -3098,14 +3098,38 @@ class TestVenueGroundingCheck:
     def test_case_insensitive(self):
         assert arxiv_daily._venue_grounding_check("icml", "Accepted at ICML") is True
 
-    def test_all_stopwords_passes(self):
-        assert arxiv_daily._venue_grounding_check("The", "Accepted at ICML") is True
+    def test_no_core_token_fails(self):
+        # All stopwords or pure digits should fail (no core venue token).
+        assert arxiv_daily._venue_grounding_check("The", "Accepted at ICML") is False
+        assert arxiv_daily._venue_grounding_check("2026", "Accepted at ICML 2026") is False
 
     def test_partial_token_match(self):
         assert arxiv_daily._venue_grounding_check("AI-DEEDS 2026", "AI-DEEDS '26 workshop") is True
 
     def test_year_format_difference(self):
         assert arxiv_daily._venue_grounding_check("AAAI 2026", "AAAI conference") is True
+
+    def test_year_only_match_rejected(self):
+        assert arxiv_daily._venue_grounding_check("NeurIPS 2026", "Accepted at ICML 2026") is False
+
+    def test_exact_venue_match(self):
+        assert arxiv_daily._venue_grounding_check("ICML 2026", "Accepted at ICML 2026") is True
+
+    def test_venue_without_year_in_comments(self):
+        assert arxiv_daily._venue_grounding_check("AAAI 2026", "Accepted at AAAI conference") is True
+
+    def test_journal_venue_match(self):
+        assert arxiv_daily._venue_grounding_check(
+            "Journal of AI Research 2026",
+            "Accepted for publication in Journal of AI Research",
+        ) is True
+
+    def test_substring_match_rejected(self):
+        # "AI" should not be grounded by "available" (token-level, not substring).
+        assert arxiv_daily._venue_grounding_check(
+            "AI 2026",
+            "Accepted at Workshop 2026; code available",
+        ) is False
 
 
 # ===========================================================================
@@ -3158,6 +3182,35 @@ class TestCallVenueLlm:
             )
         assert result is None
         assert (tmp_path / "venue_error.json").exists()
+
+    def test_debug_label_overrides_filename(self, tmp_path, logger):
+        messages = [{"role": "user", "content": "test"}]
+        with patch("urllib.request.urlopen", side_effect=OSError("connection refused")):
+            arxiv_daily.call_venue_llm(
+                messages, "http://fake/v1", "key", "model", logger,
+                debug_dir=tmp_path, debug_label="venue_batch_005_error",
+            )
+        assert (tmp_path / "venue_batch_005_error.json").exists()
+        assert not (tmp_path / "venue_error.json").exists()
+
+    def test_http_error_body_captured(self, tmp_path, logger):
+        import urllib.error
+        import io
+        err = urllib.error.HTTPError(
+            "url", 500, "Server Error", {},
+            io.BytesIO(b'{"error": "internal"}'),
+        )
+        messages = [{"role": "user", "content": "test"}]
+        with patch("urllib.request.urlopen", side_effect=err):
+            arxiv_daily.call_venue_llm(
+                messages, "http://fake/v1", "key", "model", logger,
+                debug_dir=tmp_path, debug_label="batch_test",
+            )
+        debug_file = tmp_path / "batch_test.json"
+        assert debug_file.exists()
+        data = json.loads(debug_file.read_text())
+        assert data["http_body"] is not None
+        assert "internal" in data["http_body"]
 
     def test_non_429_4xx_no_retry(self, logger):
         import urllib.error

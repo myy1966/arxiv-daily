@@ -1351,6 +1351,7 @@ def call_venue_llm(
     model: str,
     logger: logging.Logger,
     debug_dir: Path | None = None,
+    debug_label: str = "venue_error",
 ) -> dict | None:
     """Call LLM for venue extraction with retries. Returns parsed dict or None on failure."""
     url = f"{api_endpoint.rstrip('/')}/chat/completions"
@@ -1369,13 +1370,17 @@ def call_venue_llm(
     }
 
     last_error = None
+    last_http_body: str | None = None
+    last_content: str | None = None
     for attempt in range(VENUE_MAX_RETRIES + 1):
         try:
             req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
             with urllib.request.urlopen(req, timeout=VENUE_LLM_TIMEOUT) as resp:
                 body = resp.read().decode("utf-8")
+            last_http_body = body
             data = json.loads(body)
             content = data["choices"][0]["message"]["content"]
+            last_content = content
             if content.startswith("```"):
                 content = re.sub(r"^```(?:json)?\s*", "", content)
                 content = re.sub(r"\s*```$", "", content)
@@ -1394,6 +1399,12 @@ def call_venue_llm(
             continue
         except urllib.error.HTTPError as e:
             last_error = e
+            try:
+                body_bytes = e.read()
+                if body_bytes:
+                    last_http_body = body_bytes.decode("utf-8", errors="replace")
+            except Exception:
+                pass
             logger.warning(f"[Venue] LLM call attempt {attempt + 1} HTTP {e.code}")
             if 400 <= e.code < 500 and e.code != 429:
                 break
@@ -1412,10 +1423,12 @@ def call_venue_llm(
 
     if debug_dir is not None:
         debug_dir.mkdir(parents=True, exist_ok=True)
-        debug_path = debug_dir / "venue_error.json"
+        debug_path = debug_dir / f"{debug_label}.json"
         debug_data = {
             "error": str(last_error),
             "prompt": messages[-1]["content"] if messages else "",
+            "http_body": last_http_body,
+            "content": last_content,
         }
         with open(debug_path, "w", encoding="utf-8") as df:
             json.dump(debug_data, df, ensure_ascii=False, indent=2)
@@ -1423,13 +1436,23 @@ def call_venue_llm(
 
 
 def _venue_grounding_check(venue: str, comments: str) -> bool:
-    """Check that at least one non-stopword token from venue appears in comments."""
-    tokens = re.findall(r"[a-z0-9]+", venue.lower())
-    meaningful = [t for t in tokens if t not in _VENUE_STOPWORDS]
-    if not meaningful:
-        return True
-    comments_lower = comments.lower()
-    return any(token in comments_lower for token in meaningful)
+    """Check that at least one core venue token is grounded in the comments.
+
+    A core token is non-stopword and non-numeric. Pure-digit tokens (years) are
+    excluded because two unrelated venues can share the same year (e.g.
+    "NeurIPS 2026" must not be grounded by "ICML 2026" just because both mention
+    2026). When venue has no core tokens (e.g. only stopwords or only digits),
+    grounding fails.
+
+    Matching is token-level (not substring) so short tokens like "AI" are not
+    accidentally grounded by appearing inside unrelated words like "available".
+    """
+    venue_tokens = re.findall(r"[a-z0-9]+", venue.lower())
+    core_tokens = [t for t in venue_tokens if t not in _VENUE_STOPWORDS and not t.isdigit()]
+    if not core_tokens:
+        return False
+    comment_tokens = set(re.findall(r"[a-z0-9]+", comments.lower()))
+    return any(token in comment_tokens for token in core_tokens)
 
 
 def extract_venues_batch(
@@ -1491,6 +1514,7 @@ def extract_venues_batch(
         result = call_venue_llm(
             messages, api_endpoint, api_key, model, logger,
             debug_dir=batch_debug_dir,
+            debug_label=f"venue_batch_{batch_count:03d}_error",
         )
         if result is None:
             for p in batch:
