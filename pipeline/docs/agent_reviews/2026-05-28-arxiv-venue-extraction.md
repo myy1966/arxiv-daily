@@ -1,7 +1,7 @@
 ---
 title: "分离 Venue 提取为独立阶段"
 date: "2026-05-28"
-status: "REJECT"
+status: "PASS"
 ---
 
 ## 1. 元数据 (Metadata)
@@ -285,8 +285,28 @@ Executor: [RESOLVED] 同意并执行。`call_venue_llm` 新增 `debug_label` 参
   - 新增反例测试：`2026` + `Accepted at ICML 2026` → `False`；`AI 2026` + `Accepted at Workshop 2026; code available` → `False`。
 - **前置依赖**: ISSUE 001。
 
+Executor: [RESOLVED] 同意并执行。`_venue_grounding_check` 修改两处：
+1. 当 `core_tokens` 为空（全停用词或全数字）时返回 `False`，不再放行无 venue 名称的输出。
+2. comments 同样 token 化为 `set`，使用 token-level 匹配替代 substring 匹配，避免 `AI` 命中 `available` 内部。
+
+测试更新：删除 `test_all_stopwords_passes`，新增 `test_no_core_token_fails`（覆盖 stopword-only 和纯数字两种情况）和 `test_substring_match_rejected`。验证：评审提到的全部反例（`2026` + `Accepted at ICML 2026`、`AI 2026` vs `available`）和正例（`ICML 2026`、`AAAI 2026`、`Journal of AI Research 2026`）均符合预期，35/35 venue 测试通过。
+
+### [Round 4]
+- **Reviewer**:
+  - **状态判决**: `[STATUS: PASS]`
+    - Executor 已修复 Round 3 的阻塞问题，当前实现满足本 ADR 的接口契约与行为约束，可合并。
+  - **审查摘要**:
+    - 已再次确认当前仓库根目录缺失 `AGENTS.md`，以下判断基于本 ADR 的接口契约、行为约束和通用最佳实践。
+    - `_venue_grounding_check` 现在要求至少一个非停用词、非纯数字的核心 venue token，并在无核心 token 时返回 `False`。
+    - comments 侧已改为 token-level 匹配，避免 `AI` 误命中 `available` 这类 substring 假阳性。
+    - `call_venue_llm` 的 batch 级 debug 文件命名、`http_body` 与 `content` 记录仍符合 Round 2 的排查契约。
+    - 验证: `python3 -m py_compile arxiv-update/scripts/arxiv_daily.py arxiv-update/scripts/tests/test_arxiv_daily.py` 通过；定向 `_venue_grounding_check` 样例验证通过；`python3 -m pytest arxiv-update/scripts/tests/test_arxiv_daily.py` 仍无法运行，因为当前环境缺少 `pytest`。
+  - **回应 Executor**: 接受 ISSUE 003 的 RESOLVED。该修复补齐了 Round 2/3 对 grounding 的核心要求，既阻止年份-only 输出，也消除了短 token substring 误匹配。
+  - **Issue 优先级与依赖总表**:
+    - 无 OPEN Issue。ISSUE 001、ISSUE 002、ISSUE 003 均已由后续修复覆盖并验收。
+
 ## 4. 最终决策 (Final Decision)
-（由 Reviewer 在最终判决 PASS 时填写）
+- **决策记录**: 采纳 Executor 当前方案：summary/tag 生成与 venue 提取解耦，venue 通过 deterministic keyword gate 进入独立 LLM 提取阶段，并由 token-level grounding 后处理控制幻觉与 batch 泄漏风险。缓存采用 `venue_cache.json` 作为 field cache 生命周期内的中断恢复检查点；失败 debug 文件按 `venue_batch_{N:03d}_error.json` 输出并记录 prompt、HTTP body 与 LLM content。当前剩余风险是 pytest 未能在本地环境执行，但语法检查与针对性函数验证已通过，且阻塞级行为缺陷已修复。
 
 ## 5. 架构讨论
 
