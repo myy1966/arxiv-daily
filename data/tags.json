@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-08T10:47:32.431687+08:00",
+  "updated_at": "2026-07-09T14:23:05.650985+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -2865,6 +2865,29 @@
     "AI Regulation",
     "Diffusion MRI",
     "Training Strategy",
-    "Kernel Generation"
+    "Kernel Generation",
+    "CPU Fuzzing",
+    "Logic Equivalence Checking",
+    "Irregular Memory Access",
+    "Metalens",
+    "DVFS",
+    "Computational Imaging",
+    "Line Segment Detection",
+    "Direct Preference Optimization",
+    "Speech-to-Text Alignment",
+    "AI Industry Analysis",
+    "Quantum Simulation",
+    "Time Series Imputation",
+    "Dialect Adaptation",
+    "Knowledge Base",
+    "Compositional Visual Reasoning",
+    "Test-Time Inference",
+    "Epistemic Alignment",
+    "Product Line",
+    "Appearance Estimation",
+    "Reputation System",
+    "Communication Optimization",
+    "Related Work Generation",
+    "AI Agent"
   ]
 }
