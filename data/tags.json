@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-16T14:35:44.480171+08:00",
+  "updated_at": "2026-07-17T11:29:55.354460+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3083,6 +3083,25 @@
     "Weighted Polynomials",
     "Inverse Alignment",
     "Visual Attribution",
-    "Column Generation"
+    "Column Generation",
+    "Analog Design",
+    "In-Network Computing",
+    "Profiling",
+    "Context Engineering",
+    "Honesty Evaluation",
+    "Event Detection",
+    "FaaS",
+    "MaxSAT",
+    "Asymmetric Loss",
+    "Issue Localization",
+    "Maximum Clique Problem",
+    "User Behavior Analysis",
+    "Storage Efficiency",
+    "Non-Stationary MDP",
+    "Fisher Approximation",
+    "Phasor Computing",
+    "Masked Autoencoder",
+    "Text Containment Detection",
+    "Motor Imagery"
   ]
 }
