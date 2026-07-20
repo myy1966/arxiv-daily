@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-17T11:29:55.354460+08:00",
+  "updated_at": "2026-07-20T10:52:15.960510+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3102,6 +3102,35 @@
     "Phasor Computing",
     "Masked Autoencoder",
     "Text Containment Detection",
-    "Motor Imagery"
+    "Motor Imagery",
+    "RTL Timing Prediction",
+    "Systolic Array",
+    "Weight Correction",
+    "Side-Channel Analysis",
+    "Error Correction Code",
+    "Detailed Routing",
+    "Hearing Aids",
+    "Voice Assistant",
+    "Convolution Error",
+    "MRI Analysis",
+    "Egomotion Estimation",
+    "Code-Mixed Text",
+    "Human Motion Capture",
+    "Dialogue State Tracking",
+    "Multi-Tenant Training",
+    "Sarcasm Detection",
+    "UAV Detection",
+    "3D Motion Perception",
+    "Medical Image Generation",
+    "Video Summarization",
+    "Eligibility Traces",
+    "Semantic Compression",
+    "Successor Representation",
+    "Table Recognition",
+    "Rust",
+    "Value Leakage",
+    "Political Simulation",
+    "Cost-Aware Evaluation",
+    "Logic and Optimization"
   ]
 }
