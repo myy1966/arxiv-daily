@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-22T11:08:02.517026+08:00",
+  "updated_at": "2026-07-23T14:31:57.492528+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3235,6 +3235,26 @@
     "DRC Fixing",
     "PPA Optimization",
     "Lie Group Normalization",
-    "Brain Encoding"
+    "Brain Encoding",
+    "Memory Protection",
+    "Priority Queue",
+    "Cross-Modal Retrieval",
+    "Cloud Security",
+    "Workload Characterization",
+    "Cell Painting",
+    "Sparse Inference",
+    "Distributed LLM Inference",
+    "Integrity Verification",
+    "Quantum Reservoir Computing",
+    "Cross-Cultural",
+    "Geolocation",
+    "Diabetic Retinopathy",
+    "AI Debate",
+    "Agentic Optimization",
+    "Conversational Memory",
+    "Adam Optimizer",
+    "Learning Analytics",
+    "Data Reduction",
+    "Facial Action Unit Detection"
   ]
 }
