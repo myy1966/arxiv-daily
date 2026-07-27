@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-24T11:07:58.967612+08:00",
+  "updated_at": "2026-07-27T11:46:53.973540+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3295,6 +3295,33 @@
     "Moral Foundation Analysis",
     "Quantum Code Generation",
     "Agentic Code Review",
-    "Evaluator-Policy Co-Evolution"
+    "Evaluator-Policy Co-Evolution",
+    "Rowhammer",
+    "Materialized View",
+    "Asynchronous Reinforcement Learning",
+    "Product Line Engineering",
+    "Hybrid Quantum-Classical",
+    "Logic Gate Networks",
+    "Latent Dynamics",
+    "Join Discovery",
+    "Audio Deepfake Detection",
+    "Image Signal Processing",
+    "Attack Graph",
+    "Active Directory Security",
+    "Inverse Optimization",
+    "Learning Rate Scheduling",
+    "Audio Foundation Model",
+    "Qualitative Research",
+    "Test-Driven Development",
+    "Trustworthy AI",
+    "Political Bias",
+    "Data Preparation",
+    "Participatory Budgeting",
+    "Temporal Difference Learning",
+    "Process Reinforcement Learning",
+    "License Compliance",
+    "Reproducing Kernel Banach Space",
+    "Longitudinal Analysis",
+    "Lithium-Ion Battery"
   ]
 }
