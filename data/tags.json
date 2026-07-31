@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-30T10:13:57.990672+08:00",
+  "updated_at": "2026-07-31T10:36:39.558340+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3464,6 +3464,24 @@
     "Emotional Support",
     "Adversarial Pragmatics",
     "Model Auditing",
-    "Layout Analysis"
+    "Layout Analysis",
+    "Voice Agent",
+    "Conceptual Reasoning",
+    "Sparse Activation",
+    "Data Engineering Agent",
+    "Memory Injection Defense",
+    "Graph Language Model",
+    "Learning to Optimize",
+    "Hidden Markov Model",
+    "Cross-Embodiment Transfer",
+    "SVG Generation",
+    "Data Asset Discovery",
+    "Agent-as-a-Service",
+    "Skill Leakage",
+    "Facial Manipulation Defense",
+    "Soft-Label Training",
+    "Task Vector Transport",
+    "Outcome-Supervised RL",
+    "Optimizer Analysis"
   ]
 }
