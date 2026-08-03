@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-31T10:36:39.558340+08:00",
+  "updated_at": "2026-08-03T10:10:54.352225+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3482,6 +3482,13 @@
     "Soft-Label Training",
     "Task Vector Transport",
     "Outcome-Supervised RL",
-    "Optimizer Analysis"
+    "Optimizer Analysis",
+    "Stochastic Gradient Methods",
+    "Bayesian Inverse Planning",
+    "Queueing Theory",
+    "Qualitative Coding",
+    "Concept Extraction",
+    "Set Function Learning",
+    "Policy Ambiguity"
   ]
 }
