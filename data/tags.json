@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-04T17:05:34.000546+08:00",
+  "updated_at": "2026-08-05T12:06:53.654792+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3521,6 +3521,21 @@
     "Next-Query Prediction",
     "Reaction Optimization",
     "Video Memorability",
-    "Qualitative Data Analysis"
+    "Qualitative Data Analysis",
+    "qLDPC Codes",
+    "Predecoding",
+    "Prerequisite Relation Learning",
+    "AI Agent Economics",
+    "Spatial Proteomics",
+    "De-identification",
+    "Ambiguity Detection",
+    "Zero-Shot Coordination",
+    "Real-Time Bidding",
+    "Memory Poisoning",
+    "PII Detection",
+    "Prompt Routing",
+    "Transductive Reasoning",
+    "Vertical Federated Learning",
+    "Shot Transition Detection"
   ]
 }
