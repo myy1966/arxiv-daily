@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-05T12:06:53.654792+08:00",
+  "updated_at": "2026-08-06T10:20:45.314552+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3536,6 +3536,14 @@
     "Prompt Routing",
     "Transductive Reasoning",
     "Vertical Federated Learning",
-    "Shot Transition Detection"
+    "Shot Transition Detection",
+    "Timing Analysis",
+    "Skill Valuation",
+    "Delay-Tolerant Networks",
+    "Aviation Safety",
+    "Evidence Graph",
+    "Text-to-Graph Query",
+    "Path Signature",
+    "Differential Dataflow"
   ]
 }
