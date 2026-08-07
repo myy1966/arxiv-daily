@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-06T10:20:45.314552+08:00",
+  "updated_at": "2026-08-07T11:14:02.029121+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3544,6 +3544,22 @@
     "Evidence Graph",
     "Text-to-Graph Query",
     "Path Signature",
-    "Differential Dataflow"
+    "Differential Dataflow",
+    "Power Measurement",
+    "Cache Coherence",
+    "Quantum Control",
+    "Integrated Sensing and Communication",
+    "Visual Counting",
+    "Music Education",
+    "Robot Safety",
+    "Agentic Science",
+    "Time-Sensitive Networking",
+    "Grammar-Constrained Decoding",
+    "Graph Compression",
+    "Local Differential Privacy",
+    "Digital Sovereignty",
+    "System Prompt Auditing",
+    "Spectral Unmixing",
+    "Skill Neologisms"
   ]
 }
