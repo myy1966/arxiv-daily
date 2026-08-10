@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-07T11:14:02.029121+08:00",
+  "updated_at": "2026-08-10T10:38:29.903231+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3560,6 +3560,19 @@
     "Digital Sovereignty",
     "System Prompt Auditing",
     "Spectral Unmixing",
-    "Skill Neologisms"
+    "Skill Neologisms",
+    "GPU Power Modeling",
+    "Memory Compression",
+    "Molecular Docking",
+    "Sample Efficiency",
+    "Split Federated Learning",
+    "Group Theory",
+    "AI-Generated Music Detection",
+    "Two-Tower Model",
+    "Audio LLM",
+    "Dependency Parsing",
+    "AI Companion",
+    "Offensive Security",
+    "Audio-to-Score Transcription"
   ]
 }
