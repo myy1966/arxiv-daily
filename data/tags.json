@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-11T13:46:40.976304+08:00",
+  "updated_at": "2026-08-12T10:53:18.292607+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3592,6 +3592,21 @@
     "Knowledge Expression",
     "Mathematical Formalization",
     "Computational Graph",
-    "Attack Chain Generation"
+    "Attack Chain Generation",
+    "UAV Intrusion Detection",
+    "Constraint Logic Programming",
+    "Climate Emulation",
+    "Scattering Matrix",
+    "Optimal Stopping",
+    "Image Colorization",
+    "Egocentric Video",
+    "Synthetic Dialogue Generation",
+    "RL Theory",
+    "Situation Graph Prediction",
+    "Planning Task Shielding",
+    "Voice Activity Detection",
+    "Solomonoff Induction",
+    "Microservice Systems",
+    "Embedding Similarity"
   ]
 }
