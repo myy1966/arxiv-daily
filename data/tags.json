@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-12T10:53:18.292607+08:00",
+  "updated_at": "2026-08-13T11:53:12.202158+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3607,6 +3607,16 @@
     "Voice Activity Detection",
     "Solomonoff Induction",
     "Microservice Systems",
-    "Embedding Similarity"
+    "Embedding Similarity",
+    "Gradient Descent",
+    "PAC-Bayes",
+    "Sequential Decision Making",
+    "Nanophotonics",
+    "AI Accountability",
+    "Slide Generation",
+    "Inverse Planning",
+    "Numerical Intelligence",
+    "EHR Interoperability",
+    "Bridge Diffusion"
   ]
 }
