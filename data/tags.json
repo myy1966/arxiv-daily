@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-13T11:53:12.202158+08:00",
+  "updated_at": "2026-08-14T13:01:49.265413+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3617,6 +3617,13 @@
     "Inverse Planning",
     "Numerical Intelligence",
     "EHR Interoperability",
-    "Bridge Diffusion"
+    "Bridge Diffusion",
+    "Online Assessment Security",
+    "Search Efficiency",
+    "Sleep Stage Classification",
+    "Similarity Learning",
+    "Schrödinger Bridge",
+    "Length Generalization",
+    "Proof Repair"
   ]
 }
