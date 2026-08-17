@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-14T13:01:49.265413+08:00",
+  "updated_at": "2026-08-17T10:52:56.417869+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3624,6 +3624,17 @@
     "Similarity Learning",
     "Schrödinger Bridge",
     "Length Generalization",
-    "Proof Repair"
+    "Proof Repair",
+    "Signal Temporal Logic",
+    "Formal Concept Analysis",
+    "Spectral Foundation Model",
+    "Anchoring Effect",
+    "Truth-Tracking",
+    "Arabic LLM",
+    "Color Bias",
+    "Floor Plan Analysis",
+    "Security Annotation",
+    "Presentation Attack Detection",
+    "Riemannian Geometry"
   ]
 }
