@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-17T10:52:56.417869+08:00",
+  "updated_at": "2026-08-18T20:31:53.615888+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3635,6 +3635,29 @@
     "Floor Plan Analysis",
     "Security Annotation",
     "Presentation Attack Detection",
-    "Riemannian Geometry"
+    "Riemannian Geometry",
+    "Wireless Foundation Model",
+    "Harness Scaling",
+    "Domain Modeling",
+    "Extreme Value Theory",
+    "Cooperative Perception",
+    "Repetition Priming",
+    "Test-Time Augmentation",
+    "Security Drift",
+    "Resource Hijacking",
+    "Honeypot",
+    "Speculative Inference",
+    "Ocean Forecasting",
+    "Temporal Encoding",
+    "Audio-Visual Segmentation",
+    "Video Reasoning",
+    "Biological Reasoning",
+    "Media Chapterization",
+    "Discourse Analysis",
+    "Polysemy",
+    "Event Stream Modeling",
+    "Protein Classification",
+    "Code Embedding",
+    "Soft Clustering"
   ]
 }
