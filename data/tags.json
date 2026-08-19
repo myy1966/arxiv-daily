@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-18T20:31:53.615888+08:00",
+  "updated_at": "2026-08-19T22:48:31.527358+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3658,6 +3658,18 @@
     "Event Stream Modeling",
     "Protein Classification",
     "Code Embedding",
-    "Soft Clustering"
+    "Soft Clustering",
+    "Model Cascades",
+    "Contextual Reinforcement Learning",
+    "Web3 Security",
+    "Irregular Time Series",
+    "Surgical Skill Assessment",
+    "Molecular Language Model",
+    "Benchmark Gaming",
+    "Surgical Phase Recognition",
+    "Stress Estimation",
+    "Evidence Localization",
+    "Game-Based Learning",
+    "Cross-Model Memory Transfer"
   ]
 }
