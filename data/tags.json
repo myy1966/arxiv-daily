@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-19T22:48:31.527358+08:00",
+  "updated_at": "2026-08-20T21:43:40.271246+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3670,6 +3670,17 @@
     "Stress Estimation",
     "Evidence Localization",
     "Game-Based Learning",
-    "Cross-Model Memory Transfer"
+    "Cross-Model Memory Transfer",
+    "Automated Metric",
+    "Grid Cell Modeling",
+    "Handwritten OCR",
+    "Slot Filling",
+    "Service Robotics",
+    "Telecommunications",
+    "Astrolinguistics",
+    "Optimization Modeling",
+    "Model Cascade",
+    "Music Editing",
+    "Hierarchical Classification"
   ]
 }
