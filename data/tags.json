@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-20T21:43:40.271246+08:00",
+  "updated_at": "2026-08-23T12:33:26.358950+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3681,6 +3681,20 @@
     "Optimization Modeling",
     "Model Cascade",
     "Music Editing",
-    "Hierarchical Classification"
+    "Hierarchical Classification",
+    "Inter-layer Scheduling",
+    "Performance Verification",
+    "High Bandwidth Memory",
+    "Multistate Reliability",
+    "Tensor Core",
+    "Voltage Droop",
+    "Oscillatory Neural Network",
+    "OFDM",
+    "Prefix Adder",
+    "Data Governance",
+    "Shape Completion",
+    "AI Agency",
+    "Artificial Immune Network",
+    "Entrepreneurship"
   ]
 }
