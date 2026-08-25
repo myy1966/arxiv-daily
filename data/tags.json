@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-24T13:02:47.390044+08:00",
+  "updated_at": "2026-08-25T13:20:48.977706+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3712,6 +3712,24 @@
     "Sparse Supervision",
     "XANES Simulation",
     "Task Exchangeability",
-    "Statistical Inference"
+    "Statistical Inference",
+    "Compute-in-Transit",
+    "Discrete-Event Simulation",
+    "Logic Encryption",
+    "Sea Ice Prediction",
+    "Document Classification",
+    "Dark Pattern Detection",
+    "Skill Acquisition",
+    "Cultural Reasoning",
+    "Superposition",
+    "RL Testing",
+    "Propaganda Detection",
+    "Continuous Optimization",
+    "Data-to-Text Generation",
+    "Antenna Design",
+    "Road Safety",
+    "Trajectory Similarity",
+    "Music Notation Processing",
+    "Phone Secretary"
   ]
 }
