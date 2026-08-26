@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-25T13:20:48.977706+08:00",
+  "updated_at": "2026-08-26T19:11:43.257690+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3730,6 +3730,17 @@
     "Road Safety",
     "Trajectory Similarity",
     "Music Notation Processing",
-    "Phone Secretary"
+    "Phone Secretary",
+    "Astronomical Foundation Model",
+    "Model Welfare",
+    "State Machine",
+    "Limit Order Book",
+    "CRDT",
+    "Construct Validity",
+    "Knowledge Graph QA",
+    "Agent Harness",
+    "Fair Allocation",
+    "Model Card Generation",
+    "Network Traffic Generation"
   ]
 }
