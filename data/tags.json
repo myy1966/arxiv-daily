@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-26T19:11:43.257690+08:00",
+  "updated_at": "2026-08-27T13:25:20.298941+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3741,6 +3741,16 @@
     "Agent Harness",
     "Fair Allocation",
     "Model Card Generation",
-    "Network Traffic Generation"
+    "Network Traffic Generation",
+    "RF Interference Suppression",
+    "Computational Semantics",
+    "Bayesian Flow Networks",
+    "Spec-Driven Development",
+    "Electronic Nose",
+    "Data Citation",
+    "Successor Features",
+    "Table-to-LaTeX",
+    "Chemical Reaction Representation",
+    "Graph Engineering"
   ]
 }
