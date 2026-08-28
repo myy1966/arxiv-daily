@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-27T13:25:20.298941+08:00",
+  "updated_at": "2026-08-28T13:15:33.677946+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3751,6 +3751,18 @@
     "Successor Features",
     "Table-to-LaTeX",
     "Chemical Reaction Representation",
-    "Graph Engineering"
+    "Graph Engineering",
+    "Compute-in-ROM",
+    "Ternary Quantization",
+    "DNA Data Storage",
+    "Co-Packaged Optics",
+    "Academic Risk Prediction",
+    "Agent Reliability",
+    "Reaction Prediction",
+    "Topological Phononics",
+    "Magnon-Phonon Coupling",
+    "Source Attribution",
+    "Knowledge Entanglement",
+    "Facial Generation"
   ]
 }
