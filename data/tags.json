@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-28T13:15:33.677946+08:00",
+  "updated_at": "2026-08-31T19:08:08.506141+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3763,6 +3763,18 @@
     "Magnon-Phonon Coupling",
     "Source Attribution",
     "Knowledge Entanglement",
-    "Facial Generation"
+    "Facial Generation",
+    "Circuit Representation Learning",
+    "Fallacy Detection",
+    "POI Recommendation",
+    "Neighborhood Adaptation",
+    "Computer-Supported Cooperative Work",
+    "EHR Modeling",
+    "Fisheye Vision",
+    "Fluid Antenna",
+    "Plasma Shape Control",
+    "Texture Classification",
+    "Time Series Reasoning",
+    "Structured Reasoning"
   ]
 }
