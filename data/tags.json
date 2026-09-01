@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-31T19:08:08.506141+08:00",
+  "updated_at": "2026-09-01T19:41:41.515703+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3775,6 +3775,25 @@
     "Plasma Shape Control",
     "Texture Classification",
     "Time Series Reasoning",
-    "Structured Reasoning"
+    "Structured Reasoning",
+    "Adiabatic Logic",
+    "Clock Gating",
+    "Tabu Search",
+    "Recursive Models",
+    "Data Structuring",
+    "AI and Free Speech",
+    "Instance Segmentation",
+    "Grounded Theory",
+    "Robust Estimation",
+    "Exponential Random Graph Model",
+    "LLM Self-Modeling",
+    "People Search",
+    "Causal Attribution",
+    "Code Obfuscation",
+    "Music Restoration",
+    "Epidemiological Reasoning",
+    "Audio Fingerprinting",
+    "Camouflaged Object Detection",
+    "Mixture Model"
   ]
 }
