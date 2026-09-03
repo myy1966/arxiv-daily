@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-09-01T19:41:41.515703+08:00",
+  "updated_at": "2026-09-03T22:05:42.608251+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3794,6 +3794,28 @@
     "Epidemiological Reasoning",
     "Audio Fingerprinting",
     "Camouflaged Object Detection",
-    "Mixture Model"
+    "Mixture Model",
+    "Quantum Federated Learning",
+    "Spectrum Intelligence",
+    "Jailbreak Evaluation",
+    "Trust Propagation",
+    "Event Log Generation",
+    "Multiscale Modeling",
+    "Lexical Normalization",
+    "Non-Convex Optimization",
+    "Latent State Internalization",
+    "Temporal Logic",
+    "Stain Normalization",
+    "Sparse Decision Tree",
+    "Verbal Reinforcement Learning",
+    "Process Verification",
+    "Visual Speech Recognition",
+    "Automatic Item Generation",
+    "RGB-Thermal Segmentation",
+    "Continual Audio-Visual Segmentation",
+    "Rehearsal",
+    "Insider Threat Detection",
+    "Digital Biomarker",
+    "Negative-Constraint Retrieval"
   ]
 }
