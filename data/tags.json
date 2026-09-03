@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-09-03T22:05:42.608251+08:00",
+  "updated_at": "2026-09-03T23:05:45.237974+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3816,6 +3816,22 @@
     "Rehearsal",
     "Insider Threat Detection",
     "Digital Biomarker",
-    "Negative-Constraint Retrieval"
+    "Negative-Constraint Retrieval",
+    "Evaluation Awareness",
+    "Meta-ethics",
+    "Statistical Problem Formulation",
+    "Task Ontology",
+    "Travel Planning",
+    "Open Information Extraction",
+    "Stable Matching",
+    "Political Evasion",
+    "Drug-Target Interaction",
+    "Maximum Independent Set",
+    "ODD Coverage",
+    "Stochastic Approximation",
+    "Behavioral Composition",
+    "Mathematical Retrieval",
+    "Secure Code Generation",
+    "Differential Diagnosis"
   ]
 }
