@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-09-03T23:05:45.237974+08:00",
+  "updated_at": "2026-09-04T13:30:08.098231+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3832,6 +3832,22 @@
     "Behavioral Composition",
     "Mathematical Retrieval",
     "Secure Code Generation",
-    "Differential Diagnosis"
+    "Differential Diagnosis",
+    "Logic Synthesis",
+    "Shared State",
+    "Plan Deordering",
+    "Meeting Delegation",
+    "AI Review",
+    "Epistemic Warrant",
+    "Many-Valued Logic",
+    "Neural Network Equivalence",
+    "Demand Response",
+    "Evidence Calibration",
+    "PCB Routing",
+    "Data Market Design",
+    "Ray Tracing",
+    "Mixed Data Clustering",
+    "Weight Reparameterization",
+    "HTN Planning"
   ]
 }
