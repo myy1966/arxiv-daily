@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-09-04T13:30:08.098231+08:00",
+  "updated_at": "2026-09-07T13:25:34.593597+08:00",
   "tags": [
     "LLM Reasoning",
     "LLM Alignment",
@@ -3848,6 +3848,25 @@
     "Ray Tracing",
     "Mixed Data Clustering",
     "Weight Reparameterization",
-    "HTN Planning"
+    "HTN Planning",
+    "Statistical Fault Injection",
+    "Quality-of-Experience",
+    "Constitutive Modeling",
+    "IP Geolocation",
+    "Model Retirement",
+    "Embedding Inversion Attack",
+    "Game Matchmaking",
+    "Regulatory Learning",
+    "Graph Pooling",
+    "Expert Skipping",
+    "Execution Context",
+    "Layer Dropout",
+    "HVAC Operations",
+    "Evidence Integration",
+    "Structural Priming",
+    "Pause Token",
+    "Inference Cascade",
+    "Voice Conversion",
+    "Generative Reranking"
   ]
 }
