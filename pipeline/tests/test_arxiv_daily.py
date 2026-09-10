@@ -625,6 +625,17 @@ class TestPhase2Helpers:
         assert arxiv_daily.load_tags(tags_path) == []
         assert tags_path.parent.exists()
 
+    def test_apply_tag_mapping_rewrites_paper_and_new_tags(self):
+        matched = {
+            "1": {"summary": "s", "tags": ["LLM-as-a-Judge", "LLM Evaluation"]},
+        }
+        mapping = {"LLM-as-a-Judge": "LLM Evaluation", "LLM Evaluation": "LLM Evaluation"}
+        out, new_tags = arxiv_daily._apply_tag_mapping(
+            matched, ["LLM-as-a-Judge", "Astrolinguistics"], mapping
+        )
+        assert out["1"]["tags"] == ["LLM Evaluation"]
+        assert new_tags == ["LLM Evaluation", "Astrolinguistics"]
+
     def test_collect_batches_filters_missing_abstracts(self):
         data = {
             "sections": [{
@@ -878,6 +889,24 @@ class TestPhase2Helpers:
         assert tags_data["tags"] == ["大模型"]
         assert "updated_at" in tags_data
         assert tags_data["updated_at"].endswith("+08:00")
+
+    def test_save_tags_preserves_consolidation_metadata(self, tmp_path):
+        tags_path = tmp_path / "tags.json"
+        tags_path.write_text(
+            json.dumps({
+                "updated_at": "old",
+                "consolidated_from": "tags_full.json",
+                "min_frequency": 20,
+                "tags": ["old"],
+            }),
+            encoding="utf-8",
+        )
+        arxiv_daily.save_tags(tags_path, ["new"])
+        tags_data = json.loads(tags_path.read_text(encoding="utf-8"))
+        assert tags_data["tags"] == ["new"]
+        assert tags_data["consolidated_from"] == "tags_full.json"
+        assert tags_data["min_frequency"] == 20
+        assert tags_data["updated_at"] != "old"
 
     def test_save_tags_preserves_existing_file_on_write_failure(self, monkeypatch, tmp_path):
         tags_path = tmp_path / "tags.json"
@@ -1598,6 +1627,7 @@ class TestRunPhase2:
             save_cache,
             cache_allowed,
             exception_status,
+            **kwargs,
         ):
             if label_prefix == "retry":
                 retry_batches.append([paper["id"] for paper in batch])
@@ -1968,6 +1998,7 @@ class TestRunPhase2:
             save_cache,
             cache_allowed,
             exception_status,
+            **kwargs,
         ):
             if label_prefix == "retry":
                 retry_invocations.append([paper["id"] for paper in batch])

@@ -43,6 +43,8 @@ try:
 except ImportError:
     json_repair_loads = None
 
+from consolidate_tags import canonicalize_tag_list, load_tag_mapping
+
 
 class ArxivDailyError(Exception):
     """Base exception for arxiv_daily pipeline errors."""
@@ -481,13 +483,13 @@ def build_prompt(batch_papers: list[dict], current_tags: list[str]) -> list[dict
    - What problem or gap does the paper address?
    - What is the proposed method, framework, or main contribution?
    - What are the key results or findings? Include quantitative metrics when available.
-2. Assign 1-3 tags from the existing tag list.
-   - Tags should be at the level of specific research topics or methods, NOT broad categories.
-   - If a broad tag (e.g. "LLM") exists but a more specific subtopic tag (e.g. "LLM Reasoning", "LLM Agent") also exists and fits better, prefer the specific one.
-   - If no existing tag adequately captures the paper's specific topic, create a new one.
-   - New tags must be in English, concise (1-3 words), and at a similar granularity as existing specific tags.
-   - BAD granularity: "LLM", "NLP", "Computer Vision" (too broad)
-   - GOOD granularity: "LLM Reasoning", "LLM Alignment", "Object Detection", "Code Generation"
+2. Assign 1-2 tags from the existing tag list.
+   - Tags are for daily-digest readers to skip or keep a paper, not paper keywords or method names.
+   - Prefer an existing tag. Do not invent model names, dataset names, or one-off method names as tags.
+   - Only create a new tag if the topic is missing from the list AND likely to recur across papers.
+   - New tags must be in English, concise (1-3 words), at the same granularity as existing tags.
+   - BAD: "LLM", "NLP", "Computer Vision" (too broad); "JEPA", "RAPID" (too specific)
+   - GOOD: "LLM Agent", "LLM Evaluation", "Object Detection", "Code Generation"
 
 Current tag list: {tags_str}
 
@@ -1024,6 +1026,27 @@ def _patch_batch_cache(
     _atomic_write_json(cache_path, cached)
 
 
+def _apply_tag_mapping(
+    matched: dict[str, dict],
+    new_tags: list,
+    mapping: dict[str, str],
+) -> tuple[dict[str, dict], list[str]]:
+    """Rewrite paper tags and new_tags through the canonical mapping."""
+    if not mapping:
+        return matched, list(new_tags or [])
+    for rec in matched.values():
+        rec["tags"] = canonicalize_tag_list(rec.get("tags") or [], mapping)
+    resolved: list[str] = []
+    for tag in new_tags or []:
+        if not isinstance(tag, str):
+            continue
+        mapped_tags = canonicalize_tag_list([tag], mapping)
+        for mapped in mapped_tags:
+            if mapped not in resolved:
+                resolved.append(mapped)
+    return matched, resolved
+
+
 def _process_batch(
     batch: list[dict],
     idx: int,
@@ -1039,6 +1062,7 @@ def _process_batch(
     save_cache: bool,
     cache_allowed: bool,
     exception_status: str,
+    tag_mapping: dict[str, str] | None = None,
 ) -> BatchProcessResult:
     batch_num = idx + 1
     blabel = f"{label_prefix}_{batch_num:03d}"
@@ -1054,6 +1078,7 @@ def _process_batch(
         )
 
         new_tags = result.get("new_tags", [])
+        matched, new_tags = _apply_tag_mapping(matched, new_tags, tag_mapping or {})
         for tag in new_tags:
             if tag not in current_tags:
                 current_tags.append(tag)
@@ -1142,8 +1167,18 @@ def load_cached_batches(field_cache: Path, hash_file: Path, current_hash: str, n
 
 
 def save_tags(tags_path: Path, current_tags: list) -> None:
-    """Persist the current tag list."""
+    """Persist the current tag list, keeping extra metadata fields."""
+    existing: dict = {}
+    if tags_path.exists():
+        try:
+            with open(tags_path, encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                existing = loaded
+        except (OSError, json.JSONDecodeError):
+            existing = {}
     tags_out = {
+        **{k: v for k, v in existing.items() if k not in {"updated_at", "tags"}},
         "updated_at": datetime.now(OUTPUT_TZ).isoformat(),
         "tags": current_tags,
     }
@@ -1169,6 +1204,7 @@ def run_phase2(
         results_by_id: {paper_id: {"summary": ..., "tags": [...], "venue": ...}}
     """
     current_tags = load_tags(tags_path)
+    tag_mapping = load_tag_mapping(tags_path)
     batches = collect_batches(data, BATCH_SIZE)
 
     if not batches:
@@ -1200,8 +1236,9 @@ def run_phase2(
             matched, diagnostics = match_llm_results(
                 batch, cached.get("papers", []), logger, batch_num, cached, debug_dir, batch_label=blabel
             )
+            matched, _ = _apply_tag_mapping(matched, cached.get("new_tags") or [], tag_mapping)
             results_by_id.update(matched)
-            for tag in cached.get("current_tags") or []:
+            for tag in canonicalize_tag_list(cached.get("current_tags") or [], tag_mapping):
                 if tag not in current_tags:
                     current_tags.append(tag)
             unresolved_papers = _unresolved_papers(batch, matched, diagnostics.all_failed_ids)
@@ -1221,6 +1258,7 @@ def run_phase2(
             api_endpoint, api_key, model, logger, debug_dir, field_cache,
             batch_prefix, cache_writes_enabled, cache_allowed=True,
             exception_status="failed after all retries",
+            tag_mapping=tag_mapping,
         )
         results_by_id.update(processed.matched)
         if processed.failed:
@@ -1249,6 +1287,7 @@ def run_phase2(
                 "retry", save_cache=False,
                 cache_allowed=False,
                 exception_status="retry failed",
+                tag_mapping=tag_mapping,
             )
             results_by_id.update(processed.matched)
             still_failed_papers.extend(processed.unresolved)
