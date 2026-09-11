@@ -1297,6 +1297,22 @@ class TestCallLlmLoopDetection:
 # TestRunPhase2
 # ===========================================================================
 
+class TestDebugOutputDir:
+    def test_uses_listing_date(self, tmp_path):
+        path = arxiv_daily.debug_output_dir(tmp_path, "cs.AI", "2026-09-10")
+        assert path == tmp_path / "debug" / "cs.AI" / "2026-09-10"
+
+    def test_rejects_invalid_date(self, tmp_path):
+        path = arxiv_daily.debug_output_dir(tmp_path, "cs.AI", "not-a-date")
+        assert path.parent == tmp_path / "debug" / "cs.AI"
+        assert path.name != "not-a-date"
+        assert arxiv_daily._DATE_DIR_RE.fullmatch(path.name)
+
+    def test_rejects_path_separators_in_field(self, tmp_path):
+        path = arxiv_daily.debug_output_dir(tmp_path, "../etc", "2026-09-10")
+        assert path == tmp_path / "debug" / "unknown" / "2026-09-10"
+
+
 class TestRunPhase2:
     def test_normal_run(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
         api_url, handler_cls = fake_llm_server
@@ -1310,6 +1326,10 @@ class TestRunPhase2:
         assert failed == 0
         # Should have results for papers with abstracts
         assert len(results) > 0
+        debug_dir = cache_dir / "debug" / sample_data["field"] / sample_data["listing_date"]
+        assert debug_dir.is_dir()
+        assert list(debug_dir.glob("batch_*_stream_attempt1.txt"))
+        assert not (cache_dir / "debug" / sample_data["field"] / "batch_001_stream_attempt1.txt").exists()
 
     def test_caching(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
         api_url, handler_cls = fake_llm_server

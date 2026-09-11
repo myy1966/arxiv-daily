@@ -101,6 +101,17 @@ STREAM_LOOP_WINDOW = 30
 STREAM_LOOP_MAX_UNIQUE = 12
 STREAM_LOOP_MAX_BLANK_CHARS = 200
 _last_fetch_time: float | None = None
+_DATE_DIR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def debug_output_dir(cache_dir: Path, field: str, listing_date: str | None) -> Path:
+    """Return debug/<field>/<YYYY-MM-DD>/ so daily runs do not overwrite each other."""
+    if listing_date and _DATE_DIR_RE.fullmatch(listing_date):
+        date_part = listing_date
+    else:
+        date_part = datetime.now(OUTPUT_TZ).strftime("%Y-%m-%d")
+    field_part = field if field and "/" not in field and "\\" not in field and ".." not in field else "unknown"
+    return cache_dir / "debug" / field_part / date_part
 
 
 class _StreamLoopDetector:
@@ -1215,7 +1226,8 @@ def run_phase2(
     # Cache setup
     field_cache = cache_dir / data["field"]
     field_cache.mkdir(parents=True, exist_ok=True)
-    debug_dir = cache_dir / "debug" / data["field"]
+    debug_dir = debug_output_dir(cache_dir, data.get("field") or "unknown", data.get("listing_date"))
+    debug_dir.mkdir(parents=True, exist_ok=True)
 
     cached_batches: dict[int, dict] = {}
     if cache_writes_enabled:
@@ -1502,6 +1514,7 @@ def extract_venues_batch(
     logger: logging.Logger,
     field_cache: Path | None = None,
     metadata_hash: str | None = None,
+    debug_dir: Path | None = None,
 ) -> dict[str, str | None]:
     """Extract venues for all papers using keyword gate + LLM."""
     venues: dict[str, str | None] = {}
@@ -1542,13 +1555,11 @@ def extract_venues_batch(
     if not remaining:
         return venues
 
-    debug_dir = field_cache if field_cache is not None else None
+    venue_debug_dir = debug_dir if debug_dir is not None else field_cache
     batch_count = 0
     for i in range(0, len(remaining), VENUE_BATCH_SIZE):
         batch = remaining[i:i + VENUE_BATCH_SIZE]
-        batch_debug_dir = None
-        if debug_dir is not None:
-            batch_debug_dir = debug_dir
+        batch_debug_dir = venue_debug_dir
         messages = build_venue_prompt(batch)
         result = call_venue_llm(
             messages, api_endpoint, api_key, model, logger,
@@ -1939,6 +1950,7 @@ def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: L
             patch_papers, llm_config.api_endpoint, llm_config.api_key,
             llm_config.model, logger,
             field_cache=None, metadata_hash=None,
+            debug_dir=debug_output_dir(cache_base, args.field, args.date),
         )
         for pid, venue in venues.items():
             if pid in results_by_id:
@@ -2111,6 +2123,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
             all_papers, llm_config.api_endpoint, llm_config.api_key,
             llm_config.model, logger,
             field_cache=venue_cache_dir, metadata_hash=venue_hash,
+            debug_dir=debug_output_dir(cache_base, args.field, date_str),
         )
         for pid, venue in venues.items():
             if pid in results_by_id:
