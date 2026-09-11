@@ -396,6 +396,14 @@ class TestBuildPrompt:
         messages = arxiv_daily.build_prompt(papers, [])
         assert "Comments:" not in messages[1]["content"]
 
+    def test_allows_new_tag_when_existing_list_does_not_fit(self):
+        papers = [{"id": "2604.00001", "title": "T", "abstract": "A"}]
+        content = arxiv_daily.build_prompt(papers, ["LLM Agent"])[1]["content"]
+        assert "from the existing tag list" not in content
+        assert "Do not stretch a weakly related existing tag" in content
+        assert '"new_tags": ["Neuromorphic Photonics"]' in content
+        assert "Prefer an existing tag" in content
+
 
 # ===========================================================================
 # TestMatchLlmResults

@@ -494,13 +494,15 @@ def build_prompt(batch_papers: list[dict], current_tags: list[str]) -> list[dict
    - What problem or gap does the paper address?
    - What is the proposed method, framework, or main contribution?
    - What are the key results or findings? Include quantitative metrics when available.
-2. Assign 1-2 tags from the existing tag list.
+2. Assign 1-2 tags.
    - Tags are for daily-digest readers to skip or keep a paper, not paper keywords or method names.
-   - Prefer an existing tag. Do not invent model names, dataset names, or one-off method names as tags.
-   - Only create a new tag if the topic is missing from the list AND likely to recur across papers.
-   - New tags must be in English, concise (1-3 words), at the same granularity as existing tags.
-   - BAD: "LLM", "NLP", "Computer Vision" (too broad); "JEPA", "RAPID" (too specific)
-   - GOOD: "LLM Agent", "LLM Evaluation", "Object Detection", "Code Generation"
+   - Prefer an existing tag from the list when it is a genuine fit.
+   - Do not stretch a weakly related existing tag onto the paper. If none of the listed tags adequately capture the topic — including a genuinely new research area — create a new tag.
+   - Put every newly created tag both in that paper's "tags" and in top-level "new_tags". If nothing was created, return "new_tags": [].
+   - New tags must be in English, concise (1-3 words), at the same granularity as existing tags: a recurring research topic, not a paper, method, dataset, or model name.
+   - BAD: "LLM", "NLP", "Computer Vision" (too broad); "JEPA", "RAPID", "OpenDiscoveryTrace" (too specific)
+   - GOOD existing: "LLM Agent", "LLM Evaluation", "Object Detection", "Code Generation"
+   - GOOD new: a missing topic at that same grain, e.g. a distinct subfield that is not in the list
 
 Current tag list: {tags_str}
 
@@ -510,9 +512,10 @@ Papers:
 Respond in strict JSON format:
 {{
   "papers": [
-    {{"id": "...", "summary": "Chinese summary", "tags": ["tag1", "tag2"]}}
+    {{"id": "...", "summary": "Chinese summary", "tags": ["LLM Agent"]}},
+    {{"id": "...", "summary": "Chinese summary", "tags": ["Neuromorphic Photonics"]}}
   ],
-  "new_tags": ["new_tag1"]
+  "new_tags": ["Neuromorphic Photonics"]
 }}"""
 
     return [
