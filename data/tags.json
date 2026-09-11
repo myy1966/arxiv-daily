@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-09-10T19:15:02.686181+08:00",
+  "updated_at": "2026-09-11T23:03:38.756488+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -695,6 +695,15 @@
     "Time Series Anomaly Detection",
     "Automated Heuristic Design",
     "Multimodal Agent",
-    "Mamba"
+    "Mamba",
+    "Homomorphic Encryption",
+    "Steganography",
+    "Ordinal Classification",
+    "Layout Generation",
+    "Neural Speech Codec",
+    "Philosophy of Logic",
+    "Code-Switching",
+    "Humor Understanding",
+    "Structural Engineering"
   ]
 }
