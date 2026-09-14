@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-09-11T23:03:38.756488+08:00",
+  "updated_at": "2026-09-14T13:43:55.436428+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -704,6 +704,11 @@
     "Philosophy of Logic",
     "Code-Switching",
     "Humor Understanding",
-    "Structural Engineering"
+    "Structural Engineering",
+    "Event Forecasting",
+    "Radar Sensing",
+    "High-Energy Physics",
+    "Public Health",
+    "Quantum Chemistry"
   ]
 }
