@@ -489,7 +489,30 @@ def build_prompt(batch_papers: list[dict], current_tags: list[str]) -> list[dict
             entry += f"\nComments: {p['comments']}"
         papers_text.append(entry)
 
-    user_content = f"""Below are {len(batch_papers)} papers. For each paper:
+    paper_ids = [str(p["id"]) for p in batch_papers]
+    ids_csv = ", ".join(paper_ids)
+    example_objs = []
+    for p in batch_papers[:2]:
+        example_tag = "Neuromorphic Photonics" if len(example_objs) == 1 else "LLM Agent"
+        example_objs.append(
+            f'    {{"id": "{p["id"]}", "summary": "Chinese summary", "tags": ["{example_tag}"]}}'
+        )
+    example_new_tags = '["Neuromorphic Photonics"]' if len(batch_papers) >= 2 else "[]"
+    example_json = (
+        "{\n"
+        '  "papers": [\n'
+        + ",\n".join(example_objs)
+        + "\n  ],\n"
+        + f'  "new_tags": {example_new_tags}\n'
+        + "}"
+    )
+    user_content = f"""Below are {total_papers} papers.
+Copy these IDs verbatim as JSON strings (not numbers): {ids_csv}
+
+Return exactly {total_papers} paper objects. The set of "id" values must be exactly these {total_papers} IDs (order may differ).
+Do not drop, invent, reuse, or suffix IDs (_dup, placeholder). Each object must include id, a 1-3 sentence summary, and 1-2 tags.
+
+For each paper:
 1. Write a 1-3 sentence Chinese summary following this structure:
    - What problem or gap does the paper address?
    - What is the proposed method, framework, or main contribution?
@@ -510,13 +533,7 @@ Papers:
 {PAPER_SEPARATOR.join(papers_text)}
 
 Respond in strict JSON format:
-{{
-  "papers": [
-    {{"id": "...", "summary": "Chinese summary", "tags": ["LLM Agent"]}},
-    {{"id": "...", "summary": "Chinese summary", "tags": ["Neuromorphic Photonics"]}}
-  ],
-  "new_tags": ["Neuromorphic Photonics"]
-}}"""
+{example_json}"""
 
     return [
         {
@@ -530,7 +547,15 @@ Respond in strict JSON format:
     ]
 
 
-def _validate_llm_schema(result: object) -> dict:
+def _normalized_id_set(ids: list) -> set[str]:
+    return {
+        _normalize_paper_id(coerce_paper_id(pid))
+        for pid in ids
+        if coerce_paper_id(pid)
+    }
+
+
+def _validate_llm_schema(result: object, expected_ids: list[str] | None = None) -> dict:
     """Validate the top-level LLM response schema before downstream matching."""
     if not isinstance(result, dict):
         raise ValueError(f"LLM response must be a JSON object, got {type(result).__name__}")
@@ -538,6 +563,35 @@ def _validate_llm_schema(result: object) -> dict:
         raise ValueError(f"LLM response missing 'papers' list, got keys: {list(result.keys())}")
     if "new_tags" in result and not isinstance(result["new_tags"], list):
         raise ValueError(f"'new_tags' must be list, got {type(result['new_tags']).__name__}")
+    if expected_ids is None:
+        return result
+
+    papers = result["papers"]
+    expected_n = len(expected_ids)
+    if len(papers) != expected_n:
+        raise ValueError(f"expected {expected_n} papers, got {len(papers)}")
+
+    got_ids: list[str] = []
+    for i, paper in enumerate(papers):
+        if not isinstance(paper, dict):
+            raise ValueError(f"papers[{i}] must be an object")
+        pid = coerce_paper_id(paper.get("id"))
+        if _is_junk_llm_id(pid):
+            raise ValueError(f"papers[{i}] has invalid id {pid!r}")
+        summary = paper.get("summary") if isinstance(paper.get("summary"), str) else ""
+        if len(summary) < MIN_SUMMARY_LEN:
+            raise ValueError(f"papers[{i}] ({pid}) missing summary")
+        tags = paper.get("tags")
+        if not isinstance(tags, list) or not tags or not all(isinstance(t, str) and t.strip() for t in tags):
+            raise ValueError(f"papers[{i}] ({pid}) missing tags")
+        got_ids.append(pid)
+
+    if len(_normalized_id_set(got_ids)) != expected_n:
+        raise ValueError(f"duplicate paper ids in LLM response: {got_ids}")
+    expected_set = _normalized_id_set(expected_ids)
+    got_set = _normalized_id_set(got_ids)
+    if got_set != expected_set:
+        raise ValueError(f"paper ids {sorted(got_set)} != expected {sorted(expected_set)}")
     return result
 
 
@@ -550,6 +604,7 @@ def call_llm(
     batch_num: int = 0,
     debug_dir: Path | None = None,
     batch_label: str | None = None,
+    expected_ids: list[str] | None = None,
 ) -> tuple[dict, dict]:
     """Call LLM API with retries using streaming mode.
 
@@ -567,6 +622,7 @@ def call_llm(
             "temperature": 0.3,
             "max_tokens": 65536,
             "response_format": {"type": "json_object"},
+            "thinking": {"type": "disabled"},
             "stream": True,
             "stream_options": {"include_usage": True},
         }
@@ -638,7 +694,6 @@ def call_llm(
             try:
                 result = json.loads(content)
             except json.JSONDecodeError as je:
-                # Try json_repair as fallback before giving up
                 if json_repair_loads is not None:
                     try:
                         result = json_repair_loads(content)
@@ -649,8 +704,7 @@ def call_llm(
                             f"[Phase2] {log_label} attempt {attempt + 1}: "
                             f"json.loads failed ({je}), repaired by json_repair"
                         )
-                        return _validate_llm_schema(result), usage
-                # Save debug info for JSON parse failures
+                        return _validate_llm_schema(result, expected_ids), usage
                 if debug_dir is not None:
                     debug_dir.mkdir(parents=True, exist_ok=True)
                     debug_path = debug_dir / f"{label}_json_error_attempt{attempt + 1}.json"
@@ -666,7 +720,7 @@ def call_llm(
                 if debug_dir is not None:
                     logger.error(f"[Phase2] {log_label} JSON parse debug saved to {debug_path}")
                 raise je
-            return _validate_llm_schema(result), usage
+            return _validate_llm_schema(result, expected_ids), usage
         except urllib.error.HTTPError as e:
             last_error = e
             logger.error(
@@ -1152,8 +1206,10 @@ def _process_batch(
     t0 = time.monotonic()
     try:
         messages = build_prompt(batch, current_tags)
+        expected_ids = [coerce_paper_id(p.get("id")) for p in batch]
         result, usage = call_llm(
-            messages, api_endpoint, api_key, model, logger, batch_num, debug_dir, batch_label=blabel
+            messages, api_endpoint, api_key, model, logger, batch_num, debug_dir,
+            batch_label=blabel, expected_ids=expected_ids,
         )
 
         matched, diagnostics = match_llm_results(
@@ -1168,22 +1224,25 @@ def _process_batch(
 
         elapsed = time.monotonic() - t0
         usage_str = _format_usage(usage)
-        if save_cache and cache_allowed and matched:
-            _write_batch_cache(field_cache, batch_num, matched, new_tags, current_tags)
-
         if diagnostics.total_failed > 0:
             failure_summary = _format_match_failures(diagnostics)
+            logger.error(
+                f"[Phase2] {blabel}: rejecting whole batch ({failure_summary})"
+            )
             print(
                 f"[{batch_num}/{total}] {blabel} FAILED ({failure_summary}) ({elapsed:.1f}s{usage_str}), see log",
                 file=sys.stderr,
             )
             return BatchProcessResult(
-                matched,
-                _unresolved_papers(batch, matched, diagnostics.all_failed_ids),
+                {},
+                list(batch),
                 True,
                 new_tags=list(new_tags),
                 current_tags_snapshot=list(current_tags),
             )
+
+        if save_cache and cache_allowed and matched:
+            _write_batch_cache(field_cache, batch_num, matched, new_tags, current_tags)
 
         print(f"[{batch_num}/{total}] {blabel} done ({elapsed:.1f}s{usage_str})", file=sys.stderr)
         return BatchProcessResult(
@@ -1320,21 +1379,22 @@ def run_phase2(
             matched, diagnostics = match_llm_results(
                 batch, cached.get("papers", []), logger, batch_num, cached, debug_dir, batch_label=blabel
             )
+            if diagnostics.total_failed > 0:
+                logger.warning(
+                    f"[Phase2] {blabel}: incomplete cache, retrying whole batch"
+                )
+                for paper in batch:
+                    all_unresolved.append(
+                        UnresolvedPaper(paper=paper, original_batch_num=batch_num)
+                    )
+                print(f"[{batch_num}/{total}] {blabel} cached (incomplete, queued)", file=sys.stderr)
+                continue
             matched, _ = _apply_tag_mapping(matched, cached.get("new_tags") or [], tag_mapping)
             results_by_id.update(matched)
             for tag in canonicalize_tag_list(cached.get("current_tags") or [], tag_mapping):
                 if tag not in current_tags:
                     current_tags.append(tag)
-            unresolved_papers = _unresolved_papers(batch, matched, diagnostics.all_failed_ids)
-            if unresolved_papers:
-                status = f"cached (partial: {len(matched)}/{len(batch)} matched)"
-                for paper in unresolved_papers:
-                    all_unresolved.append(
-                        UnresolvedPaper(paper=paper, original_batch_num=batch_num)
-                    )
-            else:
-                status = "cached"
-            print(f"[{batch_num}/{total}] {blabel} {status}", file=sys.stderr)
+            print(f"[{batch_num}/{total}] {blabel} cached", file=sys.stderr)
             continue
 
         processed = _process_batch(

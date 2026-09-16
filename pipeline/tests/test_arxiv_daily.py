@@ -397,12 +397,18 @@ class TestBuildPrompt:
         assert "Comments:" not in messages[1]["content"]
 
     def test_allows_new_tag_when_existing_list_does_not_fit(self):
-        papers = [{"id": "2604.00001", "title": "T", "abstract": "A"}]
+        papers = [
+            {"id": "2604.00001", "title": "T", "abstract": "A"},
+            {"id": "2604.00002", "title": "T2", "abstract": "A2"},
+        ]
         content = arxiv_daily.build_prompt(papers, ["LLM Agent"])[1]["content"]
         assert "from the existing tag list" not in content
         assert "Do not stretch a weakly related existing tag" in content
         assert '"new_tags": ["Neuromorphic Photonics"]' in content
         assert "Prefer an existing tag" in content
+        assert "exactly 2 paper objects" in content
+        assert '"id": "2604.00001"' in content
+        assert "Copy these IDs verbatim" in content
 
 
 # ===========================================================================
@@ -602,6 +608,48 @@ class TestValidateLlmSchema:
     def test_new_tags_must_be_list(self):
         with pytest.raises(ValueError, match="'new_tags' must be list"):
             arxiv_daily._validate_llm_schema({"papers": [], "new_tags": "not a list"})
+
+    def test_expected_ids_accepts_permutation(self):
+        long_summary = "x" * 40
+        result = {
+            "papers": [
+                {"id": "2604.00002", "summary": long_summary, "tags": ["T2"]},
+                {"id": "2604.00001v2", "summary": long_summary, "tags": ["T1"]},
+            ],
+            "new_tags": [],
+        }
+        assert arxiv_daily._validate_llm_schema(
+            result, expected_ids=["2604.00001", "2604.00002"]
+        ) is result
+
+    def test_expected_ids_rejects_wrong_count(self):
+        with pytest.raises(ValueError, match="expected 2 papers"):
+            arxiv_daily._validate_llm_schema(
+                {"papers": [{"id": "2604.00001", "summary": "x" * 40, "tags": ["T"]}]},
+                expected_ids=["2604.00001", "2604.00002"],
+            )
+
+    def test_expected_ids_rejects_missing_tags(self):
+        with pytest.raises(ValueError, match="missing tags"):
+            arxiv_daily._validate_llm_schema(
+                {
+                    "papers": [
+                        {"id": "2604.00001", "summary": "x" * 40, "tags": []},
+                    ]
+                },
+                expected_ids=["2604.00001"],
+            )
+
+    def test_expected_ids_rejects_id_mismatch(self):
+        with pytest.raises(ValueError, match="!= expected"):
+            arxiv_daily._validate_llm_schema(
+                {
+                    "papers": [
+                        {"id": "2604.00099", "summary": "x" * 40, "tags": ["T"]},
+                    ]
+                },
+                expected_ids=["2604.00001"],
+            )
 
 
 # ===========================================================================
@@ -1463,7 +1511,7 @@ class TestRunPhase2:
             observed_prompt_tags.append(list(current_tags))
             return [{"role": "user", "content": "fake prompt"}]
 
-        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None):
+        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None, expected_ids=None):
             return {
                 "papers": [
                     {
@@ -1540,9 +1588,9 @@ class TestRunPhase2:
         )
 
         assert processed.failed is True
-        assert [paper["id"] for paper in processed.unresolved] == [p["id"] for p in papers[-2:]]
-        cached = json.loads((field_cache / "batch_001.json").read_text(encoding="utf-8"))
-        assert [paper["id"] for paper in cached["papers"]] == [paper["id"] for paper in papers[:-2]]
+        assert [paper["id"] for paper in processed.unresolved] == [p["id"] for p in papers]
+        assert processed.matched == {}
+        assert not (field_cache / "batch_001.json").exists()
 
     def test_run_phase2_partial_cache_only_retries_missing(
         self, monkeypatch, logger, tags_file, tmp_path, sample_data
@@ -1582,9 +1630,10 @@ class TestRunPhase2:
             prompt_batches.append([paper["id"] for paper in batch])
             return [{"role": "user", "content": "fake prompt"}]
 
-        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None):
+        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None, expected_ids=None):
             return {
                 "papers": [
+                    {"id": "2604.00001", "summary": long_summary, "tags": ["T1"], "venue": None},
                     {"id": "2604.00002", "summary": long_summary, "tags": ["T2"], "venue": None},
                 ],
                 "new_tags": ["T2"],
@@ -1605,7 +1654,7 @@ class TestRunPhase2:
         )
 
         assert failed == 0
-        assert prompt_batches == [["2604.00002"]]
+        assert prompt_batches == [["2604.00001", "2604.00002"]]
         assert set(results) == {"2604.00001", "2604.00002"}
 
     def test_retries_only_unresolved_papers(self, monkeypatch, logger, tags_file, tmp_path, sample_data):
@@ -1628,7 +1677,7 @@ class TestRunPhase2:
             prompt_batches.append([paper["id"] for paper in batch])
             return [{"role": "user", "content": "fake prompt"}]
 
-        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None):
+        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None, expected_ids=None):
             if len(prompt_batches) == 1:
                 return {
                     "papers": [
@@ -1639,6 +1688,7 @@ class TestRunPhase2:
                 }, {}
             return {
                 "papers": [
+                    {"id": "2604.00001", "summary": long_summary, "tags": ["T1"], "venue": None},
                     {"id": "2604.00002", "summary": long_summary, "tags": ["T2"], "venue": None},
                 ],
                 "new_tags": [],
@@ -1653,7 +1703,7 @@ class TestRunPhase2:
         )
 
         assert failed == 0
-        assert prompt_batches == [["2604.00001", "2604.00002"], ["2604.00002"]]
+        assert prompt_batches == [["2604.00001", "2604.00002"], ["2604.00001", "2604.00002"]]
         assert set(results) == {"2604.00001", "2604.00002"}
 
     def test_retry_merges_unresolved_across_batches(self, monkeypatch, logger, tags_file, tmp_path, sample_data):
@@ -1756,7 +1806,7 @@ class TestRunPhase2:
             lambda batch, current_tags: [{"role": "user", "content": "fake prompt"}],
         )
 
-        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None):
+        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None, expected_ids=None):
             return {
                 "papers": [
                     {"id": "2604.00001", "summary": "short", "tags": ["T1"], "venue": None},
@@ -1798,7 +1848,7 @@ class TestRunPhase2:
             prompt_batches.append([paper["id"] for paper in batch])
             return [{"role": "user", "content": "fake prompt"}]
 
-        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None):
+        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None, expected_ids=None):
             if len(prompt_batches) == 1:
                 return {
                     "papers": [
@@ -1809,6 +1859,7 @@ class TestRunPhase2:
                 }, {}
             return {
                 "papers": [
+                    {"id": "2604.00001", "summary": long_summary, "tags": ["T1"], "venue": None},
                     {"id": "2604.00002", "summary": long_summary, "tags": ["T2"], "venue": None},
                 ],
                 "new_tags": [],
@@ -1823,7 +1874,7 @@ class TestRunPhase2:
         )
         assert first_failed == 0
         assert set(first_results) == {"2604.00001", "2604.00002"}
-        assert prompt_batches == [["2604.00001", "2604.00002"], ["2604.00002"]]
+        assert prompt_batches == [["2604.00001", "2604.00002"], ["2604.00001", "2604.00002"]]
 
         field_cache = cache_dir / data["field"]
         cache_path = field_cache / "batch_001.json"
@@ -1910,7 +1961,7 @@ class TestRunPhase2:
             prompt_calls.append(list(current_tags))
             return [{"role": "user", "content": "fake prompt"}]
 
-        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None):
+        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None, expected_ids=None):
             if len(prompt_calls) == 1:
                 return {
                     "papers": [
@@ -1921,6 +1972,7 @@ class TestRunPhase2:
                 }, {}
             return {
                 "papers": [
+                    {"id": "2604.00001", "summary": long_summary, "tags": ["T1"], "venue": None},
                     {"id": "2604.00002", "summary": long_summary, "tags": ["RetryTag"], "venue": None},
                 ],
                 "new_tags": ["RetryTag"],
@@ -2007,7 +2059,7 @@ class TestRunPhase2:
             observed_prompt_tags.append(list(current_tags))
             return [{"role": "user", "content": "fake prompt"}]
 
-        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None):
+        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None, expected_ids=None):
             return {
                 "papers": [
                     {"id": paper["id"], "summary": long_summary, "tags": ["GeneratedTag"], "venue": None}
@@ -2197,7 +2249,7 @@ class TestRunPhase2:
             prompt_batches.append([paper["id"] for paper in batch])
             return [{"role": "user", "content": "fake prompt"}]
 
-        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None):
+        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0, debug_dir=None, batch_label=None, expected_ids=None):
             if len(prompt_batches) == 1:
                 return {
                     "papers": [
@@ -2207,6 +2259,7 @@ class TestRunPhase2:
                 }, {}
             return {
                 "papers": [
+                    {"id": "2604.00001", "summary": long_summary, "tags": ["T1"], "venue": None},
                     {"id": "2604.00002", "summary": long_summary, "tags": ["T2"], "venue": None},
                 ],
                 "new_tags": [],
@@ -2217,7 +2270,7 @@ class TestRunPhase2:
         monkeypatch.setattr(
             arxiv_daily,
             "_patch_batch_cache",
-            lambda field_cache, batch_num, new_papers, logger: patch_calls.append(
+            lambda field_cache, batch_num, new_papers, logger, new_tags=None: patch_calls.append(
                 (batch_num, new_papers)
             ),
         )
@@ -2236,7 +2289,7 @@ class TestRunPhase2:
         field_cache = cache_dir / sample_data["field"]
         assert failed == 0
         assert set(results) == {"2604.00001", "2604.00002"}
-        assert prompt_batches == [["2604.00001", "2604.00002"], ["2604.00002"]]
+        assert prompt_batches == [["2604.00001", "2604.00002"], ["2604.00001", "2604.00002"]]
         assert patch_calls == []
         assert not (field_cache / "metadata_hash").exists()
         assert list(field_cache.glob("batch_*.json")) == []
@@ -2447,8 +2500,8 @@ class TestRunPhase2ErrorModes:
         assert len(results) > 0
         assert failed == 0
 
-    def test_duplicate_ids_keep_first(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
-        """Repeated IDs keep the first copy instead of failing the paper."""
+    def test_duplicate_ids_reject_batch(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
+        """An extra duplicate ID fails schema (count != N) and the whole batch retries then fails."""
         api_url, handler_cls = fake_llm_server
         handler_cls.error_mode = "duplicate_ids"
         cache_dir = tmp_path / "cache"
@@ -2457,9 +2510,8 @@ class TestRunPhase2ErrorModes:
             sample_data, tags_file, cache_dir, no_cache=True,
             api_endpoint=api_url, api_key="test-key", model="test-model", logger=logger,
         )
-        assert failed == 0
-        assert "2604.06189" in results
-        assert results["2604.06189"]["summary"] != arxiv_daily.SUMMARY_FAILURE_PLACEHOLDER
+        assert failed >= 1
+        assert results["2604.06189"]["summary"] == arxiv_daily.SUMMARY_FAILURE_PLACEHOLDER
 
 
 # ===========================================================================
