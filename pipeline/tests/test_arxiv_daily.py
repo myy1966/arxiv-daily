@@ -501,12 +501,49 @@ class TestMatchLlmResults:
         ]
         results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
 
-        assert "2604.00001" not in results
-        assert diagnostics.duplicate_ids == ["2604.00001"]
+        assert results["2604.00001"]["tags"] == ["T1"]
+        assert diagnostics.duplicate_ids == []
         assert diagnostics.missing_ids == []
         assert diagnostics.quality_failed == []
-        assert diagnostics.total_failed == 1
-        assert diagnostics.all_failed_ids == ["2604.00001"]
+        assert diagnostics.total_failed == 0
+
+    def test_match_numeric_json_id(self, logger):
+        batch = [{"id": "2609.12398"}]
+        llm_papers = [
+            {"id": 2609.12398, "summary": "x" * 60, "tags": ["T1"], "venue": None},
+        ]
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+        assert "2609.12398" in results
+        assert diagnostics.total_failed == 0
+
+    def test_match_ignores_dup_suffix_ids(self, logger):
+        batch = [{"id": "2604.00001"}, {"id": "2604.00002"}]
+        llm_papers = [
+            {"id": "2604.00001", "summary": "x" * 60, "tags": ["T1"], "venue": None},
+            {"id": "2604.00001_dup", "summary": "y" * 60, "tags": ["T2"], "venue": None},
+            {"id": "2608.00002_placeholder", "summary": "z" * 60, "tags": ["T3"], "venue": None},
+        ]
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+        assert list(results) == ["2604.00001"]
+        assert diagnostics.missing_ids == ["2604.00002"]
+
+    def test_match_yymm_one_digit_typo(self, logger):
+        batch = [{"id": "2609.27875"}]
+        llm_papers = [
+            {"id": "2608.27875", "summary": "x" * 60, "tags": ["T1"], "venue": None},
+        ]
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+        assert "2609.27875" in results
+        assert diagnostics.total_failed == 0
+
+    def test_match_does_not_typo_neighbor_sequence_ids(self, logger):
+        batch = [{"id": "2604.00001"}, {"id": "2604.00002"}]
+        llm_papers = [
+            {"id": "2604.00002", "summary": "x" * 60, "tags": ["T1"], "venue": None},
+        ]
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+        assert list(results) == ["2604.00002"]
+        assert diagnostics.missing_ids == ["2604.00001"]
 
     def test_match_missing_id(self, logger):
         batch = [{"id": "2604.00001"}]
@@ -1477,7 +1514,7 @@ class TestRunPhase2:
                 {
                     "papers": [
                         {"id": paper["id"], "summary": long_summary, "tags": ["T1"], "venue": None}
-                        for paper in papers[:14]
+                        for paper in papers[:-2]
                     ],
                     "new_tags": ["T1"],
                 },
@@ -1503,9 +1540,9 @@ class TestRunPhase2:
         )
 
         assert processed.failed is True
-        assert [paper["id"] for paper in processed.unresolved] == ["2604.00015", "2604.00016"]
+        assert [paper["id"] for paper in processed.unresolved] == [p["id"] for p in papers[-2:]]
         cached = json.loads((field_cache / "batch_001.json").read_text(encoding="utf-8"))
-        assert [paper["id"] for paper in cached["papers"]] == [paper["id"] for paper in papers[:14]]
+        assert [paper["id"] for paper in cached["papers"]] == [paper["id"] for paper in papers[:-2]]
 
     def test_run_phase2_partial_cache_only_retries_missing(
         self, monkeypatch, logger, tags_file, tmp_path, sample_data
@@ -1691,10 +1728,14 @@ class TestRunPhase2:
             logger=logger,
         )
 
-        expected_retry = [paper["id"] for paper in papers[arxiv_daily.BATCH_SIZE - 4 : arxiv_daily.BATCH_SIZE + 4]]
+        unresolved_ids = [paper["id"] for paper in papers[arxiv_daily.BATCH_SIZE - 4 : arxiv_daily.BATCH_SIZE + 4]]
+        expected_retry = [
+            unresolved_ids[i : i + arxiv_daily.RETRY_BATCH_SIZE]
+            for i in range(0, len(unresolved_ids), arxiv_daily.RETRY_BATCH_SIZE)
+        ]
         assert failed == 0
-        assert retry_batches == [expected_retry]
-        assert set(results) == set(expected_retry)
+        assert retry_batches == expected_retry
+        assert set(results) == set(unresolved_ids)
 
     def test_unresolved_after_retry_gets_summary_placeholder(
         self, monkeypatch, logger, tags_file, tmp_path, sample_data
@@ -2406,8 +2447,8 @@ class TestRunPhase2ErrorModes:
         assert len(results) > 0
         assert failed == 0
 
-    def test_duplicate_ids_are_rejected(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
-        """Duplicate IDs in LLM response should fail instead of silently choosing one."""
+    def test_duplicate_ids_keep_first(self, fake_llm_server, logger, tags_file, tmp_path, sample_data):
+        """Repeated IDs keep the first copy instead of failing the paper."""
         api_url, handler_cls = fake_llm_server
         handler_cls.error_mode = "duplicate_ids"
         cache_dir = tmp_path / "cache"
@@ -2416,9 +2457,9 @@ class TestRunPhase2ErrorModes:
             sample_data, tags_file, cache_dir, no_cache=True,
             api_endpoint=api_url, api_key="test-key", model="test-model", logger=logger,
         )
-        assert failed == 1
-        assert results["2604.06189"]["summary"] == arxiv_daily.SUMMARY_FAILURE_PLACEHOLDER
-        assert results["2604.06189"]["tags"] == [arxiv_daily.SUMMARY_FAILURE_TAG]
+        assert failed == 0
+        assert "2604.06189" in results
+        assert results["2604.06189"]["summary"] != arxiv_daily.SUMMARY_FAILURE_PLACEHOLDER
 
 
 # ===========================================================================

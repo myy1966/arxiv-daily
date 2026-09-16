@@ -82,7 +82,7 @@ class RunResult:
     exit_code: int = 0
 
 
-BATCH_SIZE = 16
+BATCH_SIZE = 8
 RETRY_BATCH_SIZE = BATCH_SIZE // 2
 MAX_RETRIES = 3
 RETRY_DELAYS = [2, 4, 8]
@@ -703,6 +703,51 @@ def call_llm(
     raise last_error  # type: ignore[misc]
 
 
+_ID_VERSION_RE = re.compile(r"v\d+$")
+_JUNK_ID_RE = re.compile(r"(?:_dup\d*|_placeholder|\bplaceholder\b)", re.I)
+_ARXIV_ID_RE = re.compile(r"^(\d{4})\.(\d{4,5})$")
+
+
+def coerce_paper_id(value: object) -> str:
+    """Normalize LLM/batch paper ids to strings (JSON may emit numbers)."""
+    if value is None or isinstance(value, bool):
+        return ""
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return format(value, ".8f").rstrip("0").rstrip(".")
+    return str(value).strip()
+
+
+def _normalize_paper_id(pid: str) -> str:
+    return _ID_VERSION_RE.sub("", pid)
+
+
+def _is_junk_llm_id(pid: str) -> bool:
+    return not pid or bool(_JUNK_ID_RE.search(pid))
+
+
+def _yymm_one_digit_typo(left: str, right: str) -> bool:
+    """True when sequence matches and YYMM differs by exactly one digit."""
+    match_left = _ARXIV_ID_RE.fullmatch(_normalize_paper_id(left))
+    match_right = _ARXIV_ID_RE.fullmatch(_normalize_paper_id(right))
+    if not match_left or not match_right:
+        return False
+    if match_left.group(2) != match_right.group(2):
+        return False
+    prefix_left, prefix_right = match_left.group(1), match_right.group(1)
+    diffs = 0
+    for a, b in zip(prefix_left, prefix_right):
+        if a == b:
+            continue
+        if not (a.isdigit() and b.isdigit()):
+            return False
+        diffs += 1
+        if diffs > 1:
+            return False
+    return diffs == 1
+
+
 def match_llm_results(
     batch: list[dict], llm_papers: list[dict], logger: logging.Logger, batch_num: int,
     raw_result: dict | None = None, debug_dir: Path | None = None,
@@ -711,75 +756,99 @@ def match_llm_results(
     """Match LLM results to batch papers and return structured diagnostics.
 
     Strategy:
-    1. Try exact ID match first
-    2. Try normalized ID match (strip version suffix like v1, v2)
-    3. Report missing, duplicate, and quality failures separately
+    1. Coerce ids to strings; drop junk ids (_dup, placeholder)
+    2. Exact ID match, keeping the first copy when the model repeats an id
+    3. Normalized ID match (strip version suffix like v1, v2)
+    4. Unique YYMM one-digit typo match for leftovers
+    5. Report missing and quality failures separately
     """
     label = batch_label or f"batch_{batch_num:03d}"
     log_label = batch_label or f"Batch {batch_num:03d}"
     attempt_suffix = f"_attempt{attempt}" if attempt > 0 else ""
     results: dict[str, dict] = {}
-    batch_ids = [p["id"] for p in batch]
+    batch_ids = [coerce_paper_id(p.get("id")) for p in batch]
     used_llm_indices: set[int] = set()
 
-    # Build lookup by exact and normalized ID. Duplicate IDs are excluded so
-    # they are never silently resolved by "last write wins" dictionary behavior.
-    llm_id_counts: dict[str, int] = {}
-    for p in llm_papers:
-        pid = p.get("id", "")
-        llm_id_counts[pid] = llm_id_counts.get(pid, 0) + 1
-    duplicate_set = {pid for pid, count in llm_id_counts.items() if count >= 2}
-    duplicate_norm_set = {re.sub(r"v\d+$", "", pid) for pid in duplicate_set}
+    normalized_llm: list[dict] = []
+    for paper in llm_papers:
+        if not isinstance(paper, dict):
+            continue
+        item = dict(paper)
+        item["id"] = coerce_paper_id(item.get("id"))
+        normalized_llm.append(item)
+    llm_papers = normalized_llm
 
     llm_by_id: dict[str, int] = {}
     llm_by_norm: dict[str, int] = {}
-    for i, p in enumerate(llm_papers):
-        pid = p.get("id", "")
-        norm = re.sub(r"v\d+$", "", pid)
-        if pid in duplicate_set or norm in duplicate_norm_set:
+    extra_copies: dict[str, int] = {}
+    for i, paper in enumerate(llm_papers):
+        pid = paper.get("id", "")
+        if _is_junk_llm_id(pid):
+            continue
+        if pid in llm_by_id:
+            extra_copies[pid] = extra_copies.get(pid, 0) + 1
             continue
         llm_by_id[pid] = i
-        llm_by_norm[norm] = i
+        llm_by_norm[_normalize_paper_id(pid)] = i
 
-    # Pass 1: exact match
+    def _record(batch_id: str, idx: int) -> None:
+        paper = llm_papers[idx]
+        results[batch_id] = {
+            "summary": paper.get("summary", ""),
+            "tags": paper.get("tags", []),
+            "venue": paper.get("venue"),
+        }
+        used_llm_indices.add(idx)
+
     for batch_id in batch_ids:
         if batch_id in llm_by_id:
-            idx = llm_by_id[batch_id]
-            p = llm_papers[idx]
-            results[batch_id] = {
-                "summary": p.get("summary", ""),
-                "tags": p.get("tags", []),
-                "venue": p.get("venue"),
-            }
-            used_llm_indices.add(idx)
+            _record(batch_id, llm_by_id[batch_id])
 
-    # Pass 2: normalized match for remaining
     for batch_id in batch_ids:
         if batch_id in results:
             continue
-        norm = re.sub(r"v\d+$", "", batch_id)
-        if norm in llm_by_norm:
-            idx = llm_by_norm[norm]
-            if idx not in used_llm_indices:
-                p = llm_papers[idx]
-                results[batch_id] = {
-                    "summary": p.get("summary", ""),
-                    "tags": p.get("tags", []),
-                    "venue": p.get("venue"),
-                }
-                used_llm_indices.add(idx)
-                logger.warning(
-                    f"[Phase2] {log_label}: matched {batch_id} to LLM id {p.get('id', '')} by normalization"
-                )
+        norm = _normalize_paper_id(batch_id)
+        idx = llm_by_norm.get(norm)
+        if idx is not None and idx not in used_llm_indices:
+            paper = llm_papers[idx]
+            _record(batch_id, idx)
+            logger.warning(
+                f"[Phase2] {log_label}: matched {batch_id} to LLM id {paper.get('id', '')} by normalization"
+            )
 
-    # Pass 3: duplicate IDs corresponding to batch papers
-    duplicate_ids = []
-    for batch_id in batch_ids:
-        if batch_id in results:
+    unused_indices = [
+        i for i, paper in enumerate(llm_papers)
+        if i not in used_llm_indices and not _is_junk_llm_id(paper.get("id", ""))
+    ]
+    unmatched_batch_ids = [bid for bid in batch_ids if bid not in results]
+    for batch_id in unmatched_batch_ids:
+        candidates = [
+            i for i in unused_indices
+            if i not in used_llm_indices and _yymm_one_digit_typo(batch_id, llm_papers[i].get("id", ""))
+        ]
+        if len(candidates) != 1:
             continue
-        norm = re.sub(r"v\d+$", "", batch_id)
-        if batch_id in duplicate_set or norm in duplicate_norm_set:
-            duplicate_ids.append(batch_id)
+        idx = candidates[0]
+        # Ambiguous if another unmatched batch id also wants this leftover.
+        other_claimants = [
+            bid for bid in unmatched_batch_ids
+            if bid != batch_id and bid not in results
+            and _yymm_one_digit_typo(bid, llm_papers[idx].get("id", ""))
+        ]
+        if other_claimants:
+            continue
+        paper = llm_papers[idx]
+        _record(batch_id, idx)
+        logger.warning(
+            f"[Phase2] {log_label}: matched {batch_id} to LLM id {paper.get('id', '')} by one-digit YYMM typo"
+        )
+
+    if extra_copies:
+        recovered = [pid for pid in extra_copies if pid in results]
+        logger.warning(
+            f"[Phase2] {log_label}: dropped extra LLM copies of {len(extra_copies)} id(s), "
+            f"kept first: {recovered or list(extra_copies)}"
+        )
 
     # Pass 4: quality check - remove papers with missing tags or short summary
     quality_failures: list[dict] = []
@@ -794,10 +863,10 @@ def match_llm_results(
             quality_failures.append({"id": bid, "issues": issues, "result": r})
             del results[bid]
 
+    duplicate_ids: list[str] = []
     missing_ids = [
         bid for bid in batch_ids
         if bid not in results
-        and bid not in duplicate_ids
         and bid not in {qf["id"] for qf in quality_failures}
     ]
     diagnostics = MatchDiagnostics(
