@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-09-15T23:50:38.023524+08:00",
+  "updated_at": "2026-09-16T12:42:33.330240+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -728,6 +728,10 @@
     "Event-Based Vision",
     "Acoustic Sensing",
     "SLAM",
-    "Language Variation"
+    "Language Variation",
+    "Surveillance",
+    "Text-to-Motion",
+    "Quality-Diversity",
+    "Food Safety"
   ]
 }
