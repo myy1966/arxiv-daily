@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-09-16T12:42:33.330240+08:00",
+  "updated_at": "2026-09-17T12:58:57.878817+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -732,6 +732,14 @@
     "Surveillance",
     "Text-to-Motion",
     "Quality-Diversity",
-    "Food Safety"
+    "Food Safety",
+    "Approximate Computing",
+    "Hardware Trojan Detection",
+    "Hardware Verification",
+    "Hardware Construction Language",
+    "Analog Computing",
+    "Wildfire Prediction",
+    "Multi-Camera Tracking",
+    "Video Streaming"
   ]
 }
