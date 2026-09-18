@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-09-17T12:58:57.878817+08:00",
+  "updated_at": "2026-09-18T18:40:27.374836+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -740,6 +740,11 @@
     "Analog Computing",
     "Wildfire Prediction",
     "Multi-Camera Tracking",
-    "Video Streaming"
+    "Video Streaming",
+    "Sparse Computation",
+    "Floating-Point",
+    "Qualitative Reasoning",
+    "Synthetic Control",
+    "Value-Based RL"
   ]
 }
