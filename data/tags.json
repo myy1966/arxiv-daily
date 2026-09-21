@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-09-18T18:40:27.374836+08:00",
+  "updated_at": "2026-09-21T23:52:27.133255+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -745,6 +745,9 @@
     "Floating-Point",
     "Qualitative Reasoning",
     "Synthetic Control",
-    "Value-Based RL"
+    "Value-Based RL",
+    "Computational Photography",
+    "Occupancy Prediction",
+    "Role-Playing"
   ]
 }
