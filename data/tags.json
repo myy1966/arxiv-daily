@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-09-22T12:56:07.180225+08:00",
+  "updated_at": "2026-09-23T12:44:53.607627+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -756,6 +756,8 @@
     "AI Control",
     "Supply Chain Management",
     "Dynamic Graph",
-    "Sample Efficiency"
+    "Sample Efficiency",
+    "Runtime Monitoring",
+    "Fractal Neural Synthesis"
   ]
 }
