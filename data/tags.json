@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-09-23T12:44:53.607627+08:00",
+  "updated_at": "2026-09-24T12:51:42.545879+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -758,6 +758,11 @@
     "Dynamic Graph",
     "Sample Efficiency",
     "Runtime Monitoring",
-    "Fractal Neural Synthesis"
+    "Fractal Neural Synthesis",
+    "Abstract Reasoning",
+    "Relational Deep Learning",
+    "Genetic Search",
+    "Post-Quantum Cryptography",
+    "Generative Engine Optimization"
   ]
 }
