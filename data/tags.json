@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-09-25T22:57:45.238278+08:00",
+  "updated_at": "2026-09-29T22:13:15.753898+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -769,6 +769,20 @@
     "Aerial Robotics",
     "Contextual Biasing",
     "Spatial Transcriptomics",
-    "Graph Transformer"
+    "Graph Transformer",
+    "TinyML",
+    "Memory Safety",
+    "Numerical Analysis",
+    "Forecasting",
+    "Sign Language Production",
+    "Communication Efficiency",
+    "GUI Generation",
+    "Artificial Life",
+    "Active Perception",
+    "Regularization",
+    "Assistive Technology",
+    "Cross-Attention",
+    "Self-Training",
+    "Computational Chemistry"
   ]
 }
