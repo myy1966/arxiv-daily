@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-09-30T12:50:26.869943+08:00",
+  "updated_at": "2026-10-01T13:14:06.457054+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -793,6 +793,10 @@
     "Causal Representation Learning",
     "Spatial Audio Quality",
     "Query Expansion",
-    "Test-Time Training"
+    "Test-Time Training",
+    "High-Level Synthesis",
+    "Structure Learning",
+    "Speaker Diarization",
+    "Data Assimilation"
   ]
 }
