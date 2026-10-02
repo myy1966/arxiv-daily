@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-10-01T13:14:06.457054+08:00",
+  "updated_at": "2026-10-02T23:32:47.215412+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -797,6 +797,13 @@
     "High-Level Synthesis",
     "Structure Learning",
     "Speaker Diarization",
-    "Data Assimilation"
+    "Data Assimilation",
+    "Optical Interconnect",
+    "Trustworthy AI",
+    "Randomness",
+    "Position Bias",
+    "Hypernetwork",
+    "Post-Training",
+    "Fuzzing"
   ]
 }
