@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-10-02T23:32:47.215412+08:00",
+  "updated_at": "2026-10-05T23:55:47.083032+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -804,6 +804,7 @@
     "Position Bias",
     "Hypernetwork",
     "Post-Training",
-    "Fuzzing"
+    "Fuzzing",
+    "Emergent Communication"
   ]
 }
