@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-10-05T23:55:47.083032+08:00",
+  "updated_at": "2026-10-06T13:12:29.642091+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -805,6 +805,20 @@
     "Hypernetwork",
     "Post-Training",
     "Fuzzing",
-    "Emergent Communication"
+    "Emergent Communication",
+    "Asynchronous Circuits",
+    "Aviation Safety",
+    "Entity Resolution",
+    "Inductive Logic Programming",
+    "Graph Contrastive Learning",
+    "Dataset Distillation",
+    "Prosody Modeling",
+    "Network Control",
+    "Log Analysis",
+    "Indoor Localization",
+    "Label Leakage",
+    "Side-Channel Analysis",
+    "Algorithmic Statistics",
+    "Kolmogorov Complexity"
   ]
 }
