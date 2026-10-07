@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-10-06T13:12:29.642091+08:00",
+  "updated_at": "2026-10-07T13:41:17.636173+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -819,6 +819,8 @@
     "Label Leakage",
     "Side-Channel Analysis",
     "Algorithmic Statistics",
-    "Kolmogorov Complexity"
+    "Kolmogorov Complexity",
+    "Interactive Narrative",
+    "Frequency Domain Learning"
   ]
 }
