@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-10-07T13:41:17.636173+08:00",
+  "updated_at": "2026-10-08T12:40:43.523597+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -821,6 +821,8 @@
     "Algorithmic Statistics",
     "Kolmogorov Complexity",
     "Interactive Narrative",
-    "Frequency Domain Learning"
+    "Frequency Domain Learning",
+    "Inverse Optimization",
+    "Telecom AI"
   ]
 }
