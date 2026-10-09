@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-10-08T12:40:43.523597+08:00",
+  "updated_at": "2026-10-09T18:48:29.624845+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -823,6 +823,10 @@
     "Interactive Narrative",
     "Frequency Domain Learning",
     "Inverse Optimization",
-    "Telecom AI"
+    "Telecom AI",
+    "Certified Defense",
+    "Statistical Estimation",
+    "Network Science",
+    "Streaming ASR"
   ]
 }
