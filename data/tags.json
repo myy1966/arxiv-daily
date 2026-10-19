@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-10-18T00:01:25.301730+08:00",
+  "updated_at": "2026-10-19T21:03:34.209538+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -855,6 +855,9 @@
     "Discourse Parsing",
     "Real-Time Interaction",
     "Diversity",
-    "Classification"
+    "Classification",
+    "CXL",
+    "Sensitivity Analysis",
+    "Identity Preservation"
   ]
 }
