@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-10-19T21:03:34.209538+08:00",
+  "updated_at": "2026-10-20T12:24:45.440047+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -858,6 +858,14 @@
     "Classification",
     "CXL",
     "Sensitivity Analysis",
-    "Identity Preservation"
+    "Identity Preservation",
+    "Cryogenic Computing",
+    "Complex Systems",
+    "Astronomy",
+    "Image Registration",
+    "Bimanual Manipulation",
+    "Gradient Boosting",
+    "Science Communication",
+    "Physical-Layer Security"
   ]
 }
