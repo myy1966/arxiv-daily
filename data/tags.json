@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-10-20T12:24:45.440047+08:00",
+  "updated_at": "2026-10-21T18:50:51.747546+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -866,6 +866,9 @@
     "Bimanual Manipulation",
     "Gradient Boosting",
     "Science Communication",
-    "Physical-Layer Security"
+    "Physical-Layer Security",
+    "Reconfigurable Computing",
+    "Scenario Planning",
+    "Data Efficiency"
   ]
 }
