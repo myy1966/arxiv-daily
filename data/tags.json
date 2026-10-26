@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-10-23T21:23:31.285140+08:00",
+  "updated_at": "2026-10-26T20:09:11.648179+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -873,6 +873,10 @@
     "Symmetry",
     "Automotive",
     "Dynamic Scene Reconstruction",
-    "Evidence Theory"
+    "Evidence Theory",
+    "GUI Grounding",
+    "Verifiable Inference",
+    "Connectomics",
+    "Treatment Effect Estimation"
   ]
 }
