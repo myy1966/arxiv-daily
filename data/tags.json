@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-10-26T20:09:11.648179+08:00",
+  "updated_at": "2026-10-27T12:57:10.476563+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -877,6 +877,10 @@
     "GUI Grounding",
     "Verifiable Inference",
     "Connectomics",
-    "Treatment Effect Estimation"
+    "Treatment Effect Estimation",
+    "Network-on-Chip",
+    "Goal Reasoning",
+    "Tensor Recovery",
+    "Image-to-3D"
   ]
 }
