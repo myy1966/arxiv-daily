@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-10-27T12:57:10.476563+08:00",
+  "updated_at": "2026-10-28T12:45:00.752058+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -881,6 +881,9 @@
     "Network-on-Chip",
     "Goal Reasoning",
     "Tensor Recovery",
-    "Image-to-3D"
+    "Image-to-3D",
+    "History of Computing",
+    "Cosmology Simulation",
+    "Experimental Design"
   ]
 }
