@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-10-28T12:45:00.752058+08:00",
+  "updated_at": "2026-10-31T23:36:27.095054+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -884,6 +884,13 @@
     "Image-to-3D",
     "History of Computing",
     "Cosmology Simulation",
-    "Experimental Design"
+    "Experimental Design",
+    "Analog Design Automation",
+    "Arithmetic Unit Design",
+    "Commonsense Reasoning",
+    "Opinion Dynamics",
+    "Seismic Foundation Model",
+    "Honeypot",
+    "4D Generation"
   ]
 }
