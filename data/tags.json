@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-10-31T23:36:27.095054+08:00",
+  "updated_at": "2026-11-02T13:12:59.797753+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -891,6 +891,11 @@
     "Opinion Dynamics",
     "Seismic Foundation Model",
     "Honeypot",
-    "4D Generation"
+    "4D Generation",
+    "Learning Analytics",
+    "Gaze Estimation",
+    "Biomedical Knowledge Graph",
+    "Associative Memory",
+    "Statistical Physics"
   ]
 }
