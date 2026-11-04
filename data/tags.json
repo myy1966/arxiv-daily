@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-11-03T23:50:56.038164+08:00",
+  "updated_at": "2026-11-04T13:55:28.641809+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -902,6 +902,9 @@
     "Plagiarism Detection",
     "Graph Repair",
     "Avatar Reconstruction",
-    "Speech Emotion Recognition"
+    "Speech Emotion Recognition",
+    "Hydrological Modeling",
+    "Wi-Fi Sensing",
+    "Eye Tracking"
   ]
 }
