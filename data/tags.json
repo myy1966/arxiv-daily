@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-11-06T02:59:10.068051+08:00",
+  "updated_at": "2026-11-06T17:47:14.686023+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -908,6 +908,9 @@
     "Eye Tracking",
     "Qualitative Analysis",
     "Olfactory Navigation",
-    "Reliability Engineering"
+    "Reliability Engineering",
+    "Working Memory",
+    "Type Theory",
+    "Backdoor Defense"
   ]
 }
