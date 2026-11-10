@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-11-06T17:47:14.686023+08:00",
+  "updated_at": "2026-11-10T12:53:05.812651+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -911,6 +911,11 @@
     "Reliability Engineering",
     "Working Memory",
     "Type Theory",
-    "Backdoor Defense"
+    "Backdoor Defense",
+    "Weight-Space Programming",
+    "Crowdsourcing",
+    "Machine Learning Force Field",
+    "Automatic Differentiation",
+    "Gaussian Process"
   ]
 }
