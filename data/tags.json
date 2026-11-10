@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-11-10T12:53:05.812651+08:00",
+  "updated_at": "2026-11-10T19:16:37.006314+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -916,6 +916,21 @@
     "Crowdsourcing",
     "Machine Learning Force Field",
     "Automatic Differentiation",
-    "Gaussian Process"
+    "Gaussian Process",
+    "Branch Prediction",
+    "Keyword Spotting",
+    "Swarm Intelligence",
+    "Expert Iteration",
+    "Smart Grid Security",
+    "Learning to Rank",
+    "Laboratory Automation",
+    "Alzheimer's Disease Modeling",
+    "Simultaneous Translation",
+    "Length Generalization",
+    "Rare-event Estimation",
+    "Open-Set Recognition",
+    "Amortized Inference",
+    "Predictive Coding",
+    "Neural Quantum States"
   ]
 }
