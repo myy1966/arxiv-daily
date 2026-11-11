@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-11-10T19:16:37.006314+08:00",
+  "updated_at": "2026-11-11T22:29:19.450729+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -931,6 +931,7 @@
     "Open-Set Recognition",
     "Amortized Inference",
     "Predictive Coding",
-    "Neural Quantum States"
+    "Neural Quantum States",
+    "Hyper-heuristic"
   ]
 }
