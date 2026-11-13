@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-11-11T22:29:19.450729+08:00",
+  "updated_at": "2026-11-14T00:16:17.457997+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -932,6 +932,10 @@
     "Amortized Inference",
     "Predictive Coding",
     "Neural Quantum States",
-    "Hyper-heuristic"
+    "Hyper-heuristic",
+    "Computer Architecture",
+    "Leaderboard Hacking",
+    "Consciousness Emergence",
+    "Network Security"
   ]
 }
