@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-11-14T00:16:17.457997+08:00",
+  "updated_at": "2026-11-16T12:40:53.846196+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -936,6 +936,9 @@
     "Computer Architecture",
     "Leaderboard Hacking",
     "Consciousness Emergence",
-    "Network Security"
+    "Network Security",
+    "Adaptive Bitrate Streaming",
+    "Operating Systems",
+    "Surgical Perception"
   ]
 }
