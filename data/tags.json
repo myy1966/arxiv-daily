@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-11-16T12:40:53.846196+08:00",
+  "updated_at": "2026-11-18T00:12:56.494661+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -939,6 +939,8 @@
     "Network Security",
     "Adaptive Bitrate Streaming",
     "Operating Systems",
-    "Surgical Perception"
+    "Surgical Perception",
+    "Authorship Attribution",
+    "Ecological AI"
   ]
 }
