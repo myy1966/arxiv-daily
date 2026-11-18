@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-11-18T00:12:56.494661+08:00",
+  "updated_at": "2026-11-18T22:18:33.314873+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -941,6 +941,10 @@
     "Operating Systems",
     "Surgical Perception",
     "Authorship Attribution",
-    "Ecological AI"
+    "Ecological AI",
+    "End-to-End Driving",
+    "Probabilistic Model Checking",
+    "String Theory",
+    "Biomechanics"
   ]
 }
