@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-11-18T22:18:33.314873+08:00",
+  "updated_at": "2026-11-19T23:10:23.736566+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -945,6 +945,9 @@
     "End-to-End Driving",
     "Probabilistic Model Checking",
     "String Theory",
-    "Biomechanics"
+    "Biomechanics",
+    "Black-Box Optimization",
+    "Optical Computing",
+    "Acoustics"
   ]
 }
