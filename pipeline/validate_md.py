@@ -89,9 +89,37 @@ def validate_file(path: Path) -> ValidationResult:
 
     # --- Body parsing ---
     if fm_end is not None:
+        validate_date_matches_filename(path, lines, fm_end, result)
         validate_body(lines, fm_end, result)
 
     return result
+
+
+FILENAME_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-")
+FRONT_MATTER_DATE_RE = re.compile(r"^date:\s*(\d{4}-\d{2}-\d{2})")
+
+
+def validate_date_matches_filename(path: Path, lines: list[str], fm_end: int, result: ValidationResult):
+    """Require the front-matter date to fall on the filename (listing) date.
+
+    Jekyll builds the post URL from the front-matter date, not the filename. If a
+    catch-up run stamps a later day, two posts can share one URL and Jekyll keeps
+    only one of them.
+    """
+    m = FILENAME_DATE_RE.match(path.name)
+    if not m:
+        return
+    file_day = m.group(1)
+    for i in range(1, fm_end - 1):
+        dm = FRONT_MATTER_DATE_RE.match(lines[i])
+        if dm:
+            if dm.group(1) != file_day:
+                result.error(
+                    i + 1,
+                    f"front matter date {dm.group(1)} 与文件名日期 {file_day} 不一致"
+                    "（Jekyll 按 front matter 日期生成 URL，会与其他文章冲突）",
+                )
+            return
 
 
 def validate_front_matter(lines: list[str], result: ValidationResult) -> int | None:
