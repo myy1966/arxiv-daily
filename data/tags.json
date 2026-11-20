@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-11-19T23:10:23.736566+08:00",
+  "updated_at": "2026-11-20T23:21:55.744326+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -948,6 +948,10 @@
     "Biomechanics",
     "Black-Box Optimization",
     "Optical Computing",
-    "Acoustics"
+    "Acoustics",
+    "Legged Locomotion",
+    "Infrared Small Target Detection",
+    "Statistical Relational AI",
+    "Holography"
   ]
 }
