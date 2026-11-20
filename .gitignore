@@ -23,6 +23,11 @@ package-lock.json
 !.vscode/tasks.json
 .codex
 
+# Python (pipeline/)
+.venv/
+__pycache__/
+.pytest_cache/
+
 # Misc
 _sass/vendors
 assets/js/dist
