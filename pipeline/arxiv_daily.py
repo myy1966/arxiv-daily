@@ -5,9 +5,10 @@ arxiv_daily.py - Download arxiv daily listings, generate LLM summaries, and prod
 Requires: Python >= 3.10
 
 Usage:
-    python3 arxiv_daily.py cs.AI \\
-      --output ~/arxiv-daily/_posts \\
-      --tags ~/arxiv-daily/data/tags.json
+    python3 pipeline/arxiv_daily.py cs.AI
+
+    --output and --tags default to this site repo's _posts/ and
+    data/tags.json; pass them explicitly to write elsewhere.
 
 Environment variables (all required):
     ARXIV_UPDATE_KEY   - LLM API key
@@ -43,7 +44,12 @@ try:
 except ImportError:
     json_repair_loads = None
 
-from consolidate_tags import canonicalize_tag_list, load_tag_mapping
+from consolidate_tags import (
+    DEFAULT_POSTS_DIR,
+    DEFAULT_TAGS_PATH,
+    canonicalize_tag_list,
+    load_tag_mapping,
+)
 
 
 class ArxivDailyError(Exception):
@@ -2310,8 +2316,16 @@ def validate_env() -> LlmConfig:
 def main() -> int:
     parser = argparse.ArgumentParser(description="arxiv daily listing summarizer")
     parser.add_argument("field", help="arXiv field, e.g. cs.AI, cs.CL")
-    parser.add_argument("--output", required=True, help="Output directory for markdown files")
-    parser.add_argument("--tags", required=True, help="Path to tags.json")
+    parser.add_argument(
+        "--output",
+        default=str(DEFAULT_POSTS_DIR),
+        help="Output directory for markdown files (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--tags",
+        default=str(DEFAULT_TAGS_PATH),
+        help="Path to tags.json (default: %(default)s)",
+    )
     parser.add_argument("--no-cache", action="store_true", help="Ignore cache, full re-run")
     parser.add_argument("--date", help="Use saved HTML for this date (YYYY-MM-DD) instead of fetching")
     parser.add_argument("--patch", nargs="+", metavar="ID", help="Re-generate specific paper IDs and patch into existing md (requires --date)")

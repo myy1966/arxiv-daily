@@ -19,6 +19,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 OUTPUT_TZ = timezone(timedelta(hours=8))
+
+# pipeline/ sits at the root of the arxiv-daily site repo; default to that site's data.
+SITE_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_TAGS_PATH = SITE_ROOT / "data" / "tags.json"
+DEFAULT_POSTS_DIR = SITE_ROOT / "_posts"
 TAG_LINE_RE = re.compile(r"^(- \*\*Tags\*\*: )(.+)$", re.MULTILINE)
 
 TOO_BROAD = {
@@ -523,14 +528,14 @@ def main() -> None:
     parser.add_argument(
         "--tags",
         type=Path,
-        default=Path.home() / "arxiv-daily/data/tags.json",
-        help="Path to tags.json",
+        default=DEFAULT_TAGS_PATH,
+        help="Path to tags.json (default: %(default)s)",
     )
     parser.add_argument(
         "--posts",
         type=Path,
-        default=Path.home() / "arxiv-daily/_posts",
-        help="Path to _posts directory",
+        default=DEFAULT_POSTS_DIR,
+        help="Path to _posts directory (default: %(default)s)",
     )
     parser.add_argument("--min-freq", type=int, default=20, help="Keep tags seen at least this often")
     parser.add_argument(

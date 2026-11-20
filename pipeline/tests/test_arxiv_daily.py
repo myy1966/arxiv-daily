@@ -2929,6 +2929,28 @@ class TestMainCli:
             model="test-model",
         )
 
+    def test_output_and_tags_default_to_site_repo(self, monkeypatch, tmp_path):
+        captured = {}
+        monkeypatch.setenv("ARXIV_UPDATE_KEY", "test-key")
+        monkeypatch.setenv("ARXIV_UPDATE_API", "http://127.0.0.1:1/v1")
+        monkeypatch.setenv("ARXIV_UPDATE_MODEL", "test-model")
+        monkeypatch.setattr("sys.argv", [
+            "arxiv_daily.py", "cs.AI",
+            "--cache-dir", str(tmp_path / "cache"),
+        ])
+
+        def fake_run_normal_mode(args, logger, cache_base, llm_config):
+            captured["args"] = args
+            return arxiv_daily.RunResult({"ok": True})
+
+        monkeypatch.setattr(arxiv_daily, "run_normal_mode", fake_run_normal_mode)
+
+        assert arxiv_daily.main() == 0
+
+        site_root = Path(arxiv_daily.__file__).resolve().parent.parent
+        assert Path(captured["args"].output) == site_root / "_posts"
+        assert Path(captured["args"].tags) == site_root / "data" / "tags.json"
+
     def test_main_passes_llm_config_to_patch_mode(self, monkeypatch, tmp_path):
         captured = {}
         monkeypatch.setenv("ARXIV_UPDATE_KEY", "test-key")
