@@ -97,6 +97,8 @@ SUMMARY_FAILURE_PLACEHOLDER = "[摘要生成失败]"
 SUMMARY_FAILURE_TAG = "未分类"
 PAPER_SEPARATOR = "\n=====PAPER_SEPARATOR=====\n"
 OUTPUT_TZ = timezone(timedelta(hours=8))
+# Front-matter hour for catch-up runs (run on a later day than the listing date).
+CATCHUP_POST_HOUR = 16
 ARXIV_FETCH_INTERVAL_SECONDS = 3.0
 ARXIV_CONTACT = os.environ.get("ARXIV_UPDATE_CONTACT", "set-ARXIV_UPDATE_CONTACT")
 ARXIV_USER_AGENT = os.environ.get(
@@ -1785,6 +1787,24 @@ def extract_paper_abbrev(title: str) -> str | None:
     return None
 
 
+def front_matter_date(listing_date: str | None, now: datetime) -> datetime:
+    """Return the post's front-matter date.
+
+    Jekyll derives the post URL (/posts/:year/:month/:day/:title/) from this date,
+    so it must fall on the listing date or catch-up runs collide with other days'
+    posts. An on-time run (same OUTPUT_TZ calendar day as the listing) keeps the
+    run time; a catch-up run uses CATCHUP_POST_HOUR on the listing date.
+    """
+    now = now.astimezone(OUTPUT_TZ)
+    try:
+        day = datetime.strptime(listing_date, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return now
+    if now.date() == day:
+        return now
+    return datetime(day.year, day.month, day.day, CATCHUP_POST_HOUR, tzinfo=OUTPUT_TZ)
+
+
 def generate_markdown(data: dict, results_by_id: dict, output_dir: Path, date_str: str) -> Path:
     """Phase 3: Generate markdown file. Pure deterministic logic, no LLM."""
     field = data["field"]
@@ -1869,10 +1889,10 @@ def generate_markdown(data: dict, results_by_id: dict, output_dir: Path, date_st
     lines = []
 
     # Front matter
-    now = datetime.now(OUTPUT_TZ)
+    post_date = front_matter_date(date_str, datetime.now(OUTPUT_TZ))
     lines.append("---")
     lines.append(f'title: "arXiv {field} Daily Update"')
-    lines.append(f"date: {now.strftime('%Y-%m-%d %H:%M:%S +0800')}")
+    lines.append(f"date: {post_date.strftime('%Y-%m-%d %H:%M:%S +0800')}")
     lines.append(f"categories: [{field}]")
     lines.append("---")
     lines.append("")

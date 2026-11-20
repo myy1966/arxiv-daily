@@ -2537,6 +2537,45 @@ class TestMarkdownEscaping:
 
 
 # ===========================================================================
+# TestFrontMatterDate
+# ===========================================================================
+
+class TestFrontMatterDate:
+    TZ8 = arxiv_daily.OUTPUT_TZ
+
+    def at(self, *args, tz=None):
+        return arxiv_daily.datetime(*args, tzinfo=tz or self.TZ8)
+
+    def test_on_time_run_keeps_run_time(self):
+        now = self.at(2026, 11, 20, 22, 52, 13)
+        assert arxiv_daily.front_matter_date("2026-11-20", now) == now
+
+    def test_next_morning_catch_up_uses_listing_day_16h(self):
+        now = self.at(2026, 11, 18, 9, 41, 19)
+        assert arxiv_daily.front_matter_date("2026-11-17", now) == self.at(2026, 11, 17, 16)
+
+    def test_multi_day_catch_up_uses_listing_day_16h(self):
+        now = self.at(2026, 10, 17, 12, 0)
+        assert arxiv_daily.front_matter_date("2026-10-14", now) == self.at(2026, 10, 14, 16)
+
+    def test_run_just_after_midnight_counts_as_catch_up(self):
+        now = self.at(2026, 11, 21, 0, 30)
+        assert arxiv_daily.front_matter_date("2026-11-20", now) == self.at(2026, 11, 20, 16)
+
+    def test_same_day_is_judged_in_output_tz(self):
+        # 07:26 PST on 11-20 is 23:26 +0800 on 11-20: still an on-time run.
+        pst = arxiv_daily.timezone(arxiv_daily.timedelta(hours=-8))
+        now = self.at(2026, 11, 20, 7, 26, tz=pst)
+        result = arxiv_daily.front_matter_date("2026-11-20", now)
+        assert result == now
+        assert result.strftime("%Y-%m-%d %H:%M") == "2026-11-20 23:26"
+
+    def test_unparseable_listing_date_falls_back_to_run_time(self):
+        now = self.at(2026, 11, 20, 22, 0)
+        assert arxiv_daily.front_matter_date(None, now) == now
+
+
+# ===========================================================================
 # TestGenerateMarkdown
 # ===========================================================================
 
@@ -2564,6 +2603,12 @@ class TestGenerateMarkdown:
         assert "date:" in content
         assert " +0800" in content
         assert "categories:" in content
+
+    def test_catch_up_front_matter_date_is_listing_day_16h(self, sample_data, tmp_path):
+        # 2025-04-11 is always in the past, so this run is a catch-up run.
+        output = arxiv_daily.generate_markdown(sample_data, {}, tmp_path, "2025-04-11")
+        content = output.read_text(encoding="utf-8")
+        assert "\ndate: 2025-04-11 16:00:00 +0800\n" in content
 
     def test_section_headers(self, sample_data, tmp_path):
         results_by_id = {}
