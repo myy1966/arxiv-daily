@@ -24,6 +24,7 @@ import argparse
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -32,7 +33,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from collections import defaultdict
+from collections import Counter, defaultdict
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
@@ -93,6 +94,18 @@ RETRY_BATCH_SIZE = BATCH_SIZE // 2
 MAX_RETRIES = 3
 RETRY_DELAYS = [2, 4, 8]
 MIN_SUMMARY_LEN = 30
+# Content check: the LLM sometimes writes a batch neighbour's summary under a
+# paper's id. A summary fails when none of its rare English terms (appearing in
+# at most CONTENT_RARE_MAX_DF abstracts of the listing) are in its own abstract,
+# some are in another batch paper's abstract, and the idf-weighted share of its
+# terms found in the own vs. that abstract is <= CONTENT_OWN_MAX vs.
+# >= CONTENT_OTHER_MIN, at least CONTENT_MIN_GAP apart. Backtested on the
+# 2026-04..11 posts (69.7k summaries): 57/62 labelled swaps caught, 0/26
+# labelled-correct summaries flagged, about 0.3 false hits per 10k papers.
+CONTENT_RARE_MAX_DF = 2
+CONTENT_OWN_MAX = 0.35
+CONTENT_OTHER_MIN = 0.6
+CONTENT_MIN_GAP = 0.35
 SUMMARY_FAILURE_PLACEHOLDER = "[摘要生成失败]"
 SUMMARY_FAILURE_TAG = "未分类"
 PAPER_SEPARATOR = "\n=====PAPER_SEPARATOR=====\n"
@@ -201,16 +214,20 @@ class MatchDiagnostics:
     missing_ids: list[str]
     duplicate_ids: list[str]
     quality_failed: list[dict]
+    content_mismatch: list[dict] = field(default_factory=list)
 
     @property
     def total_failed(self) -> int:
-        return len(self.missing_ids) + len(self.duplicate_ids) + len(self.quality_failed)
+        return (
+            len(self.missing_ids) + len(self.duplicate_ids)
+            + len(self.quality_failed) + len(self.content_mismatch)
+        )
 
     @property
     def all_failed_ids(self) -> list[str]:
         return self.missing_ids + self.duplicate_ids + [
             failure["id"] for failure in self.quality_failed
-        ]
+        ] + [mismatch["id"] for mismatch in self.content_mismatch]
 
 
 @dataclass(frozen=True)
@@ -810,10 +827,89 @@ def _yymm_one_digit_typo(left: str, right: str) -> bool:
     return diffs == 1
 
 
+_CONTENT_TERM_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:[-+][A-Za-z0-9]+)*")
+_CONTENT_STOPWORDS = frozenset(
+    "the and for with from that this are was were our its into than via can not but has have "
+    "using based new also all any sota".split()
+)
+
+
+def content_terms(text: str) -> set[str]:
+    """English terms of a text: lowercased, plural -s dropped, hyphenated words also split.
+
+    Chinese summaries keep method, dataset and model names in English, so these
+    terms are what ties a summary to the abstract it was written from.
+    """
+    terms: set[str] = set()
+    for token in _CONTENT_TERM_RE.findall(text or ""):
+        parts = [token] + (re.split(r"[-+]", token) if ("-" in token or "+" in token) else [])
+        for part in parts:
+            term = part.lower()
+            if len(term) < 3 or term in _CONTENT_STOPWORDS:
+                continue
+            if len(term) >= 4 and term.endswith("s") and not term.endswith("ss"):
+                term = term[:-1]
+            terms.add(term)
+    return terms
+
+
+def build_content_index(data: dict) -> dict:
+    """Index every listing paper's abstract+title terms and their document frequency."""
+    terms_by_id: dict[str, set[str]] = {}
+    for section in data.get("sections", []):
+        for paper in section.get("papers", []):
+            pid = coerce_paper_id(paper.get("id"))
+            if pid and pid not in terms_by_id:
+                terms_by_id[pid] = content_terms(f"{paper.get('abstract') or ''} {paper.get('title') or ''}")
+    df = Counter(term for terms in terms_by_id.values() for term in terms)
+    return {"terms": terms_by_id, "df": df, "n": len(terms_by_id)}
+
+
+def find_content_mismatches(batch: list[dict], results: dict[str, dict], index: dict) -> list[dict]:
+    """Return summaries that read like another paper of the same batch (see CONTENT_* constants)."""
+    terms_by_id, df, n = index["terms"], index["df"], index["n"]
+
+    def idf(term: str) -> float:
+        return math.log((n + 1) / (1 + df.get(term, 0)))
+
+    batch_ids = [coerce_paper_id(p.get("id")) for p in batch]
+    mismatches = []
+    for pid in batch_ids:
+        result = results.get(pid)
+        own_terms = terms_by_id.get(pid)
+        if not result or own_terms is None:
+            continue
+        summary_terms = content_terms(result.get("summary", ""))
+        rare = {t for t in summary_terms if df.get(t, 0) <= CONTENT_RARE_MAX_DF}
+        if not rare or rare & own_terms:
+            continue
+        weight = sum(idf(t) for t in summary_terms)
+        if weight <= 0:
+            continue
+        own_score = sum(idf(t) for t in summary_terms if t in own_terms) / weight
+        for other in batch_ids:
+            other_terms = terms_by_id.get(other)
+            if other == pid or not other_terms or not (rare & other_terms):
+                continue
+            other_score = sum(idf(t) for t in summary_terms if t in other_terms) / weight
+            if (own_score <= CONTENT_OWN_MAX and other_score >= CONTENT_OTHER_MIN
+                    and other_score - own_score >= CONTENT_MIN_GAP):
+                mismatches.append({
+                    "id": pid,
+                    "looks_like": other,
+                    "terms": sorted(rare & other_terms),
+                    "own_score": round(own_score, 3),
+                    "other_score": round(other_score, 3),
+                })
+                break
+    return mismatches
+
+
 def match_llm_results(
     batch: list[dict], llm_papers: list[dict], logger: logging.Logger, batch_num: int,
     raw_result: dict | None = None, debug_dir: Path | None = None,
     batch_label: str | None = None, attempt: int = 0,
+    content_index: dict | None = None, content_strict: bool = True,
 ) -> tuple[dict[str, dict], MatchDiagnostics]:
     """Match LLM results to batch papers and return structured diagnostics.
 
@@ -823,6 +919,8 @@ def match_llm_results(
     3. Normalized ID match (strip version suffix like v1, v2)
     4. Unique YYMM one-digit typo match for leftovers
     5. Report missing and quality failures separately
+    6. With content_index, flag summaries that read like another batch paper:
+       strict mode drops them as failures, otherwise they are kept with a warning
     """
     label = batch_label or f"batch_{batch_num:03d}"
     log_label = batch_label or f"Batch {batch_num:03d}"
@@ -925,16 +1023,56 @@ def match_llm_results(
             quality_failures.append({"id": bid, "issues": issues, "result": r})
             del results[bid]
 
+    # Pass 4b: content check - summary written for another paper of the batch
+    content_mismatches = find_content_mismatches(batch, results, content_index) if content_index else []
+    content_failures: list[dict] = []
+    if content_mismatches:
+        flagged_summaries = {m["id"]: results[m["id"]].get("summary", "") for m in content_mismatches}
+        details = ", ".join(
+            f"{m['id']}~{m['looks_like']}({'/'.join(m['terms'][:3])})" for m in content_mismatches
+        )
+        if content_strict:
+            for m in content_mismatches:
+                content_failures.append({**m, "result": results.pop(m["id"])})
+            logger.error(
+                f"[Phase2] {log_label}: {len(content_mismatches)} summaries read like another "
+                f"batch paper: {details}"
+            )
+        else:
+            logger.warning(
+                f"[Phase2] {log_label}: keeping {len(content_mismatches)} summaries that read like "
+                f"another batch paper (non-strict): {details}"
+            )
+        if debug_dir is not None and raw_result is not None:
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            debug_path = debug_dir / f"{label}_content_mismatch{attempt_suffix}.json"
+            debug_data = {
+                "batch_input_ids": batch_ids,
+                "strict": content_strict,
+                "mismatches": [{**m, "summary": flagged_summaries[m["id"]]} for m in content_mismatches],
+                "prompt_papers": [
+                    {"id": p["id"], "title": p.get("title", ""), "abstract": p.get("abstract", "")[:200]}
+                    for p in batch
+                ],
+                "llm_response": raw_result,
+            }
+            with open(debug_path, "w", encoding="utf-8") as f:
+                json.dump(debug_data, f, ensure_ascii=False, indent=2)
+            log = logger.error if content_strict else logger.warning
+            log(f"[Phase2] {log_label} content mismatch debug saved to {debug_path}")
+
     duplicate_ids: list[str] = []
     missing_ids = [
         bid for bid in batch_ids
         if bid not in results
         and bid not in {qf["id"] for qf in quality_failures}
+        and bid not in {cf["id"] for cf in content_failures}
     ]
     diagnostics = MatchDiagnostics(
         missing_ids=missing_ids,
         duplicate_ids=duplicate_ids,
         quality_failed=quality_failures,
+        content_mismatch=content_failures,
     )
 
     if missing_ids:
@@ -1062,6 +1200,8 @@ def _format_match_failures(diagnostics: MatchDiagnostics) -> str:
         parts.append(f"{len(diagnostics.duplicate_ids)} duplicate")
     if diagnostics.quality_failed:
         parts.append(f"{len(diagnostics.quality_failed)} quality")
+    if diagnostics.content_mismatch:
+        parts.append(f"{len(diagnostics.content_mismatch)} content mismatch")
     return ", ".join(parts)
 
 
@@ -1208,6 +1348,8 @@ def _process_batch(
     cache_allowed: bool,
     exception_status: str,
     tag_mapping: dict[str, str] | None = None,
+    content_index: dict | None = None,
+    content_strict: bool = True,
 ) -> BatchProcessResult:
     batch_num = idx + 1
     blabel = f"{label_prefix}_{batch_num:03d}"
@@ -1221,7 +1363,8 @@ def _process_batch(
         )
 
         matched, diagnostics = match_llm_results(
-            batch, result.get("papers", []), logger, batch_num, result, debug_dir, batch_label=blabel
+            batch, result.get("papers", []), logger, batch_num, result, debug_dir, batch_label=blabel,
+            content_index=content_index, content_strict=content_strict,
         )
 
         new_tags = result.get("new_tags", [])
@@ -1346,8 +1489,12 @@ def run_phase2(
     logger: logging.Logger,
     batch_prefix: str = "batch",
     save_cache: bool = True,
+    content_source: dict | None = None,
 ) -> tuple[dict, int]:
     """Phase 2: LLM summarization.
+
+    content_source is the full listing used for term rarity in the content check;
+    it defaults to data (patch mode passes the whole day while summarizing a few papers).
 
     Returns:
         (results_by_id, failed_papers_count)
@@ -1361,6 +1508,7 @@ def run_phase2(
         return {}, 0
 
     cache_writes_enabled = save_cache and not no_cache
+    content_index = build_content_index(content_source if content_source is not None else data)
 
     # Cache setup
     field_cache = cache_dir / data["field"]
@@ -1384,8 +1532,11 @@ def run_phase2(
 
         if batch_num in cached_batches:
             cached = cached_batches[batch_num]
+            # Cached batches already passed the content check or were accepted on retry,
+            # so a replay only warns instead of re-queueing the batch every run.
             matched, diagnostics = match_llm_results(
-                batch, cached.get("papers", []), logger, batch_num, cached, debug_dir, batch_label=blabel
+                batch, cached.get("papers", []), logger, batch_num, cached, debug_dir, batch_label=blabel,
+                content_index=content_index, content_strict=False,
             )
             if diagnostics.total_failed > 0:
                 logger.warning(
@@ -1411,6 +1562,7 @@ def run_phase2(
             batch_prefix, cache_writes_enabled, cache_allowed=True,
             exception_status="failed after all retries",
             tag_mapping=tag_mapping,
+            content_index=content_index, content_strict=True,
         )
         results_by_id.update(processed.matched)
         if processed.failed:
@@ -1440,6 +1592,10 @@ def run_phase2(
                 cache_allowed=False,
                 exception_status="retry failed",
                 tag_mapping=tag_mapping,
+                # A summary that still trips the content check after a fresh retry is
+                # most likely a false positive; keep it with a warning, since the
+                # alternative is the failure placeholder.
+                content_index=content_index, content_strict=False,
             )
             results_by_id.update(processed.matched)
             still_failed_papers.extend(processed.unresolved)
@@ -2097,6 +2253,7 @@ def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: L
         model=llm_config.model,
         logger=logger,
         batch_prefix="patch_batch", save_cache=False,
+        content_source=full_data,
     )
 
     if not results_by_id:

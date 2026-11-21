@@ -585,6 +585,198 @@ class TestMatchLlmResults:
 
 
 # ===========================================================================
+# TestContentCheck
+# ===========================================================================
+
+CONTENT_PAPERS = [
+    {"id": "2604.00001", "title": "FRACTAL: Fractional Recurrent Architecture",
+     "abstract": "We propose FRACTAL, a fractional recurrent architecture for temporal modeling with LLM features."},
+    {"id": "2604.00002", "title": "SynerDiff: Synergetic Continuous Batching",
+     "abstract": "SynerDiff introduces synergetic continuous batching for diffusion serving with LLM schedulers."},
+    {"id": "2604.00003", "title": "TriageBench",
+     "abstract": "TriageBench evaluates metacognitive control of LLM agents under resource constraints."},
+    {"id": "2604.00004", "title": "RS-Claw",
+     "abstract": "RS-Claw explores remote sensing tools through hierarchical skill trees for LLM agents."},
+]
+CONTENT_SUMMARIES = {
+    "2604.00001": "本文提出FRACTAL分数递归架构，用于时间序列建模，在长序列任务上取得良好效果。",
+    "2604.00002": "本文提出SynerDiff协同连续批处理方法，用于扩散模型服务，显著降低了推理延迟。",
+    "2604.00003": "本文提出TriageBench基准，评估资源约束下智能体的前瞻性元认知控制能力。",
+    "2604.00004": "本文提出RS-Claw遥感智能体，通过分层技能树渐进式探索工具并压缩输入。",
+}
+
+
+def _content_data(papers=CONTENT_PAPERS):
+    return {"sections": [{"name": "New submissions", "count": len(papers), "papers": [dict(p) for p in papers]}]}
+
+
+def _content_llm_papers(summaries):
+    return [{"id": pid, "summary": s, "tags": ["T"], "venue": None} for pid, s in summaries.items()]
+
+
+def _swapped_summaries():
+    s = dict(CONTENT_SUMMARIES)
+    s["2604.00001"], s["2604.00002"] = CONTENT_SUMMARIES["2604.00002"], CONTENT_SUMMARIES["2604.00001"]
+    return s
+
+
+class TestContentCheck:
+    def test_content_terms_normalizes(self):
+        terms = arxiv_daily.content_terms("LLMs use GNN-based Retrieval-Augmented methods, the SOTA class")
+        assert {"llm", "gnn", "gnn-based", "retrieval", "augmented", "method", "class"} <= terms
+        assert not {"llms", "methods", "the", "based", "sota"} & terms
+
+    def test_detects_swapped_summaries(self):
+        index = arxiv_daily.build_content_index(_content_data())
+        results = {pid: {"summary": s} for pid, s in _swapped_summaries().items()}
+        mismatches = arxiv_daily.find_content_mismatches(CONTENT_PAPERS, results, index)
+        assert {(m["id"], m["looks_like"]) for m in mismatches} == {
+            ("2604.00001", "2604.00002"), ("2604.00002", "2604.00001"),
+        }
+        first = next(m for m in mismatches if m["id"] == "2604.00001")
+        assert first["terms"] == ["synerdiff"]
+        assert first["own_score"] == 0.0 and first["other_score"] == 1.0
+
+    def test_correct_summaries_pass(self):
+        index = arxiv_daily.build_content_index(_content_data())
+        results = {pid: {"summary": s} for pid, s in CONTENT_SUMMARIES.items()}
+        assert arxiv_daily.find_content_mismatches(CONTENT_PAPERS, results, index) == []
+
+    def test_chinese_only_and_common_terms_are_not_evidence(self):
+        index = arxiv_daily.build_content_index(_content_data())
+        results = {
+            "2604.00001": {"summary": "本文提出一种分数递归架构，用于时间序列建模并取得良好效果。"},
+            # LLM appears in every abstract, so it is not rare and proves nothing
+            "2604.00002": {"summary": "本文研究LLM在扩散模型服务中的调度问题，降低了推理延迟。"},
+        }
+        assert arxiv_daily.find_content_mismatches(CONTENT_PAPERS, results, index) == []
+
+    def test_plural_and_hyphen_variants_match_own_abstract(self):
+        papers = [
+            {"id": "2604.00011", "title": "Neurons", "abstract": "We study GNNs for an LFSR-based neuron."},
+            {"id": "2604.00012", "title": "Accelerator", "abstract": "A GNN accelerator with an LFSR generator."},
+        ]
+        index = arxiv_daily.build_content_index(_content_data(papers))
+        results = {"2604.00011": {"summary": "本文用GNN研究基于LFSR的随机神经元设计与实现。"}}
+        assert arxiv_daily.find_content_mismatches(papers, results, index) == []
+
+    def test_match_strict_drops_swaps_as_failures(self, logger, tmp_path):
+        index = arxiv_daily.build_content_index(_content_data())
+        raw = {"papers": _content_llm_papers(_swapped_summaries()), "new_tags": []}
+        results, diagnostics = arxiv_daily.match_llm_results(
+            CONTENT_PAPERS, raw["papers"], logger, 1, raw, tmp_path, content_index=index,
+        )
+        assert set(results) == {"2604.00003", "2604.00004"}
+        assert {m["id"] for m in diagnostics.content_mismatch} == {"2604.00001", "2604.00002"}
+        assert diagnostics.missing_ids == []
+        assert diagnostics.total_failed == 2
+        assert set(diagnostics.all_failed_ids) == {"2604.00001", "2604.00002"}
+        debug = json.loads((tmp_path / "batch_001_content_mismatch.json").read_text(encoding="utf-8"))
+        assert debug["strict"] is True
+        assert {m["id"] for m in debug["mismatches"]} == {"2604.00001", "2604.00002"}
+        assert debug["mismatches"][0]["summary"]
+
+    def test_match_non_strict_keeps_swaps(self, logger):
+        index = arxiv_daily.build_content_index(_content_data())
+        results, diagnostics = arxiv_daily.match_llm_results(
+            CONTENT_PAPERS, _content_llm_papers(_swapped_summaries()), logger, 1,
+            content_index=index, content_strict=False,
+        )
+        assert set(results) == set(CONTENT_SUMMARIES)
+        assert diagnostics.content_mismatch == []
+        assert diagnostics.total_failed == 0
+
+    def test_match_without_index_skips_check(self, logger):
+        results, diagnostics = arxiv_daily.match_llm_results(
+            CONTENT_PAPERS, _content_llm_papers(_swapped_summaries()), logger, 1,
+        )
+        assert set(results) == set(CONTENT_SUMMARIES)
+        assert diagnostics.total_failed == 0
+
+    @staticmethod
+    def _run(monkeypatch, logger, tags_file, tmp_path, sample_data, responses):
+        prompt_batches: list[list[str]] = []
+
+        def fake_build_prompt(batch, current_tags):
+            prompt_batches.append([paper["id"] for paper in batch])
+            return [{"role": "user", "content": "fake prompt"}]
+
+        def fake_call_llm(messages, api_endpoint, api_key, model, logger, batch_num=0,
+                          debug_dir=None, batch_label=None, expected_ids=None):
+            summaries = responses[min(len(prompt_batches), len(responses)) - 1]
+            ids = prompt_batches[-1]
+            return {"papers": _content_llm_papers({pid: summaries[pid] for pid in ids}), "new_tags": []}, {}
+
+        monkeypatch.setattr(arxiv_daily, "build_prompt", fake_build_prompt)
+        monkeypatch.setattr(arxiv_daily, "call_llm", fake_call_llm)
+        data = {**_content_data(), "field": sample_data["field"], "listing_date": sample_data["listing_date"],
+                "page_type": "new"}
+        cache_dir = tmp_path / "cache"
+        results, failed = arxiv_daily.run_phase2(
+            data, tags_file, cache_dir, no_cache=False,
+            api_endpoint="http://unused", api_key="test-key", model="test-model", logger=logger,
+        )
+        debug_dir = cache_dir / "debug" / data["field"] / data["listing_date"]
+        return results, failed, prompt_batches, debug_dir
+
+    def test_run_phase2_retries_swapped_batch(self, monkeypatch, logger, tags_file, tmp_path, sample_data):
+        results, failed, prompt_batches, debug_dir = self._run(
+            monkeypatch, logger, tags_file, tmp_path, sample_data,
+            [_swapped_summaries(), CONTENT_SUMMARIES],
+        )
+        assert failed == 0
+        assert {pid: r["summary"] for pid, r in results.items()} == CONTENT_SUMMARIES
+        ids = [p["id"] for p in CONTENT_PAPERS]
+        assert prompt_batches == [ids, ids], "whole batch is rejected and retried"
+        assert (debug_dir / "batch_001_content_mismatch.json").exists()
+
+    def test_run_phase2_keeps_retry_result_instead_of_placeholder(
+        self, monkeypatch, logger, tags_file, tmp_path, sample_data
+    ):
+        results, failed, prompt_batches, debug_dir = self._run(
+            monkeypatch, logger, tags_file, tmp_path, sample_data,
+            [_swapped_summaries(), _swapped_summaries()],
+        )
+        assert failed == 0
+        assert len(prompt_batches) == 2
+        assert all(r["summary"] != arxiv_daily.SUMMARY_FAILURE_PLACEHOLDER for r in results.values())
+        retry_debug = json.loads((debug_dir / "retry_001_content_mismatch.json").read_text(encoding="utf-8"))
+        assert retry_debug["strict"] is False
+
+    def test_patch_mode_uses_full_listing_for_rarity(self, monkeypatch, tmp_path, logger):
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        cache_base = tmp_path / "cache"
+        (cache_base / "pages" / "cs.AI").mkdir(parents=True)
+        (cache_base / "pages" / "cs.AI" / "2025-04-11.html").write_text("<html>saved</html>", encoding="utf-8")
+        (output_dir / "2025-04-11-cs.AI.md").write_text(
+            "- **arXiv**: [2604.00001](https://arxiv.org/abs/2604.00001)\n- **Summary**: Old.\n", encoding="utf-8"
+        )
+        tags_path = tmp_path / "tags.json"
+        tags_path.write_text('{"tags": []}', encoding="utf-8")
+        args = type("Args", (), {})()
+        args.date, args.field, args.patch = "2025-04-11", "cs.AI", ["2604.00001"]
+        args.tags, args.output = str(tags_path), str(output_dir)
+        full = _content_data()
+        monkeypatch.setattr(arxiv_daily, "parse_html", lambda html, field: full)
+        monkeypatch.setattr(arxiv_daily, "extract_venues_batch", lambda *a, **k: {})
+        captured = {}
+
+        def fake_run_phase2(data, *args, **kwargs):
+            captured["data_ids"] = [p["id"] for s in data["sections"] for p in s["papers"]]
+            captured["content_source"] = kwargs.get("content_source")
+            return {"2604.00001": {"summary": CONTENT_SUMMARIES["2604.00001"], "tags": ["T"], "venue": None}}, 0
+
+        monkeypatch.setattr(arxiv_daily, "run_phase2", fake_run_phase2)
+        arxiv_daily.run_patch_mode(
+            args, logger, cache_base,
+            arxiv_daily.LlmConfig(api_key="k", api_endpoint="http://unused", model="m"),
+        )
+        assert captured["data_ids"] == ["2604.00001"]
+        assert captured["content_source"] is full
+
+
+# ===========================================================================
 # TestValidateLlmSchema
 # ===========================================================================
 
