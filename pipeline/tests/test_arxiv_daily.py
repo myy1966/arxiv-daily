@@ -585,6 +585,47 @@ class TestMatchLlmResults:
 
 
 # ===========================================================================
+# TestSummaryEnding
+# ===========================================================================
+
+class TestSummaryEnding:
+    @pytest.mark.parametrize("summary,expected", [
+        ("识别出12项技术挑战，包括规模化、边缘云协同、标准认证等", "识别出12项技术挑战，包括规模化、边缘云协同、标准认证等。"),
+        ("方法优于纯RL或纯LLM基线。（注：该论文已撤回）", "方法优于纯RL或纯LLM基线。该论文已撤回。"),
+        ("误差增长符合预测。（注：该版本未经全部共同作者同意，已被撤回，不应引用。）",
+         "误差增长符合预测。该版本未经全部共同作者同意，已被撤回，不应引用。"),
+        ("指出累积进展的机会。(作者后期撤回该手稿)", "指出累积进展的机会。作者后期撤回该手稿。"),
+        ("在三个基准上取得最优结果.", "在三个基准上取得最优结果。"),
+        ("在 GLUE 上提升 3.2%（详见附录）", "在 GLUE 上提升 3.2%（详见附录）。"),
+        ("已经以句号结尾。", "已经以句号结尾。"),
+        ("结尾有多余空格。  ", "结尾有多余空格。"),
+        ("实验表明该方法有效，并且", "实验表明该方法有效，并且。"),
+        ("实验表明该方法有效，", None),
+        ("主要贡献包括：", None),
+        ("评估能力是否优于生成能力？", None),
+        ("", None),
+    ])
+    def test_normalize_summary_ending(self, summary, expected):
+        assert arxiv_daily.normalize_summary_ending(summary) == expected
+
+    def test_match_fixes_missing_full_stop(self, logger):
+        batch = [{"id": "2604.00001"}]
+        llm_papers = [{"id": "2604.00001", "summary": "这是一条内容完整但缺少句号的测试摘要，长度足够通过检查，结尾是汉字",
+                       "tags": ["T"], "venue": None}]
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+        assert diagnostics.total_failed == 0
+        assert results["2604.00001"]["summary"].endswith("结尾是汉字。")
+
+    def test_match_rejects_cut_off_summary(self, logger):
+        batch = [{"id": "2604.00001"}]
+        llm_papers = [{"id": "2604.00001", "summary": "这是一条在逗号处被截断的足够长的测试摘要，后面本应还有内容，",
+                       "tags": ["T"], "venue": None}]
+        results, diagnostics = arxiv_daily.match_llm_results(batch, llm_papers, logger, 1)
+        assert results == {}
+        assert diagnostics.quality_failed[0]["issues"] == ["summary ends with '，' instead of 。"]
+
+
+# ===========================================================================
 # TestContentCheck
 # ===========================================================================
 

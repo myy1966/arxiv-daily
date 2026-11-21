@@ -827,6 +827,34 @@ def _yymm_one_digit_typo(left: str, right: str) -> bool:
     return diffs == 1
 
 
+# A closing note in brackets after the last sentence: "…基线。（注：该论文已撤回）".
+_TRAILING_NOTE_RE = re.compile(r"。\s*[（(]\s*(?:注\s*[:：]\s*)?([^（）()]+?)\s*[。.]?\s*[）)]$")
+
+
+def normalize_summary_ending(summary: str) -> str | None:
+    """Make a summary end with 。, or return None when the ending looks cut off.
+
+    - a closing bracketed note becomes a plain last sentence ("…。该论文已撤回。");
+    - a final "." becomes 。, and a missing full stop is added after words,
+      digits or closing brackets;
+    - a comma, semicolon, colon, enumeration comma, question or exclamation mark
+      at the end returns None so the batch is regenerated.
+    """
+    text = summary.rstrip()
+    if not text:
+        return None
+    note = _TRAILING_NOTE_RE.search(text)
+    if note:
+        return f"{text[:note.start()]}。{note.group(1).rstrip('。. ')}。"
+    if text.endswith("。"):
+        return text
+    if text[-1] in ".．":
+        return text[:-1] + "。"
+    if text[-1] in "，,；;：:、？?！!":
+        return None
+    return text + "。"
+
+
 _CONTENT_TERM_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:[-+][A-Za-z0-9]+)*")
 _CONTENT_STOPWORDS = frozenset(
     "the and for with from that this are was were our its into than via can not but has have "
@@ -1010,7 +1038,7 @@ def match_llm_results(
             f"kept first: {recovered or list(extra_copies)}"
         )
 
-    # Pass 4: quality check - remove papers with missing tags or short summary
+    # Pass 4: quality check - remove papers with missing tags, short summary or a broken ending
     quality_failures: list[dict] = []
     for bid in list(results.keys()):
         r = results[bid]
@@ -1019,6 +1047,13 @@ def match_llm_results(
             issues.append("missing tags")
         if len(r.get("summary", "")) < MIN_SUMMARY_LEN:
             issues.append(f"summary too short ({len(r.get('summary', ''))} chars < {MIN_SUMMARY_LEN})")
+        elif isinstance(r.get("summary"), str):
+            fixed = normalize_summary_ending(r["summary"])
+            if fixed is None:
+                issues.append(f"summary ends with '{r['summary'].rstrip()[-1:]}' instead of 。")
+            elif fixed != r["summary"]:
+                logger.info(f"[Phase2] {log_label}: fixed summary ending for {bid}")
+                r["summary"] = fixed
         if issues:
             quality_failures.append({"id": bid, "issues": issues, "result": r})
             del results[bid]
