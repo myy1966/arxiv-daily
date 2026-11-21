@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-11-20T23:21:55.744326+08:00",
+  "updated_at": "2026-11-21T11:03:53.251563+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -952,6 +952,7 @@
     "Legged Locomotion",
     "Infrared Small Target Detection",
     "Statistical Relational AI",
-    "Holography"
+    "Holography",
+    "Computational Lithography"
   ]
 }
