@@ -759,7 +759,7 @@ class TestContentCheck:
         args.tags, args.output = str(tags_path), str(output_dir)
         full = _content_data()
         monkeypatch.setattr(arxiv_daily, "parse_html", lambda html, field: full)
-        monkeypatch.setattr(arxiv_daily, "extract_venues_batch", lambda *a, **k: {})
+        monkeypatch.setattr(arxiv_daily, "extract_venue_info_batch", lambda *a, **k: {})
         captured = {}
 
         def fake_run_phase2(data, *args, **kwargs):
@@ -2772,6 +2772,19 @@ class TestFrontMatterDate:
 # ===========================================================================
 
 class TestGenerateMarkdown:
+    def test_presentation_line_follows_venue_and_header_shows_venue_only(self, sample_data, tmp_path):
+        results_by_id = {
+            "2604.06189": {"summary": "摘要一。", "tags": ["T"], "venue": "ACL 2026", "presentation": "Oral"},
+            "2604.07001": {"summary": "摘要二。", "tags": ["T"], "venue": None, "presentation": "Oral"},
+            "2604.08123": {"summary": "摘要三。", "tags": ["T"], "venue": None},
+        }
+        content = arxiv_daily.generate_markdown(
+            sample_data, results_by_id, tmp_path, "2025-04-11"
+        ).read_text(encoding="utf-8")
+        assert "- **Venue**: ACL 2026\n- **Presentation**: Oral\n" in content
+        assert content.count("**Presentation**") == 1, "no presentation without a venue"
+        assert "(ACL 2026)" in content and "(ACL 2026, Oral)" not in content
+
     def test_basic_generation(self, sample_data, tmp_path):
         results_by_id = {
             "2604.06189": {"summary": "摘要一", "tags": ["LLM Reasoning"], "venue": "ACL 2026"},
@@ -2919,6 +2932,34 @@ categories: [cs.AI]
         }
         patched = arxiv_daily.patch_markdown(md_path, results, logger)
         assert patched == 0
+
+    def test_presentation_written_after_venue_and_replaced(self, tmp_path, logger):
+        content = """\
+<h3 id="1">[1] Test Paper</h3>
+- **arXiv**: [2604.06189](https://arxiv.org/abs/2604.06189)
+- **Authors**: Alice
+- **Subjects**: cs.AI
+- **Tags**: Old
+- **Venue**: ICML 2025
+- **Presentation**: Oral
+- **Code**: [code](https://example.com)
+- **Summary**: Old summary.
+
+"""
+        md_path = tmp_path / "test.md"
+        md_path.write_text(content, encoding="utf-8")
+        results = {"2604.06189": {"summary": "新摘要。", "tags": ["T"], "venue": "ICML 2026",
+                                  "presentation": "Spotlight"}}
+        arxiv_daily.patch_markdown(md_path, results, logger)
+        lines = md_path.read_text(encoding="utf-8").splitlines()
+        assert lines[5:9] == [
+            "- **Venue**: ICML 2026", "- **Presentation**: Spotlight",
+            "- **Code**: [code](https://example.com)", "- **Summary**: 新摘要。",
+        ]
+
+        results["2604.06189"]["presentation"] = None
+        arxiv_daily.patch_markdown(md_path, results, logger)
+        assert "**Presentation**" not in md_path.read_text(encoding="utf-8")
 
     def test_venue_removed_when_none(self, tmp_path, logger):
         """Existing Venue line should be removed when new result has venue=None."""
@@ -3456,6 +3497,22 @@ class TestHasAcceptanceSignal:
         ("Under review at NeurIPS", False),
         (None, False),
         ("", False),
+        ("Best Technical Paper Award at Intelligent Data Analysis (IDA) 2026", True),
+        ("ACL 2026", True),
+        ("9 pages. Accpted for Publication in IJCAI 26", True),
+        ("MemFM @ ICML 2026", True),
+        ("Spotlight, NeurIPS 2026", True),
+        ("In Proceedings ICLP 2026", True),
+        ("Uses the NeurIPS 2026 LaTeX template", False),
+        ("ICLR 2026 submission", False),
+        ("2026 IEEE International Geoscience and Remote Sensing Symposium (IGARSS)", True),
+        ("14 pages, 8 figures, Acccepted to Transactions on Games", True),
+        ("18 pages, 8 figures; cvpr2026 paper", True),
+        ("Proc. 2026 International Congress of Mathematicians", True),
+        ("Bayesian posterior sampling, 7 figures", False),
+        ("ACL Findings", True),
+        ("IJCNN Full Paper", True),
+        ("Nature Biomedical Engineering (2026)", True),
     ])
     def test_acceptance_signal(self, comments, expected):
         assert arxiv_daily.has_acceptance_signal(comments) is expected
@@ -3721,7 +3778,244 @@ class TestExtractVenuesBatch:
             assert cache_file.exists()
             data = json.loads(cache_file.read_text())
             assert data["metadata_hash"] == "h"
-            assert data["venues"]["001"] == "ICML 2026"
+            assert data["format"] == 2
+            assert data["venues"]["001"] == {"venue": "ICML 2026", "presentation": None}
+
+
+# ===========================================================================
+# TestVenueFormatting
+# ===========================================================================
+
+def _table(aliases=None, full_names=None):
+    return {"aliases": dict(aliases or {}), "full_names": dict(full_names or {})}
+
+
+class TestVenueFormatting:
+    def test_name_key_drops_years_ordinals_and_parentheses(self):
+        key = arxiv_daily.venue_name_key("The 43rd International Conference on Machine Learning (ICML 2026)")
+        assert key == "international conference on machine learning"
+        assert arxiv_daily.venue_name_key("Proceedings of the 2026 Annual Meeting of the ACL") == "meeting of acl"
+
+    @pytest.mark.parametrize("item,comments,expected", [
+        ({"venue": "ICML", "year": "2026", "category": "main"},
+         "Accepted at ICML 2026", "ICML 2026"),
+        ({"venue": "ACL", "year": "2026", "category": "findings"},
+         "Findings of ACL 2026", "ACL 2026 Findings"),
+        ({"venue": "Findings of EMNLP 2026"}, "Findings of EMNLP 2026", "EMNLP 2026 Findings"),
+        ({"venue": "EMNLP 2026 Main Conference"}, "EMNLP 2026, Main Conference", "EMNLP 2026"),
+        ({"venue": "NeurIPS", "year": "2026", "category": "track", "track": "Datasets and Benchmarks Track"},
+         "NeurIPS 2026 Datasets and Benchmarks Track", "NeurIPS 2026 D&B"),
+        ({"venue": "KDD", "year": "2026", "category": "track", "track": "Applied Research"},
+         "KDD 2026 Applied Research track", "KDD 2026 Applied Research"),
+        ({"venue": "NeurIPS", "year": "2025", "category": "workshop", "workshop": "MATH-AI Workshop"},
+         "MATH-AI Workshop at NeurIPS 2025", "NeurIPS 2025 MATH-AI Workshop"),
+        ({"venue": "ICLR", "year": "2026", "category": "workshop", "workshop": "LRLLM"},
+         "ICLR 2026 Workshop on Logical Reasoning of Large Language Models", "ICLR 2026 Workshop"),
+        ({"venue": "ICML", "year": "2026"}, "Accepted at ICML", "ICML"),
+        ({"venue": "IJCAI", "year": "2026"}, "Accpted for Publication in IJCAI 26", "IJCAI 2026"),
+        ({"venue": "Bioinformatics"}, "Published in Bioinformatics", "Bioinformatics"),
+        ({"venue": None, "full_name": "34th IEEE Signal Processing and Communications Applications Conference"},
+         "34th IEEE Signal Processing and Communications Applications Conference",
+         "IEEE Signal Processing and Communications Applications Conference"),
+    ])
+    def test_formats_short_venue(self, item, comments, expected):
+        venue, _ = arxiv_daily.format_venue_entry(item, comments, _table())
+        assert venue == expected
+
+    @pytest.mark.parametrize("item,comments,expected", [
+        ({"venue": "CVPR", "year": "2026", "category": "workshop", "workshop": "Sight and Sound"},
+         "accepted to CVPR 2026 Workshop on Sight and Sound", "CVPR 2026 Workshop"),
+        ({"venue": "ICML", "year": "2026", "category": "workshop", "workshop": "Pluralistic Alignment"},
+         "Accepted at the ICML 2026 Workshop on Pluralistic Alignment", "ICML 2026 Workshop"),
+        ({"venue": "NeurIPS", "year": "2026", "category": "workshop", "workshop": "GenAI4Health"},
+         "Accepted to the NeurIPS 2026 GenAI4Health Workshop", "NeurIPS 2026 GenAI4Health Workshop"),
+        ({"venue": "FAccT", "year": "2026", "category": "track", "track": "non-archival"},
+         "presented at ACM FAccT 2026 (non-archival)", "FAccT 2026"),
+        ({"venue": "SIGKDD", "year": "2026", "category": "track", "track": "AI for Science"},
+         "Accepted by SIGKDD2026 AI for Science Track", "KDD 2026 AI for Science"),
+    ])
+    def test_only_acronym_workshops_and_named_tracks_are_kept(self, item, comments, expected):
+        venue, _ = arxiv_daily.format_venue_entry(item, comments, _table(aliases={"sigkdd": "KDD"}))
+        assert venue == expected
+
+    @pytest.mark.parametrize("item,comments,expected", [
+        ({"venue": "ITS", "year": "2026"}, "Accepted for ITS 2026", "ITS 2026"),
+        ({"venue": "A&A"}, "21 pages, 17 figures; accepted in A&A", "A&A"),
+        ({"venue": "NeurIPS", "year": "2025", "category": "track", "track": "D&B"},
+         "NeuIPS 2025 (Datasets and Benchmarks Track)", "NeurIPS 2025 D&B"),
+        ({"venue": None, "year": "2026", "category": "workshop", "workshop": "TPDP"},
+         "Accepted to the Theory and Practice of Differential Privacy Workshop (TPDP 2026)", "TPDP 2026 Workshop"),
+        ({"venue": "CLPsych", "year": "2026", "category": "workshop", "workshop": "CLPsych"},
+         "Accepted at the CLPsych 2026 workshop", "CLPsych 2026 Workshop"),
+    ])
+    def test_resolve_grounding_fallbacks_and_standalone_workshops(self, item, comments, expected):
+        info = arxiv_daily.resolve_venue_item(item, comments, _table(aliases={"neuips": "NeurIPS"}))
+        assert info["venue"] == expected
+
+    @pytest.mark.parametrize("item,comments,expected", [
+        ({"venue": "EMNLP", "year": "2026", "category": "findings"}, "Accepted to ENMLP 2026 Findings",
+         "EMNLP 2026 Findings"),
+        ({"venue": "NeurIPS", "year": "2026"}, "Accepted by NeuraIPS 2026", "NeurIPS 2026"),
+        ({"venue": "ASP-DAC", "year": "2027"}, "This work is accepted to ASPDAC'27", "ASP-DAC 2027"),
+        ({"venue": "ICASSP", "year": "2026"}, "Accepted at ICAPS 2026", None),
+    ])
+    def test_resolve_tolerates_one_typo_in_long_names(self, item, comments, expected):
+        assert arxiv_daily.resolve_venue_item(item, comments, _table())["venue"] == expected
+
+    def test_learned_abbreviations_act_as_aliases(self):
+        table = _table(full_names={"acm conference on ai and agentic systems": {"abbr": "CAIS"}})
+        venue, _ = arxiv_daily.format_venue_entry(
+            {"venue": "ACM CAIS", "year": "2026", "category": "track", "track": "Demo"}, "ACM CAIS 2026 (Demo)", table,
+        )
+        assert venue == "CAIS 2026 Demo"
+
+    @pytest.mark.parametrize("item,comments,expected", [
+        ({"venue": "Graph Signal Processing Workshop", "year": "2026", "category": "workshop"},
+         "Accepted by Graph Signal Processing Workshop 2026", "Graph Signal Processing 2026 Workshop"),
+        ({"venue": "IEEE Globecom Workshops", "year": "2026", "category": "workshop"},
+         "Accepted at IEEE Globecom Workshops 2026", "IEEE Globecom 2026 Workshop"),
+        ({"full_name": "International Workshop on Nonmonotonic Reasoning", "year": "2026", "category": "workshop"},
+         "Presented at the International Workshop on Nonmonotonic Reasoning 2026",
+         "International Workshop on Nonmonotonic Reasoning 2026"),
+    ])
+    def test_workshop_given_as_venue_is_not_doubled(self, item, comments, expected):
+        venue, _ = arxiv_daily.format_venue_entry(item, comments, _table())
+        assert venue == expected
+
+    def test_full_name_result_follows_aliases(self):
+        table = _table(aliases={"cog": "IEEE CoG"}, full_names={"ieee conference on games": {"abbr": "CoG"}})
+        venue, _ = arxiv_daily.format_venue_entry(
+            {"venue": "CoG", "full_name": "IEEE Conference on Games", "year": "2026"},
+            "Accepted at the IEEE Conference on Games 2026", table,
+        )
+        assert venue == "IEEE CoG 2026"
+
+    def test_standalone_workshop_names(self):
+        named = arxiv_daily.resolve_venue_item(
+            {"year": "2026", "category": "workshop", "workshop": "World Modeling Workshop", "presentation": "Poster"},
+            "Accepted as a poster at the 2026 World Modeling Workshop", _table(),
+        )
+        assert named == {"venue": "World Modeling 2026 Workshop", "presentation": "Poster"}
+        long_name = "Beyond Private Training: The New Landscape of AI Privacy"
+        assert arxiv_daily.resolve_venue_item(
+            {"category": "workshop", "workshop": long_name}, f'accepted at "{long_name}" workshop', _table(),
+        )["venue"] is None
+
+    def test_resolve_rejects_ungrounded_venue(self):
+        info = arxiv_daily.resolve_venue_item({"venue": "NeurIPS", "year": "2026"}, "Accepted at ICML 2026", _table())
+        assert info == {"venue": None, "presentation": None}
+
+    def test_grounding_accepts_venue_glued_to_year(self):
+        assert arxiv_daily._venue_grounding_check("SIGKDD", "Accepted by SIGKDD2026 AI for Science Track")
+        assert not arxiv_daily._venue_grounding_check("AI", "Code is available online")
+
+    def test_table_full_name_wins_over_model_abbreviation(self):
+        table = _table(full_names={"international conference on machine learning": {"abbr": "ICML"}})
+        item = {"venue": "PMLR-ICML", "full_name": "International Conference on Machine Learning", "year": "2026"}
+        venue, _ = arxiv_daily.format_venue_entry(
+            item, "43rd International Conference on Machine Learning, 2026", table,
+        )
+        assert venue == "ICML 2026"
+
+    def test_alias_normalizes_short_name(self):
+        venue, _ = arxiv_daily.format_venue_entry(
+            {"venue": "NIPS", "year": "2026"}, "NIPS 2026", _table(aliases={"nips": "NeurIPS"}),
+        )
+        assert venue == "NeurIPS 2026"
+
+    @pytest.mark.parametrize("short,expected", [
+        ("ACM FAccT", "FAccT 2026"), ("IEEE/CVF CVPR", "CVPR 2026"),
+        ("IEEE S&P", "IEEE S&P 2026"), ("IEEE CAI", "IEEE CAI 2026"),
+    ])
+    def test_publisher_prefix_dropped_only_for_known_venues(self, short, expected):
+        table = _table(aliases={"facct": "FAccT", "cvpr": "CVPR", "ieee s&p": "IEEE S&P", "s&p": "IEEE S&P"})
+        venue, _ = arxiv_daily.format_venue_entry({"venue": short, "year": "2026"}, f"{short} 2026", table)
+        assert venue == expected
+
+    def test_new_full_names_are_recorded_and_flagged_when_unseen(self):
+        table = _table()
+        arxiv_daily.format_venue_entry(
+            {"venue": "ACIT", "full_name": "International Conference on Advanced Computer Information Technologies",
+             "year": "2026"},
+            "16th International Conference on Advanced Computer Information Technologies (ACIT 2026)", table,
+        )
+        arxiv_daily.format_venue_entry(
+            {"venue": "IEEE IoT-J", "full_name": "IEEE Internet of Things Journal"},
+            "Accepted by IEEE Internet of Things Journal", table,
+        )
+        assert table["full_names"]["international conference on advanced computer information technologies"] == {
+            "abbr": "ACIT"}
+        assert table["full_names"]["ieee internet of things journal"] == {"abbr": "IEEE IoT-J", "review": True}
+
+    @pytest.mark.parametrize("item,comments,expected", [
+        ({"venue": "ICML", "year": "2026", "presentation": "Spotlight"}, "ICML 2026 (spotlight)", "Spotlight"),
+        ({"venue": "ICML", "year": "2026", "presentation": "Oral"}, "Accepted at ICML 2026", None),
+        ({"venue": "ICML", "year": "2026", "presentation": "Keynote"}, "ICML 2026 keynote", None),
+        ({"venue": "ICML 2026 (Oral)"}, "Oral presentation at ICML 2026", "Oral"),
+    ])
+    def test_presentation_must_be_grounded(self, item, comments, expected):
+        venue, presentation = arxiv_daily.format_venue_entry(item, comments, _table())
+        assert venue == "ICML 2026"
+        assert presentation == expected
+
+    def test_abbrev_table_roundtrip_is_sorted(self, tmp_path):
+        path = tmp_path / "venue_abbreviations.json"
+        table = _table(aliases={"nips": "NeurIPS", "acl": "ACL"},
+                       full_names={"z conf": {"abbr": "Z"}, "a conf": {"abbr": "A", "review": True}})
+        table["description"] = "test"
+        arxiv_daily.save_venue_abbrevs(path, table)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert list(data["aliases"]) == ["acl", "nips"]
+        assert list(data["full_names"]) == ["a conf", "z conf"]
+        assert arxiv_daily.load_venue_abbrevs(path) == table
+        assert arxiv_daily.load_venue_abbrevs(tmp_path / "missing.json") == _table()
+
+    def test_extract_info_returns_presentation_and_fills_table(self, logger):
+        papers = [{"id": "001", "comments": "Spotlight at the International Conference on Robot Learning (CoRL 2026)"}]
+        mock_resp = {"venues": [{
+            "id": "001", "venue": "CoRL", "full_name": "International Conference on Robot Learning",
+            "year": "2026", "category": "main", "track": None, "workshop": None, "presentation": "Spotlight",
+        }]}
+        table = _table()
+        with patch.object(arxiv_daily, "call_venue_llm", return_value=mock_resp):
+            infos = arxiv_daily.extract_venue_info_batch(papers, "x", "k", "m", logger, abbrev_table=table)
+        assert infos["001"] == {"venue": "CoRL 2026", "presentation": "Spotlight"}
+        assert table["full_names"] == {"international conference on robot learning": {"abbr": "CoRL"}}
+
+    def test_apply_saves_table_only_when_entries_are_added(self, tmp_path, logger):
+        path = tmp_path / "venue_abbreviations.json"
+        arxiv_daily.save_venue_abbrevs(path, _table(aliases={"corl": "CoRL"}))
+        before = path.read_text(encoding="utf-8")
+        papers = [{"id": "001", "comments": "Accepted at CoRL 2026"}]
+        results = {"001": {"summary": "s", "tags": ["T"]}}
+        config = arxiv_daily.LlmConfig(api_key="k", api_endpoint="x", model="m")
+        with patch.object(arxiv_daily, "call_venue_llm",
+                          return_value={"venues": [{"id": "001", "venue": "corl", "year": "2026"}]}):
+            arxiv_daily.apply_venue_extraction(papers, results, config, logger, path)
+        assert results["001"]["venue"] == "CoRL 2026" and results["001"]["presentation"] is None
+        assert path.read_text(encoding="utf-8") == before, "no new full name, so nothing is written"
+
+        with patch.object(arxiv_daily, "call_venue_llm", return_value={"venues": [{
+            "id": "001", "venue": "CoRL", "full_name": "Conference on Robot Learning", "year": "2026",
+        }]}):
+            arxiv_daily.apply_venue_extraction(papers, results, config, logger, path)
+        assert json.loads(path.read_text(encoding="utf-8"))["full_names"] == {
+            "conference on robot learning": {"abbr": "CoRL"}}
+
+    def test_apply_without_path_writes_nothing(self, tmp_path, logger, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        default = arxiv_daily.DEFAULT_VENUE_ABBREVS_PATH
+        default_before = default.read_bytes() if default.exists() else None
+        papers = [{"id": "001", "comments": "Accepted at the Conference on Robot Learning (CoRL 2026)"}]
+        results = {"001": {"summary": "s", "tags": ["T"]}}
+        config = arxiv_daily.LlmConfig(api_key="k", api_endpoint="x", model="m")
+        with patch.object(arxiv_daily, "call_venue_llm", return_value={"venues": [{
+            "id": "001", "venue": "CoRL", "full_name": "Conference on Robot Learning", "year": "2026",
+        }]}):
+            arxiv_daily.apply_venue_extraction(papers, results, config, logger, None)
+        assert results["001"]["venue"] == "CoRL 2026"
+        assert list(tmp_path.glob("*.json")) == []
+        assert (default.read_bytes() if default.exists() else None) == default_before
 
 
 # ===========================================================================

@@ -1,0 +1,3886 @@
+{
+  "description": "Venue abbreviation table used by pipeline/arxiv_daily.py. aliases maps a lowercased short name to its canonical spelling; full_names maps a normalized full name (see venue_name_key) to {\"abbr\": short name}. Entries with \"review\": true were added from the model's suggestion and the short name did not appear in the paper comments; check and drop the flag once confirmed.",
+  "aliases": {
+    "3dv": "3DV",
+    "aaai": "AAAI",
+    "aamas": "AAMAS",
+    "acc": "ACC",
+    "accv": "ACCV",
+    "acl": "ACL",
+    "acm csur": "ACM CSUR",
+    "acm mm": "ACM MM",
+    "acm multimedia": "ACM MM",
+    "acm siggraph": "SIGGRAPH",
+    "acm sigkdd": "KDD",
+    "acm sigspatial": "SIGSPATIAL",
+    "acm taco": "ACM TACO",
+    "acm tist": "ACM TIST",
+    "acm tkdd": "ACM TKDD",
+    "acm todaes": "ACM TODAES",
+    "acm tog": "ACM TOG",
+    "acm tois": "ACM TOIS",
+    "acm tosem": "ACM TOSEM",
+    "acml": "ACML",
+    "acmmm": "ACM MM",
+    "aies": "AIES",
+    "aistats": "AISTATS",
+    "alt": "ALT",
+    "ase": "ASE",
+    "asplos": "ASPLOS",
+    "bmvc": "BMVC",
+    "cacm": "CACM",
+    "ccs": "CCS",
+    "cdc": "CDC",
+    "chi": "CHI",
+    "chil": "CHIL",
+    "cikm": "CIKM",
+    "cog": "IEEE CoG",
+    "cogsci": "CogSci",
+    "coling": "COLING",
+    "collas": "CoLLAs",
+    "colm": "COLM",
+    "colt": "COLT",
+    "conll": "CoNLL",
+    "corl": "CoRL",
+    "cp": "CP",
+    "cscw": "CSCW",
+    "csur": "ACM CSUR",
+    "cvpr": "CVPR",
+    "dac": "DAC",
+    "date": "DATE",
+    "eacl": "EACL",
+    "ecai": "ECAI",
+    "eccv": "ECCV",
+    "ecml pkdd": "ECML PKDD",
+    "ecml-pkdd": "ECML PKDD",
+    "ecml/pkdd": "ECML PKDD",
+    "ecmlpkdd": "ECML PKDD",
+    "emnlp": "EMNLP",
+    "escience": "IEEE eScience",
+    "esec/fse": "FSE",
+    "eurosys": "EuroSys",
+    "facct": "FAccT",
+    "fllm": "IEEE FLLM",
+    "fpga": "FPGA",
+    "fse": "FSE",
+    "gecco": "GECCO",
+    "globecom": "IEEE GLOBECOM",
+    "healthcom": "IEEE HealthCom",
+    "hpca": "HPCA",
+    "icann": "ICANN",
+    "icaps": "ICAPS",
+    "icassp": "ICASSP",
+    "icc": "IEEE ICC",
+    "iccad": "ICCAD",
+    "iccv": "ICCV",
+    "icde": "ICDE",
+    "icdm": "ICDM",
+    "icip": "ICIP",
+    "iclp": "ICLP",
+    "iclr": "ICLR",
+    "icme": "ICME",
+    "icml": "ICML",
+    "iconip": "ICONIP",
+    "icpr": "ICPR",
+    "icra": "ICRA",
+    "icse": "ICSE",
+    "icwsm": "ICWSM",
+    "ieee cog": "IEEE CoG",
+    "ieee escience": "IEEE eScience",
+    "ieee fllm": "IEEE FLLM",
+    "ieee globecom": "IEEE GLOBECOM",
+    "ieee healthcom": "IEEE HealthCom",
+    "ieee icc": "IEEE ICC",
+    "ieee iot-j": "IEEE IoT-J",
+    "ieee iotj": "IEEE IoT-J",
+    "ieee is": "IEEE IS",
+    "ieee iv": "IEEE IV",
+    "ieee jbhi": "IEEE JBHI",
+    "ieee jetcas": "IEEE JETCAS",
+    "ieee jssc": "IEEE JSSC",
+    "ieee ra-l": "IEEE RA-L",
+    "ieee s&p": "IEEE S&P",
+    "ieee smartcomp": "IEEE SMARTCOMP",
+    "ieee t-ro": "IEEE T-RO",
+    "ieee tai": "IEEE TAI",
+    "ieee taslp": "IEEE TASLP",
+    "ieee tc": "IEEE TC",
+    "ieee tcad": "IEEE TCAD",
+    "ieee tcsvt": "IEEE TCSVT",
+    "ieee tcyb": "IEEE TCYB",
+    "ieee tdsc": "IEEE TDSC",
+    "ieee tetc": "IEEE TETC",
+    "ieee tgrs": "IEEE TGRS",
+    "ieee tifs": "IEEE TIFS",
+    "ieee tii": "IEEE TII",
+    "ieee tip": "IEEE TIP",
+    "ieee tits": "IEEE TITS",
+    "ieee tkde": "IEEE TKDE",
+    "ieee tmc": "IEEE TMC",
+    "ieee tmi": "IEEE TMI",
+    "ieee tmm": "IEEE TMM",
+    "ieee tnnls": "IEEE TNNLS",
+    "ieee tpami": "IEEE TPAMI",
+    "ieee tpds": "IEEE TPDS",
+    "ieee tse": "IEEE TSE",
+    "ieee tsp": "IEEE TSP",
+    "ieee tvcg": "IEEE TVCG",
+    "ieee tvlsi": "IEEE TVLSI",
+    "ieee vis": "IEEE VIS",
+    "ieee/acm taslp": "IEEE TASLP",
+    "ijcai": "IJCAI",
+    "ijcnn": "IJCNN",
+    "ijcv": "IJCV",
+    "infocom": "INFOCOM",
+    "interspeech": "Interspeech",
+    "iot-j": "IEEE IoT-J",
+    "iotj": "IEEE IoT-J",
+    "iros": "IROS",
+    "is": "IEEE IS",
+    "isbi": "ISBI",
+    "isca": "ISCA",
+    "islped": "ISLPED",
+    "issta": "ISSTA",
+    "iswc": "ISWC",
+    "itsc": "ITSC",
+    "iui": "IUI",
+    "iv": "IEEE IV",
+    "jair": "JAIR",
+    "jbhi": "IEEE JBHI",
+    "jetcas": "IEEE JETCAS",
+    "jmlr": "JMLR",
+    "jssc": "IEEE JSSC",
+    "kdd": "KDD",
+    "kr": "KR",
+    "l4dc": "L4DC",
+    "log": "LoG",
+    "media": "MedIA",
+    "miccai": "MICCAI",
+    "micro": "MICRO",
+    "midl": "MIDL",
+    "mlhc": "MLHC",
+    "mlsys": "MLSys",
+    "mm": "ACM MM",
+    "mobicom": "MobiCom",
+    "naacl": "NAACL",
+    "ndss": "NDSS",
+    "neuips": "NeurIPS",
+    "neurips": "NeurIPS",
+    "neurlps": "NeurIPS",
+    "neurocomputing": "Neurocomputing",
+    "nips": "NeurIPS",
+    "nsdi": "NSDI",
+    "oakland": "IEEE S&P",
+    "osdi": "OSDI",
+    "pakdd": "PAKDD",
+    "pami": "IEEE TPAMI",
+    "pkdd": "ECML PKDD",
+    "pldi": "PLDI",
+    "pnas": "PNAS",
+    "popl": "POPL",
+    "pvldb": "VLDB",
+    "ra-l": "IEEE RA-L",
+    "ral": "IEEE RA-L",
+    "recsys": "RecSys",
+    "rss": "RSS",
+    "s&p": "IEEE S&P",
+    "sat": "SAT",
+    "sc": "SC",
+    "sdm": "SDM",
+    "sigcomm": "SIGCOMM",
+    "siggraph": "SIGGRAPH",
+    "sigir": "SIGIR",
+    "sigkdd": "KDD",
+    "sigmod": "SIGMOD",
+    "sigspatial": "SIGSPATIAL",
+    "smartcomp": "IEEE SMARTCOMP",
+    "sosp": "SOSP",
+    "t-ro": "IEEE T-RO",
+    "tacl": "TACL",
+    "taco": "ACM TACO",
+    "tai": "IEEE TAI",
+    "taslp": "IEEE TASLP",
+    "tc": "IEEE TC",
+    "tcad": "IEEE TCAD",
+    "tcsvt": "IEEE TCSVT",
+    "tcyb": "IEEE TCYB",
+    "tdsc": "IEEE TDSC",
+    "tetc": "IEEE TETC",
+    "tgrs": "IEEE TGRS",
+    "the web conference": "WWW",
+    "thewebconf": "WWW",
+    "tifs": "IEEE TIFS",
+    "tii": "IEEE TII",
+    "tip": "IEEE TIP",
+    "tist": "ACM TIST",
+    "tits": "IEEE TITS",
+    "tkdd": "ACM TKDD",
+    "tkde": "IEEE TKDE",
+    "tmc": "IEEE TMC",
+    "tmi": "IEEE TMI",
+    "tmlr": "TMLR",
+    "tmm": "IEEE TMM",
+    "tnnls": "IEEE TNNLS",
+    "todaes": "ACM TODAES",
+    "tog": "ACM TOG",
+    "tois": "ACM TOIS",
+    "tosem": "ACM TOSEM",
+    "tpami": "IEEE TPAMI",
+    "tpds": "IEEE TPDS",
+    "tro": "IEEE T-RO",
+    "tse": "IEEE TSE",
+    "tsp": "IEEE TSP",
+    "tvcg": "IEEE TVCG",
+    "tvlsi": "IEEE TVLSI",
+    "uai": "UAI",
+    "uist": "UIST",
+    "usenix atc": "USENIX ATC",
+    "usenix security": "USENIX Security",
+    "vis": "IEEE VIS",
+    "vldb": "VLDB",
+    "wacv": "WACV",
+    "webconf": "WWW",
+    "wsdm": "WSDM",
+    "www": "WWW"
+  },
+  "full_names": {
+    "aaai acm aies": {
+      "abbr": "AIES"
+    },
+    "aaai acm conference in ai ethics and society": {
+      "abbr": "AIES"
+    },
+    "aaai acm conference on ai ethics and society": {
+      "abbr": "AIES"
+    },
+    "aaai conference on artificial intelligence": {
+      "abbr": "AAAI"
+    },
+    "aaai conference on artificial intelligence and interactive digital entertainment": {
+      "abbr": "AIIDE",
+      "review": true
+    },
+    "aaai fall symposium series": {
+      "abbr": "AAAI FSS"
+    },
+    "acm aies": {
+      "abbr": "AIES"
+    },
+    "acm asia conference on computer and communications security": {
+      "abbr": "AsiaCCS"
+    },
+    "acm cais": {
+      "abbr": "CAIS"
+    },
+    "acm chi": {
+      "abbr": "CHI"
+    },
+    "acm chi conference on human factors in computing systems": {
+      "abbr": "CHI"
+    },
+    "acm computing surveys": {
+      "abbr": "ACM CSUR"
+    },
+    "acm conext": {
+      "abbr": "CoNEXT"
+    },
+    "acm conference on ai and agentic systems": {
+      "abbr": "CAIS"
+    },
+    "acm conference on computer and communications security": {
+      "abbr": "CCS"
+    },
+    "acm conference on computer supported cooperative work and social computing": {
+      "abbr": "CSCW"
+    },
+    "acm conference on economics and computation": {
+      "abbr": "EC"
+    },
+    "acm conference on facct": {
+      "abbr": "FAccT"
+    },
+    "acm conference on fairness accountability and transparency": {
+      "abbr": "FAccT"
+    },
+    "acm conference on foundations of digital games": {
+      "abbr": "FDG",
+      "review": true
+    },
+    "acm conference on human ai complementarity and alignment": {
+      "abbr": "HCOMP"
+    },
+    "acm conference on innovation and technology in computer science education": {
+      "abbr": "ITiCSE"
+    },
+    "acm conference on learning scale": {
+      "abbr": "L@S"
+    },
+    "acm conference on mobile and ubiquitous multimedia": {
+      "abbr": "MUM"
+    },
+    "acm conference on recommender systems": {
+      "abbr": "RecSys"
+    },
+    "acm conference on user modeling adaptation and personalization": {
+      "abbr": "UMAP"
+    },
+    "acm cscw": {
+      "abbr": "CSCW"
+    },
+    "acm designing interactive systems": {
+      "abbr": "DIS"
+    },
+    "acm ieee dac": {
+      "abbr": "DAC"
+    },
+    "acm ieee design automation conference": {
+      "abbr": "DAC"
+    },
+    "acm ieee international conference on human robot interaction": {
+      "abbr": "HRI"
+    },
+    "acm ieee international symposium on low power electronics and design": {
+      "abbr": "ISLPED"
+    },
+    "acm ieee international symposium on machine learning for cad": {
+      "abbr": "MLCAD"
+    },
+    "acm ieee symposium on edge computing": {
+      "abbr": "SEC"
+    },
+    "acm intelligent virtual agents": {
+      "abbr": "IVA",
+      "review": true
+    },
+    "acm international conference on advances in geographic information systems": {
+      "abbr": "SIGSPATIAL"
+    },
+    "acm international conference on ai in finance": {
+      "abbr": "ICAIF"
+    },
+    "acm international conference on ai ml systems": {
+      "abbr": "AIMLSystems"
+    },
+    "acm international conference on ai powered software": {
+      "abbr": "AIware"
+    },
+    "acm international conference on architectural support for programming languages and operating systems": {
+      "abbr": "ASPLOS"
+    },
+    "acm international conference on cloud and big data computing": {
+      "abbr": "ICCBDC"
+    },
+    "acm international conference on computing frontiers": {
+      "abbr": "CF"
+    },
+    "acm international conference on data mining and knowledge discovery": {
+      "abbr": "KDD"
+    },
+    "acm international conference on foundations of software engineering": {
+      "abbr": "FSE"
+    },
+    "acm international conference on information and knowledge management": {
+      "abbr": "CIKM"
+    },
+    "acm international conference on intelligent virtual agents": {
+      "abbr": "IVA"
+    },
+    "acm international conference on mobile human computer interaction": {
+      "abbr": "MobileHCI"
+    },
+    "acm international conference on multimedia": {
+      "abbr": "ACM MM"
+    },
+    "acm international conference on multimedia retrieval": {
+      "abbr": "ICMR"
+    },
+    "acm international conference on multimodal interaction": {
+      "abbr": "ICMI"
+    },
+    "acm international conference on parallel architectures and compilation techniques": {
+      "abbr": "PACT"
+    },
+    "acm international conference on pervasive technologies related to assistive environments": {
+      "abbr": "PETRA"
+    },
+    "acm international conference on supercomputing": {
+      "abbr": "ICS"
+    },
+    "acm international conference on user modeling adaptation and personalization": {
+      "abbr": "UMAP"
+    },
+    "acm international conference on web search and data mining": {
+      "abbr": "WSDM"
+    },
+    "acm international joint conference on pervasive and ubiquitous computing": {
+      "abbr": "UbiComp"
+    },
+    "acm international symposium on theory algorithmic foundations and protocol design for mobile networks and mobile computing": {
+      "abbr": "MobiHoc"
+    },
+    "acm international symposium on wearable computing": {
+      "abbr": "ISWC"
+    },
+    "acm international workshop on big data and machine learning for smart buildings and cities": {
+      "abbr": "BALANCES"
+    },
+    "acm internet measurement conference": {
+      "abbr": "IMC"
+    },
+    "acm joint european software engineering conference and symposium on foundations of software engineering": {
+      "abbr": "FSE"
+    },
+    "acm journal on computing and cultural heritage": {
+      "abbr": "JOCCH"
+    },
+    "acm kdd": {
+      "abbr": "KDD"
+    },
+    "acm mobicom": {
+      "abbr": "MobiCom"
+    },
+    "acm mobisys": {
+      "abbr": "MobiSys"
+    },
+    "acm multimedia": {
+      "abbr": "ACM MM"
+    },
+    "acm multimedia asia": {
+      "abbr": "MMAsia"
+    },
+    "acm on human computer interaction": {
+      "abbr": "CSCW"
+    },
+    "acm on interactive mobile wearable and ubiquitous technologies": {
+      "abbr": "IMWUT"
+    },
+    "acm on management of data": {
+      "abbr": "SIGMOD"
+    },
+    "acm on programming languages": {
+      "abbr": "OOPSLA",
+      "review": true
+    },
+    "acm recsys": {
+      "abbr": "RecSys"
+    },
+    "acm sigapp symposium on applied computing": {
+      "abbr": "SAC"
+    },
+    "acm sigcas sigchi conference on computing and sustainable societies": {
+      "abbr": "COMPASS"
+    },
+    "acm sigcomm": {
+      "abbr": "SIGCOMM"
+    },
+    "acm sigcomm conference": {
+      "abbr": "SIGCOMM"
+    },
+    "acm sigda international symposium on field programmable gate arrays": {
+      "abbr": "FPGA"
+    },
+    "acm siggraph": {
+      "abbr": "SIGGRAPH"
+    },
+    "acm siggraph asia": {
+      "abbr": "SIGGRAPH Asia"
+    },
+    "acm sigir": {
+      "abbr": "SIGIR"
+    },
+    "acm sigkdd": {
+      "abbr": "KDD"
+    },
+    "acm sigkdd conference on knowledge discovery and data mining": {
+      "abbr": "KDD"
+    },
+    "acm sigmod": {
+      "abbr": "SIGMOD"
+    },
+    "acm sigmod international conference on management of data": {
+      "abbr": "SIGMOD"
+    },
+    "acm sigops technical conference": {
+      "abbr": "ATC"
+    },
+    "acm sigplan conference on programming language design and implementation": {
+      "abbr": "PLDI"
+    },
+    "acm sigplan symposium on principles of programming languages": {
+      "abbr": "POPL"
+    },
+    "acm sigsac conference on computer and communications security": {
+      "abbr": "CCS"
+    },
+    "acm sigsoft international symposium on software testing and analysis": {
+      "abbr": "ISSTA"
+    },
+    "acm sigspatial": {
+      "abbr": "SIGSPATIAL"
+    },
+    "acm sigspatial international conference on advances in geographic information systems": {
+      "abbr": "SIGSPATIAL"
+    },
+    "acm sigspatial international workshop on spatial big data and ai for industrial applications": {
+      "abbr": "SIGSPATIAL"
+    },
+    "acm southeast conference": {
+      "abbr": "ACMSE"
+    },
+    "acm symposium on cloud computing": {
+      "abbr": "SoCC"
+    },
+    "acm symposium on document engineering": {
+      "abbr": "DocEng"
+    },
+    "acm symposium on foundations of software engineering": {
+      "abbr": "FSE"
+    },
+    "acm symposium on human computer interaction for work": {
+      "abbr": "CHIWORK"
+    },
+    "acm symposium on operating systems principles": {
+      "abbr": "SOSP"
+    },
+    "acm symposium on user interface software and technology": {
+      "abbr": "UIST"
+    },
+    "acm transactions on architecture and code optimization": {
+      "abbr": "ACM TACO"
+    },
+    "acm transactions on autonomous and adaptive systems": {
+      "abbr": "ACM TAAS"
+    },
+    "acm transactions on computing for healthcare": {
+      "abbr": "ACM HEALTH"
+    },
+    "acm transactions on design automation of electronic systems": {
+      "abbr": "ACM TODAES"
+    },
+    "acm transactions on embedded computing systems": {
+      "abbr": "ACM TECS",
+      "review": true
+    },
+    "acm transactions on graphics": {
+      "abbr": "ACM TOG"
+    },
+    "acm transactions on information systems": {
+      "abbr": "ACM TOIS"
+    },
+    "acm transactions on intelligent systems and technology": {
+      "abbr": "ACM TIST"
+    },
+    "acm transactions on knowledge discovery from data": {
+      "abbr": "ACM TKDD"
+    },
+    "acm transactions on social computing": {
+      "abbr": "ACM TSC",
+      "review": true
+    },
+    "acm transactions on software engineering and methodology": {
+      "abbr": "ACM TOSEM"
+    },
+    "acm uist": {
+      "abbr": "UIST"
+    },
+    "acm virtual global computing education conference": {
+      "abbr": "SIGCSE Virtual"
+    },
+    "acm web conference": {
+      "abbr": "WWW"
+    },
+    "acm workshop on artificial intelligence and security": {
+      "abbr": "AISec"
+    },
+    "acm workshop on information hiding and multimedia security": {
+      "abbr": "IH&MMSec"
+    },
+    "acm workshop on wireless security and machine learning": {
+      "abbr": "WiseML"
+    },
+    "ad hoc & sensor wireless networks": {
+      "abbr": "AHSWN"
+    },
+    "adscai conference": {
+      "abbr": "ADScAI"
+    },
+    "advanced maui optical and space surveillance technologies conference": {
+      "abbr": "AMOS"
+    },
+    "advances in cognitive systems": {
+      "abbr": "ACS"
+    },
+    "advances in information retrieval": {
+      "abbr": "ECIR"
+    },
+    "advances in neural information processing system": {
+      "abbr": "NeurIPS"
+    },
+    "advances in neural information processing systems": {
+      "abbr": "NeurIPS"
+    },
+    "affective computing and intelligent interaction": {
+      "abbr": "ACII"
+    },
+    "ahli conference on health inference and learning": {
+      "abbr": "AHLI"
+    },
+    "ai and law journal": {
+      "abbr": "AI and Law"
+    },
+    "ai ethics and society": {
+      "abbr": "AIES"
+    },
+    "ai transparency conference": {
+      "abbr": "AITC"
+    },
+    "aiaa aviation forum": {
+      "abbr": "AIAA AVIATION"
+    },
+    "aim machine learning developers summit": {
+      "abbr": "MLDS"
+    },
+    "algorithmic decision theory": {
+      "abbr": "ADT"
+    },
+    "american control conference": {
+      "abbr": "ACC"
+    },
+    "americas conference on information systems": {
+      "abbr": "AMCIS"
+    },
+    "amia symposium": {
+      "abbr": "AMIA"
+    },
+    "annals of emerging technologies in computing": {
+      "abbr": "AETiC"
+    },
+    "applied soft computing journal": {
+      "abbr": "Applied Soft Computing"
+    },
+    "arabian journal for science and engineering": {
+      "abbr": "Arab J Sci Eng"
+    },
+    "arabic natural language processing conference": {
+      "abbr": "ArabicNLP"
+    },
+    "arcc eaae international conference": {
+      "abbr": "ARCC-EAAE"
+    },
+    "artificial intelligence and interactive digital entertainment conference": {
+      "abbr": "AIIDE",
+      "review": true
+    },
+    "artificial intelligence enhanced learning": {
+      "abbr": "AIED",
+      "review": true
+    },
+    "artificial intelligence in education": {
+      "abbr": "AIED"
+    },
+    "artificial intelligence in hci": {
+      "abbr": "HCII"
+    },
+    "artificial life conference": {
+      "abbr": "ALIFE"
+    },
+    "asia and south pacific design automation conference": {
+      "abbr": "ASP-DAC"
+    },
+    "asia conference on machine learning and computing": {
+      "abbr": "ACMLC"
+    },
+    "asia pacific chapter of association for computational linguistics and international joint conference on natural language processing": {
+      "abbr": "AACL-IJCNLP",
+      "review": true
+    },
+    "asia pacific software engineering conference": {
+      "abbr": "APSEC"
+    },
+    "asia pacific solar research conference": {
+      "abbr": "APSRC"
+    },
+    "asian conference on communication and networks": {
+      "abbr": "ASIANComNet"
+    },
+    "asian conference on computer vision": {
+      "abbr": "ACCV"
+    },
+    "asian conference on machine learning": {
+      "abbr": "ACML"
+    },
+    "association for advancement of artificial intelligence": {
+      "abbr": "AAAI",
+      "review": true
+    },
+    "association for computational linguistics": {
+      "abbr": "ACL"
+    },
+    "association for computational linguistics aacl ijcnlp": {
+      "abbr": "AACL-IJCNLP"
+    },
+    "association for computational linguistics eacl": {
+      "abbr": "EACL"
+    },
+    "association for computational linguistics emnlp": {
+      "abbr": "EMNLP"
+    },
+    "astrophysical journal supplement series": {
+      "abbr": "ApJS"
+    },
+    "audio engineering society": {
+      "abbr": "AES"
+    },
+    "australasian conference on information security and privacy": {
+      "abbr": "ACISP"
+    },
+    "australasian conference on robotics and automation": {
+      "abbr": "ACRA"
+    },
+    "automated knowledge base construction": {
+      "abbr": "AKBC"
+    },
+    "autonomous agents and multi agent systems": {
+      "abbr": "JAAMAS",
+      "review": true
+    },
+    "balkan conference in informatics": {
+      "abbr": "BCI"
+    },
+    "bionlp workshop": {
+      "abbr": "BioNLP"
+    },
+    "brazilian conference on intelligent systems": {
+      "abbr": "BRACIS",
+      "review": true
+    },
+    "brazilian conference on robotics": {
+      "abbr": "CROS"
+    },
+    "brazilian symposium on software components architectures and reuse": {
+      "abbr": "SBCARS"
+    },
+    "brazilian symposium on software quality": {
+      "abbr": "SBQS"
+    },
+    "british machine vision conference": {
+      "abbr": "BMVC"
+    },
+    "building educational applications": {
+      "abbr": "BEA"
+    },
+    "bulletin of electrical engineering and informatics": {
+      "abbr": "BEEI"
+    },
+    "business process management conference": {
+      "abbr": "BPM",
+      "review": true
+    },
+    "caai international conference on artificial intelligence": {
+      "abbr": "CICAI"
+    },
+    "canadian conference on artificial intelligence": {
+      "abbr": "Canadian AI"
+    },
+    "ccf chinese conference on computational art": {
+      "abbr": "CCAC"
+    },
+    "ccf international conference on natural language processing and chinese computing": {
+      "abbr": "NLPCC"
+    },
+    "central european conference on information and intelligent systems": {
+      "abbr": "CECIIS"
+    },
+    "chi conference on human factors in computing systems": {
+      "abbr": "CHI"
+    },
+    "chinese conference on pattern recognition and computer vision": {
+      "abbr": "PRCV",
+      "review": true
+    },
+    "chips to systems conference": {
+      "abbr": "DAC"
+    },
+    "cirp conference on intelligent computation in manufacturing engineering": {
+      "abbr": "CIRP ICME",
+      "review": true
+    },
+    "cognitive science society": {
+      "abbr": "CogSci"
+    },
+    "collective intelligence": {
+      "abbr": "CI"
+    },
+    "color and imaging conference": {
+      "abbr": "CIC"
+    },
+    "communications in computer and information science": {
+      "abbr": "CCIS"
+    },
+    "communications of acm": {
+      "abbr": "CACM"
+    },
+    "computational visual media journal": {
+      "abbr": "Computational Visual Media"
+    },
+    "computer assisted radiology and surgery": {
+      "abbr": "CARS"
+    },
+    "computer ieee": {
+      "abbr": "Computer"
+    },
+    "computer science & information technology": {
+      "abbr": "CS & IT"
+    },
+    "computer security applications conference": {
+      "abbr": "ACSAC"
+    },
+    "computer vision and pattern recognition": {
+      "abbr": "CVPR"
+    },
+    "computer vision and pattern recognition conference": {
+      "abbr": "CVPR"
+    },
+    "computers and games conference": {
+      "abbr": "CG"
+    },
+    "conference and labs of evaluation forum": {
+      "abbr": "CLEF"
+    },
+    "conference for ai scientists": {
+      "abbr": "CAISc"
+    },
+    "conference of cognitive science society": {
+      "abbr": "CogSci"
+    },
+    "conference of european association for machine translation": {
+      "abbr": "EAMT",
+      "review": true
+    },
+    "conference of european chapter of association for computational linguistics": {
+      "abbr": "EACL"
+    },
+    "conference of ieee industrial electronics society": {
+      "abbr": "IECON"
+    },
+    "conference of nations of americas chapter of association for computational linguistics": {
+      "abbr": "NAACL"
+    },
+    "conference of north american chapter of association for computational linguistics": {
+      "abbr": "NAACL"
+    },
+    "conference on advances in cognitive systems": {
+      "abbr": "ACS"
+    },
+    "conference on advances in neural information processing systems": {
+      "abbr": "NeurIPS"
+    },
+    "conference on applied machine learning for information security": {
+      "abbr": "CAMLIS"
+    },
+    "conference on applied machine learning in information security": {
+      "abbr": "CAMLIS"
+    },
+    "conference on artificial general intelligence": {
+      "abbr": "AGI"
+    },
+    "conference on artificial intelligence and statistics": {
+      "abbr": "AISTATS"
+    },
+    "conference on artificial intelligence in education": {
+      "abbr": "AIED"
+    },
+    "conference on artificial life": {
+      "abbr": "ALIFE"
+    },
+    "conference on cognitive computational neuroscience": {
+      "abbr": "CCN",
+      "review": true
+    },
+    "conference on computational linguistics and speech processing": {
+      "abbr": "ROCLING"
+    },
+    "conference on computational natural language learning": {
+      "abbr": "CoNLL"
+    },
+    "conference on computer vision and pattern recognition": {
+      "abbr": "CVPR"
+    },
+    "conference on digital experimentation at mit": {
+      "abbr": "CODE@MIT"
+    },
+    "conference on empirical methods in natural language processing": {
+      "abbr": "EMNLP"
+    },
+    "conference on games": {
+      "abbr": "IEEE CoG",
+      "review": true
+    },
+    "conference on health inference and learning": {
+      "abbr": "CHIL"
+    },
+    "conference on information and knowledge management": {
+      "abbr": "CIKM"
+    },
+    "conference on information technology and its applications": {
+      "abbr": "CITA"
+    },
+    "conference on intelligent computer mathematics": {
+      "abbr": "CICM"
+    },
+    "conference on knowledge discovery and data mining": {
+      "abbr": "KDD"
+    },
+    "conference on language modeling": {
+      "abbr": "COLM"
+    },
+    "conference on learning theory": {
+      "abbr": "COLT"
+    },
+    "conference on lifelong learning agents": {
+      "abbr": "CoLLAs"
+    },
+    "conference on machine learning and systems": {
+      "abbr": "MLSys"
+    },
+    "conference on machine translation": {
+      "abbr": "WMT"
+    },
+    "conference on medical image understanding and analysis": {
+      "abbr": "MIUA"
+    },
+    "conference on natural language learning": {
+      "abbr": "CoNLL"
+    },
+    "conference on neural information processing systems": {
+      "abbr": "NeurIPS"
+    },
+    "conference on neurosymbolic learning and reasoning": {
+      "abbr": "NeSy"
+    },
+    "conference on next generation arithmetic": {
+      "abbr": "CoNGA"
+    },
+    "conference on optimization modeling simulation and analytics": {
+      "abbr": "COMOSA"
+    },
+    "conference on parallel problem solving": {
+      "abbr": "PPSN"
+    },
+    "conference on pattern languages of programs": {
+      "abbr": "PLoP"
+    },
+    "conference on physics and ai": {
+      "abbr": "PAI"
+    },
+    "conference on probabilistic graphical models": {
+      "abbr": "PGM"
+    },
+    "conference on robot learning": {
+      "abbr": "CoRL"
+    },
+    "conference on robotic learning": {
+      "abbr": "CoRL"
+    },
+    "conference on spatial information theory": {
+      "abbr": "COSIT"
+    },
+    "conference on uncertainty in artificial intelligence": {
+      "abbr": "UAI"
+    },
+    "cyber awareness and research symposium": {
+      "abbr": "CARS"
+    },
+    "design automation & test in europe": {
+      "abbr": "DATE"
+    },
+    "design automation & test in europe conference": {
+      "abbr": "DATE"
+    },
+    "design automation and test in europe": {
+      "abbr": "DATE"
+    },
+    "design automation and test in europe conference": {
+      "abbr": "DATE"
+    },
+    "design automation conference": {
+      "abbr": "DAC"
+    },
+    "designing interactive systems": {
+      "abbr": "DIS"
+    },
+    "designing interactive systems conference": {
+      "abbr": "DIS"
+    },
+    "digital audio fx conference": {
+      "abbr": "DAFx"
+    },
+    "discovery science": {
+      "abbr": "DS"
+    },
+    "eai international conference artsit interactivity & game creation": {
+      "abbr": "ArtsIT"
+    },
+    "eai international conference on iot as a service": {
+      "abbr": "IoTaaS"
+    },
+    "eai international conference on pervasive computing technologies for healthcare": {
+      "abbr": "PervasiveHealth"
+    },
+    "edge ai research symposium": {
+      "abbr": "EdgeAI",
+      "review": true
+    },
+    "educational data mining conference": {
+      "abbr": "EDM"
+    },
+    "eetn conference on artificial intelligence": {
+      "abbr": "SETN"
+    },
+    "eie international conference on computing networking robotics and telecommunication": {
+      "abbr": "EIECon"
+    },
+    "elsevier robotics and autonomous systems journal": {
+      "abbr": "Robotics and Autonomous Systems"
+    },
+    "embedded systems week": {
+      "abbr": "ESWEEK"
+    },
+    "empirical methods in natural language processing": {
+      "abbr": "EMNLP"
+    },
+    "empirical software engineering": {
+      "abbr": "EMSE"
+    },
+    "empirical software engineering journal": {
+      "abbr": "EMSE"
+    },
+    "engineering applications and advances of artificial intelligence": {
+      "abbr": "EAAAI",
+      "review": true
+    },
+    "engineering applications of artificial intelligence": {
+      "abbr": "EAAI"
+    },
+    "epia conference on artificial intelligence": {
+      "abbr": "EPIA"
+    },
+    "ergo an open access journal of philosophy": {
+      "abbr": "Ergo"
+    },
+    "euralex international congress": {
+      "abbr": "EURALEX"
+    },
+    "euro china conference on intelligent data analysis and applications": {
+      "abbr": "ECC"
+    },
+    "euromicro conference on digital system design": {
+      "abbr": "DSD"
+    },
+    "euromicro conference on software engineering and advanced applications": {
+      "abbr": "SEAA"
+    },
+    "euromicro dsd": {
+      "abbr": "DSD"
+    },
+    "european conference in computer vision": {
+      "abbr": "ECCV"
+    },
+    "european conference of computer vision": {
+      "abbr": "ECCV",
+      "review": true
+    },
+    "european conference of radiology": {
+      "abbr": "ECR"
+    },
+    "european conference on advances in databases and information systems": {
+      "abbr": "ADBIS"
+    },
+    "european conference on algorithmic fairness": {
+      "abbr": "ECAF"
+    },
+    "european conference on artificial intelligence": {
+      "abbr": "ECAI"
+    },
+    "european conference on computer systems": {
+      "abbr": "EuroSys"
+    },
+    "european conference on computer vision": {
+      "abbr": "ECCV"
+    },
+    "european conference on edge ai technologies and applications": {
+      "abbr": "EEAI"
+    },
+    "european conference on information retrieval": {
+      "abbr": "ECIR"
+    },
+    "european conference on information systems": {
+      "abbr": "ECIS"
+    },
+    "european conference on machine learning and principles and practice of knowledge discovery in databases": {
+      "abbr": "ECML PKDD"
+    },
+    "european conference on mobile robots": {
+      "abbr": "ECMR"
+    },
+    "european conference on multi agent systems": {
+      "abbr": "EUMAS"
+    },
+    "european conference on optical communication": {
+      "abbr": "ECOC"
+    },
+    "european conference on optical communications": {
+      "abbr": "ECOC"
+    },
+    "european conference on renewable energy systems": {
+      "abbr": "ECRES"
+    },
+    "european control conference": {
+      "abbr": "ECC",
+      "review": true
+    },
+    "european dependable computing conference": {
+      "abbr": "EDCC"
+    },
+    "european semantic web conference": {
+      "abbr": "ESWC"
+    },
+    "european signal processing conference": {
+      "abbr": "EUSIPCO"
+    },
+    "european space agency conference on ai in and for space": {
+      "abbr": "SPAICE"
+    },
+    "european symposium on artificial neural networks computational intelligence and machine learning": {
+      "abbr": "ESANN"
+    },
+    "european symposium on research in computer security": {
+      "abbr": "ESORICS"
+    },
+    "european workshop on reinforcement learning": {
+      "abbr": "EWRL"
+    },
+    "european workshop on trustworthy ai": {
+      "abbr": "TRUST-AI"
+    },
+    "evaluation and assessment in software engineering": {
+      "abbr": "EASE"
+    },
+    "fifth international workshop on quantum classical cooperative computing": {
+      "abbr": "QCCC"
+    },
+    "fisu joint conference on artificial intelligence": {
+      "abbr": "FJCAI"
+    },
+    "formal methods for computer aided design": {
+      "abbr": "FMCAD",
+      "review": true
+    },
+    "formal methods in computer aided design": {
+      "abbr": "FMCAD",
+      "review": true
+    },
+    "fourth arabic natural language processing conference": {
+      "abbr": "ArabicNLP",
+      "review": true
+    },
+    "from animals to animats 18": {
+      "abbr": "SAB"
+    },
+    "frontiers in artificial intelligence": {
+      "abbr": "Front. Artif. Intell."
+    },
+    "frontiers in biomedical technologies": {
+      "abbr": "Frontiers Biomed. Tech."
+    },
+    "frontiers in education": {
+      "abbr": "FIE"
+    },
+    "frontiers of computer science": {
+      "abbr": "FCS"
+    },
+    "genetic and evolutionary computation conference": {
+      "abbr": "GECCO"
+    },
+    "graphics interface": {
+      "abbr": "GI"
+    },
+    "great lakes symposium on vlsi": {
+      "abbr": "GLSVLSI"
+    },
+    "hawaii international conference on system sciences": {
+      "abbr": "HICSS"
+    },
+    "hci international": {
+      "abbr": "HCII"
+    },
+    "higher education institutions conference": {
+      "abbr": "HEIC"
+    },
+    "human ai complementarity and alignment": {
+      "abbr": "HCOMP"
+    },
+    "human centered ai research for mental health an open networking symposium": {
+      "abbr": "HARMONY"
+    },
+    "hybrid human artificial intelligence": {
+      "abbr": "HHAI"
+    },
+    "hybrid human artificial intelligence conference": {
+      "abbr": "HHAI"
+    },
+    "ibm ieee cas eds ai compute symposium": {
+      "abbr": "AICS"
+    },
+    "ict and electronics convention mipro": {
+      "abbr": "MIPRO"
+    },
+    "ieee acis international conference on software engineering research management and applications": {
+      "abbr": "SERA"
+    },
+    "ieee acm chase": {
+      "abbr": "CHASE"
+    },
+    "ieee acm embedded systems week": {
+      "abbr": "ESWEEK"
+    },
+    "ieee acm international conference on automated software engineering": {
+      "abbr": "ASE"
+    },
+    "ieee acm international conference on computer aided design": {
+      "abbr": "ICCAD"
+    },
+    "ieee acm international conference on software engineering": {
+      "abbr": "ICSE"
+    },
+    "ieee acm international conference on utility and cloud computing": {
+      "abbr": "UCC"
+    },
+    "ieee acm international symposium on code generation and optimization": {
+      "abbr": "CGO"
+    },
+    "ieee acm international symposium on computer architecture": {
+      "abbr": "ISCA"
+    },
+    "ieee acm international symposium on low power electronics and design": {
+      "abbr": "ISLPED"
+    },
+    "ieee acm international symposium on microarchitecture": {
+      "abbr": "MICRO"
+    },
+    "ieee acm symposium on edge computing": {
+      "abbr": "SEC"
+    },
+    "ieee acm transactions on audio speech and language processing": {
+      "abbr": "IEEE TASLP"
+    },
+    "ieee asia pacific conference on circuits and systems": {
+      "abbr": "APCCAS"
+    },
+    "ieee biomedical circuits and systems conference": {
+      "abbr": "BioCAS"
+    },
+    "ieee communications surveys & tutorials": {
+      "abbr": "COMST"
+    },
+    "ieee compsac": {
+      "abbr": "COMPSAC"
+    },
+    "ieee computational intelligence in financial engineering and economics": {
+      "abbr": "CIFEr"
+    },
+    "ieee computer": {
+      "abbr": "Computer"
+    },
+    "ieee computer architecture letters": {
+      "abbr": "IEEE CAL",
+      "review": true
+    },
+    "ieee computer security applications conference": {
+      "abbr": "ACSAC"
+    },
+    "ieee computer society symposium on vlsi": {
+      "abbr": "ISVLSI"
+    },
+    "ieee computers software and applications conference": {
+      "abbr": "COMPSAC"
+    },
+    "ieee computing and communication workshop and conference": {
+      "abbr": "CCWC"
+    },
+    "ieee conference on artificial intelligence": {
+      "abbr": "CAI"
+    },
+    "ieee conference on communications and network security": {
+      "abbr": "IEEE CNS",
+      "review": true
+    },
+    "ieee conference on computer vision and pattern recognition": {
+      "abbr": "CVPR"
+    },
+    "ieee conference on computers software and applications": {
+      "abbr": "COMPSAC",
+      "review": true
+    },
+    "ieee conference on decision and control": {
+      "abbr": "CDC"
+    },
+    "ieee conference on dependable and secure computing": {
+      "abbr": "DSC"
+    },
+    "ieee conference on future communications and networks": {
+      "abbr": "FCN"
+    },
+    "ieee conference on games": {
+      "abbr": "IEEE CoG"
+    },
+    "ieee conference on global communications": {
+      "abbr": "IEEE GLOBECOM",
+      "review": true
+    },
+    "ieee conference on multimodal interaction": {
+      "abbr": "ICMI"
+    },
+    "ieee congress on artificial intelligence of things": {
+      "abbr": "IEEE AIoT"
+    },
+    "ieee congress on evolutionary computation": {
+      "abbr": "CEC"
+    },
+    "ieee consumer communications & networking conference": {
+      "abbr": "CCNC"
+    },
+    "ieee control systems letters": {
+      "abbr": "IEEE L-CSS",
+      "review": true
+    },
+    "ieee cvf conference on computer vision and pattern recognition": {
+      "abbr": "CVPR"
+    },
+    "ieee cvf cvpr": {
+      "abbr": "CVPR"
+    },
+    "ieee cvf international conference on computer vision": {
+      "abbr": "ICCV"
+    },
+    "ieee cvf winter conference on applications of computer vision": {
+      "abbr": "WACV"
+    },
+    "ieee cyber ai conference": {
+      "abbr": "IEEE Cyber-AI"
+    },
+    "ieee cyber awareness and research symposium": {
+      "abbr": "CARS"
+    },
+    "ieee cybersecurity awareness and research symposium": {
+      "abbr": "CARS"
+    },
+    "ieee design methodologies conference": {
+      "abbr": "DMC"
+    },
+    "ieee embc": {
+      "abbr": "EMBC",
+      "review": true
+    },
+    "ieee engineering in medicine and biology conference": {
+      "abbr": "EMBC"
+    },
+    "ieee engineering in medicine and biology society international conference": {
+      "abbr": "EMBC",
+      "review": true
+    },
+    "ieee european symposium on security and privacy": {
+      "abbr": "EuroS&P"
+    },
+    "ieee european symposium on security and privacy workshops": {
+      "abbr": "EuroS&PW"
+    },
+    "ieee european test symposium": {
+      "abbr": "ETS"
+    },
+    "ieee frontiers in education": {
+      "abbr": "FIE"
+    },
+    "ieee frontiers in education conference": {
+      "abbr": "FIE"
+    },
+    "ieee geoscience and remote sensing letters": {
+      "abbr": "IEEE GRSL",
+      "review": true
+    },
+    "ieee global communications conference": {
+      "abbr": "IEEE GLOBECOM",
+      "review": true
+    },
+    "ieee gujarat section conference": {
+      "abbr": "GSCON"
+    },
+    "ieee guwahati subsection conference": {
+      "abbr": "GCON"
+    },
+    "ieee high performance extreme computing conference": {
+      "abbr": "HPEC"
+    },
+    "ieee hot chips conference": {
+      "abbr": "Hot Chips"
+    },
+    "ieee hot interconnects symposium": {
+      "abbr": "IEEE Hot Interconnects"
+    },
+    "ieee hpca": {
+      "abbr": "HPCA"
+    },
+    "ieee iapr international joint conference on biometrics": {
+      "abbr": "IJCB"
+    },
+    "ieee icdm": {
+      "abbr": "ICDM"
+    },
+    "ieee ice itmc conference": {
+      "abbr": "ICE/ITMC"
+    },
+    "ieee iceccme": {
+      "abbr": "ICECCME"
+    },
+    "ieee icmla": {
+      "abbr": "ICMLA"
+    },
+    "ieee ifip international conference on dependable systems and networks": {
+      "abbr": "DSN",
+      "review": true
+    },
+    "ieee ifip international conference on dependable systems and networks workshops": {
+      "abbr": "DSN-W"
+    },
+    "ieee ifip wiopt": {
+      "abbr": "WiOpt"
+    },
+    "ieee india council international conference": {
+      "abbr": "INDICON"
+    },
+    "ieee intelligent transportation systems conference": {
+      "abbr": "ITSC"
+    },
+    "ieee intelligent vehicles symposium": {
+      "abbr": "IEEE IV",
+      "review": true
+    },
+    "ieee international 3d systems integration conference": {
+      "abbr": "3DIC"
+    },
+    "ieee international biomedical instrumentation and technology conference": {
+      "abbr": "IBITeC"
+    },
+    "ieee international carnahan conference on security technology": {
+      "abbr": "ICCST"
+    },
+    "ieee international confer resilience": {
+      "abbr": "CSR"
+    },
+    "ieee international conference in image processing": {
+      "abbr": "ICIP"
+    },
+    "ieee international conference on acoustics speech and signal processing": {
+      "abbr": "ICASSP"
+    },
+    "ieee international conference on advanced learning technologies": {
+      "abbr": "ICALT",
+      "review": true
+    },
+    "ieee international conference on advanced video and signal based surveillance": {
+      "abbr": "AVSS"
+    },
+    "ieee international conference on advanced visual and signal based systems": {
+      "abbr": "AVSS"
+    },
+    "ieee international conference on agentic generative and cognitive ai systems": {
+      "abbr": "AGCS"
+    },
+    "ieee international conference on ai and data analytics": {
+      "abbr": "ICAD"
+    },
+    "ieee international conference on ai test": {
+      "abbr": "IEEE AITest"
+    },
+    "ieee international conference on artificial intelligence": {
+      "abbr": "CAI"
+    },
+    "ieee international conference on artificial intelligence blockchain and internet of things": {
+      "abbr": "AIBThings"
+    },
+    "ieee international conference on artificial intelligence circuits and systems": {
+      "abbr": "AICAS"
+    },
+    "ieee international conference on automatic face and gesture recognition": {
+      "abbr": "IEEE FG",
+      "review": true
+    },
+    "ieee international conference on automation science and engineering": {
+      "abbr": "CASE"
+    },
+    "ieee international conference on autonomic computing and self organizing systems": {
+      "abbr": "ACSOS"
+    },
+    "ieee international conference on big data": {
+      "abbr": "IEEE BigData",
+      "review": true
+    },
+    "ieee international conference on big data computing service and machine learning applications": {
+      "abbr": "IEEE BigDataService",
+      "review": true
+    },
+    "ieee international conference on bigdata": {
+      "abbr": "IEEE BigData",
+      "review": true
+    },
+    "ieee international conference on bioinformatics and biomedicine": {
+      "abbr": "BIBM"
+    },
+    "ieee international conference on biomedical engineering computer and information technology for health": {
+      "abbr": "BECITHCON"
+    },
+    "ieee international conference on blockchain and cryptocurrency": {
+      "abbr": "ICBC"
+    },
+    "ieee international conference on cloud engineering": {
+      "abbr": "IC2E"
+    },
+    "ieee international conference on communication computing networking and control in cyber physical systems": {
+      "abbr": "CCNCPS"
+    },
+    "ieee international conference on computational intelligence and communication networks": {
+      "abbr": "CICN"
+    },
+    "ieee international conference on computer communications": {
+      "abbr": "INFOCOM"
+    },
+    "ieee international conference on computer design": {
+      "abbr": "ICCD"
+    },
+    "ieee international conference on computer information and telecommunication systems": {
+      "abbr": "IEEE CITS"
+    },
+    "ieee international conference on content based multimedia indexing": {
+      "abbr": "IEEE CBMI"
+    },
+    "ieee international conference on cyber humanities": {
+      "abbr": "IEEE-CH"
+    },
+    "ieee international conference on cyber security and resilience": {
+      "abbr": "CSR"
+    },
+    "ieee international conference on cybersecurity and ai based systems": {
+      "abbr": "Cyber-AI"
+    },
+    "ieee international conference on data engineering": {
+      "abbr": "ICDE"
+    },
+    "ieee international conference on data mining": {
+      "abbr": "ICDM"
+    },
+    "ieee international conference on data mining workshops": {
+      "abbr": "ICDMW"
+    },
+    "ieee international conference on data science and advanced analytics": {
+      "abbr": "DSAA"
+    },
+    "ieee international conference on dependable systems and networks workshops": {
+      "abbr": "DSN-W"
+    },
+    "ieee international conference on development and learning": {
+      "abbr": "ICDL"
+    },
+    "ieee international conference on digital health": {
+      "abbr": "ICDH"
+    },
+    "ieee international conference on digital twins and parallel intelligence": {
+      "abbr": "DTPI"
+    },
+    "ieee international conference on distributed computing systems": {
+      "abbr": "ICDCS"
+    },
+    "ieee international conference on e science": {
+      "abbr": "e-Science"
+    },
+    "ieee international conference on edge computing": {
+      "abbr": "EDGE"
+    },
+    "ieee international conference on electronics circuits and systems": {
+      "abbr": "ICECS"
+    },
+    "ieee international conference on emerging technologies and factory automation": {
+      "abbr": "ETFA"
+    },
+    "ieee international conference on escience": {
+      "abbr": "IEEE eScience",
+      "review": true
+    },
+    "ieee international conference on evolving and adaptive intelligent systems": {
+      "abbr": "EAIS"
+    },
+    "ieee international conference on foundation and large language models": {
+      "abbr": "IEEE FLLM",
+      "review": true
+    },
+    "ieee international conference on fuzzy systems": {
+      "abbr": "FUZZ-IEEE"
+    },
+    "ieee international conference on healthcare informatics": {
+      "abbr": "ICHI"
+    },
+    "ieee international conference on ic design and technology": {
+      "abbr": "ICICDT"
+    },
+    "ieee international conference on image processing": {
+      "abbr": "ICIP"
+    },
+    "ieee international conference on industrial engineering and engineering management": {
+      "abbr": "IEEM"
+    },
+    "ieee international conference on industrial informatics": {
+      "abbr": "IEEE INDIN",
+      "review": true
+    },
+    "ieee international conference on information reuse and integration for data science": {
+      "abbr": "IRI"
+    },
+    "ieee international conference on intelligent robots and systems": {
+      "abbr": "IROS"
+    },
+    "ieee international conference on intelligent systems": {
+      "abbr": "IEEE IS",
+      "review": true
+    },
+    "ieee international conference on intelligent transportation systems": {
+      "abbr": "ITSC"
+    },
+    "ieee international conference on interdisciplinary approaches in technology and management for social innovation": {
+      "abbr": "IATMSI"
+    },
+    "ieee international conference on llm aided design": {
+      "abbr": "ICLAD"
+    },
+    "ieee international conference on machine learning and applications": {
+      "abbr": "ICMLA"
+    },
+    "ieee international conference on mobile ad hoc and smart systems": {
+      "abbr": "MASS"
+    },
+    "ieee international conference on mobile data management": {
+      "abbr": "MDM"
+    },
+    "ieee international conference on multimedia & expo": {
+      "abbr": "ICME"
+    },
+    "ieee international conference on multimedia and expo": {
+      "abbr": "ICME"
+    },
+    "ieee international conference on multimedia information processing and retrieval": {
+      "abbr": "MIPR"
+    },
+    "ieee international conference on network softwarization": {
+      "abbr": "NetSoft"
+    },
+    "ieee international conference on omni layer intelligent systems": {
+      "abbr": "COINS"
+    },
+    "ieee international conference on optics machine learning and emerging technology": {
+      "abbr": "OMLET"
+    },
+    "ieee international conference on quantum computing and engineering": {
+      "abbr": "QCE"
+    },
+    "ieee international conference on quantum photonics artificial intelligence and networking": {
+      "abbr": "QPAIN"
+    },
+    "ieee international conference on responsible artificial intelligence": {
+      "abbr": "IRAI"
+    },
+    "ieee international conference on rfid": {
+      "abbr": "IEEE RFID"
+    },
+    "ieee international conference on robot and human interactive communication": {
+      "abbr": "RO-MAN"
+    },
+    "ieee international conference on robotics & automation": {
+      "abbr": "ICRA"
+    },
+    "ieee international conference on robotics and automation": {
+      "abbr": "ICRA"
+    },
+    "ieee international conference on robotics and biomimetics": {
+      "abbr": "ROBIO"
+    },
+    "ieee international conference on robotics automation artificial intelligence and internet of things": {
+      "abbr": "RAAICON"
+    },
+    "ieee international conference on semantic computing": {
+      "abbr": "ICSC"
+    },
+    "ieee international conference on sensing communication and networking": {
+      "abbr": "IEEE SECON"
+    },
+    "ieee international conference on smart energy grid engineering": {
+      "abbr": "SEGE"
+    },
+    "ieee international conference on smart multimedia": {
+      "abbr": "ICSM"
+    },
+    "ieee international conference on software maintenance and evolution": {
+      "abbr": "ICSME"
+    },
+    "ieee international conference on space robotics": {
+      "abbr": "iSpaRo"
+    },
+    "ieee international conference on sustainability innovation and technology": {
+      "abbr": "ICSIT"
+    },
+    "ieee international conference on system theory control and computing": {
+      "abbr": "ICSTCC"
+    },
+    "ieee international conference on systems and man and cybernetics": {
+      "abbr": "SMC"
+    },
+    "ieee international conference on systems man and cybernetics": {
+      "abbr": "SMC"
+    },
+    "ieee international conference on teaching assessment and learning for engineering": {
+      "abbr": "TALE"
+    },
+    "ieee international conference on tools with artificial intelligence": {
+      "abbr": "ICTAI"
+    },
+    "ieee international conference on trust privacy and security in intelligent systems and applications": {
+      "abbr": "IEEE TPS"
+    },
+    "ieee international conference on visual communications and image processing": {
+      "abbr": "VCIP"
+    },
+    "ieee international conference on web services": {
+      "abbr": "ICWS"
+    },
+    "ieee international geoscience and remote sensing symposium": {
+      "abbr": "IGARSS"
+    },
+    "ieee international joint conference on biometrics": {
+      "abbr": "IJCB"
+    },
+    "ieee international joint conference on neural networks": {
+      "abbr": "IJCNN"
+    },
+    "ieee international mediterranean conference on communications and networking": {
+      "abbr": "MeditCom"
+    },
+    "ieee international research conference on smart computing and systems engineering": {
+      "abbr": "IEEE SCSE"
+    },
+    "ieee international symposium on a world of wireless mobile and multimedia networks": {
+      "abbr": "WoWMoM"
+    },
+    "ieee international symposium on biomedical imaging": {
+      "abbr": "ISBI"
+    },
+    "ieee international symposium on circuits and systems": {
+      "abbr": "ISCAS"
+    },
+    "ieee international symposium on defect and fault tolerance in vlsi and nanotechnology systems": {
+      "abbr": "DFTS"
+    },
+    "ieee international symposium on embedded multicore many core systems on chip": {
+      "abbr": "MCSoC"
+    },
+    "ieee international symposium on field programmable custom computing machines": {
+      "abbr": "FCCM",
+      "review": true
+    },
+    "ieee international symposium on hardware oriented security and trust": {
+      "abbr": "HOST"
+    },
+    "ieee international symposium on high performance computer architecture": {
+      "abbr": "HPCA"
+    },
+    "ieee international symposium on internet of sounds": {
+      "abbr": "IS2"
+    },
+    "ieee international symposium on medical information and communication technology": {
+      "abbr": "ISMICT"
+    },
+    "ieee international symposium on mixed and augmented reality": {
+      "abbr": "ISMAR"
+    },
+    "ieee international symposium on performance analysis of systems and software": {
+      "abbr": "ISPASS"
+    },
+    "ieee international symposium on personal indoor and mobile radio communications": {
+      "abbr": "PIMRC"
+    },
+    "ieee international symposium on safety security and rescue robotics": {
+      "abbr": "SSRR"
+    },
+    "ieee international symposium on software reliability engineering": {
+      "abbr": "ISSRE"
+    },
+    "ieee international symposium on workload characterization": {
+      "abbr": "IISWC"
+    },
+    "ieee international system on chip conference": {
+      "abbr": "SoCC"
+    },
+    "ieee international test conference": {
+      "abbr": "ITC"
+    },
+    "ieee international ultrasonics symposium": {
+      "abbr": "IUS"
+    },
+    "ieee international workshop on aiot and smart systems": {
+      "abbr": "AIoTSys"
+    },
+    "ieee international workshop on information forensics and security": {
+      "abbr": "WIFS"
+    },
+    "ieee international workshop on machine learning for signal processing": {
+      "abbr": "MLSP"
+    },
+    "ieee international workshop on signal processing systems": {
+      "abbr": "SiPS"
+    },
+    "ieee internet of things journal": {
+      "abbr": "IEEE IoT-J"
+    },
+    "ieee itmc conference": {
+      "abbr": "ICE"
+    },
+    "ieee journal of biomedical and health informatics": {
+      "abbr": "IEEE JBHI"
+    },
+    "ieee journal of selected topics in applied earth observations and remote sensing": {
+      "abbr": "IEEE JSTARS",
+      "review": true
+    },
+    "ieee journal of selected topics in signal processing": {
+      "abbr": "IEEE JSTSP",
+      "review": true
+    },
+    "ieee journal of solid state circuits": {
+      "abbr": "IEEE JSSC"
+    },
+    "ieee journal on emerging and selected topics in circuits and systems": {
+      "abbr": "IEEE JETCAS"
+    },
+    "ieee journal on exploratory solid state computational devices and circuits": {
+      "abbr": "IEEE JXCDC",
+      "review": true
+    },
+    "ieee journal on selected areas in communications": {
+      "abbr": "IEEE JSAC",
+      "review": true
+    },
+    "ieee metrosea": {
+      "abbr": "MetroSea"
+    },
+    "ieee military communications conference": {
+      "abbr": "MILCOM"
+    },
+    "ieee neuro inspired computational elements conference": {
+      "abbr": "IEEE NICE",
+      "review": true
+    },
+    "ieee nordic circuits and systems conference": {
+      "abbr": "NorCAS"
+    },
+    "ieee oes autonomous underwater vehicles symposium": {
+      "abbr": "AUV"
+    },
+    "ieee open journal of signal processing": {
+      "abbr": "OJSP"
+    },
+    "ieee power & energy student summit": {
+      "abbr": "PESS"
+    },
+    "ieee radio and wireless week": {
+      "abbr": "RWW"
+    },
+    "ieee ras international conference on automation science and engineering": {
+      "abbr": "CASE",
+      "review": true
+    },
+    "ieee ras international conference on humanoid robots": {
+      "abbr": "Humanoids"
+    },
+    "ieee research and technologies for society and industry": {
+      "abbr": "RTSI",
+      "review": true
+    },
+    "ieee robotics and automation letters": {
+      "abbr": "IEEE RA-L"
+    },
+    "ieee robotics and automation practice": {
+      "abbr": "IEEE RA-P"
+    },
+    "ieee rsj international conference intelligent robots & systems": {
+      "abbr": "IROS"
+    },
+    "ieee rsj international conference on intelligent robots & systems": {
+      "abbr": "IROS"
+    },
+    "ieee rsj international conference on intelligent robots and systems": {
+      "abbr": "IROS"
+    },
+    "ieee sbc international symposium on computer architecture and high performance computing": {
+      "abbr": "SBAC-PAD"
+    },
+    "ieee signal processing and communications applications conference": {
+      "abbr": "IEEE SIU",
+      "review": true
+    },
+    "ieee signal processing letters": {
+      "abbr": "IEEE SPL",
+      "review": true
+    },
+    "ieee speech language technology": {
+      "abbr": "SLT",
+      "review": true
+    },
+    "ieee spoken language technology": {
+      "abbr": "SLT",
+      "review": true
+    },
+    "ieee spoken language technology workshop": {
+      "abbr": "SLT"
+    },
+    "ieee symposium on computers & informatics": {
+      "abbr": "ISCI"
+    },
+    "ieee symposium on computers and communications": {
+      "abbr": "ISCC"
+    },
+    "ieee symposium on real time systems": {
+      "abbr": "RTSS"
+    },
+    "ieee symposium on security and privacy": {
+      "abbr": "IEEE S&P"
+    },
+    "ieee symposium on visual languages and human centric computing": {
+      "abbr": "VL/HCC"
+    },
+    "ieee symposium sensor data fusion trends solutions and applications": {
+      "abbr": "SDF"
+    },
+    "ieee symposium series on computational intelligence": {
+      "abbr": "IEEE SSCI"
+    },
+    "ieee system on chip conference": {
+      "abbr": "SoCC"
+    },
+    "ieee transaction on mobile computing": {
+      "abbr": "IEEE TMC",
+      "review": true
+    },
+    "ieee transactions on affective computing": {
+      "abbr": "IEEE TAC",
+      "review": true
+    },
+    "ieee transactions on artificial intelligence": {
+      "abbr": "IEEE TAI"
+    },
+    "ieee transactions on audio speech and language processing": {
+      "abbr": "IEEE TASLP",
+      "review": true
+    },
+    "ieee transactions on automatic control": {
+      "abbr": "IEEE TAC",
+      "review": true
+    },
+    "ieee transactions on automation science and engineering": {
+      "abbr": "IEEE T-ASE",
+      "review": true
+    },
+    "ieee transactions on biomedical engineering": {
+      "abbr": "IEEE TBME",
+      "review": true
+    },
+    "ieee transactions on circuits and systems": {
+      "abbr": "IEEE TCAS",
+      "review": true
+    },
+    "ieee transactions on circuits and systems for artificial intelligence": {
+      "abbr": "TCASAI"
+    },
+    "ieee transactions on circuits and systems for video technology": {
+      "abbr": "IEEE TCSVT"
+    },
+    "ieee transactions on circuits and systems i regular papers": {
+      "abbr": "IEEE TCAS-I",
+      "review": true
+    },
+    "ieee transactions on cloud computing": {
+      "abbr": "IEEE TCC",
+      "review": true
+    },
+    "ieee transactions on cognitive and developmental systems": {
+      "abbr": "IEEE TCDS",
+      "review": true
+    },
+    "ieee transactions on cognitive communications and networking": {
+      "abbr": "IEEE TCCN",
+      "review": true
+    },
+    "ieee transactions on computational social systems": {
+      "abbr": "IEEE TCSS",
+      "review": true
+    },
+    "ieee transactions on computer aided design of integrated circuits & systems": {
+      "abbr": "IEEE TCAD",
+      "review": true
+    },
+    "ieee transactions on computer aided design of integrated circuits and systems": {
+      "abbr": "IEEE TCAD"
+    },
+    "ieee transactions on computers": {
+      "abbr": "IEEE TC"
+    },
+    "ieee transactions on consumer electronics": {
+      "abbr": "IEEE TCE",
+      "review": true
+    },
+    "ieee transactions on cybernetics": {
+      "abbr": "IEEE TCYB"
+    },
+    "ieee transactions on dependable and secure computing": {
+      "abbr": "IEEE TDSC"
+    },
+    "ieee transactions on emerging topics in computational intelligence": {
+      "abbr": "IEEE TETCI",
+      "review": true
+    },
+    "ieee transactions on emerging topics in computing": {
+      "abbr": "IEEE TETC"
+    },
+    "ieee transactions on evolutionary computation": {
+      "abbr": "IEEE TEVC",
+      "review": true
+    },
+    "ieee transactions on fuzzy systems": {
+      "abbr": "IEEE TFS",
+      "review": true
+    },
+    "ieee transactions on geoscience and remote sensing": {
+      "abbr": "IEEE TGRS"
+    },
+    "ieee transactions on image processing": {
+      "abbr": "IEEE TIP"
+    },
+    "ieee transactions on industrial informatics": {
+      "abbr": "IEEE TII"
+    },
+    "ieee transactions on information forensics & security": {
+      "abbr": "IEEE TIFS",
+      "review": true
+    },
+    "ieee transactions on information forensics and security": {
+      "abbr": "IEEE TIFS"
+    },
+    "ieee transactions on intelligent transportation systems": {
+      "abbr": "IEEE TITS"
+    },
+    "ieee transactions on intelligent vehicles": {
+      "abbr": "IEEE TIV",
+      "review": true
+    },
+    "ieee transactions on knowledge and data engineering": {
+      "abbr": "IEEE TKDE"
+    },
+    "ieee transactions on medical imaging": {
+      "abbr": "IEEE TMI"
+    },
+    "ieee transactions on mobile computing": {
+      "abbr": "IEEE TMC"
+    },
+    "ieee transactions on multimedia": {
+      "abbr": "IEEE TMM"
+    },
+    "ieee transactions on network science and engineering": {
+      "abbr": "IEEE TNSE",
+      "review": true
+    },
+    "ieee transactions on neural networks and learning systems": {
+      "abbr": "IEEE TNNLS"
+    },
+    "ieee transactions on neural systems and rehabilitation engineering": {
+      "abbr": "IEEE TNSRE",
+      "review": true
+    },
+    "ieee transactions on parallel and distributed systems": {
+      "abbr": "IEEE TPDS"
+    },
+    "ieee transactions on pattern analysis and machine intelligence": {
+      "abbr": "IEEE TPAMI"
+    },
+    "ieee transactions on reliability": {
+      "abbr": "IEEE TR",
+      "review": true
+    },
+    "ieee transactions on robotics": {
+      "abbr": "IEEE T-RO"
+    },
+    "ieee transactions on signal processing": {
+      "abbr": "IEEE TSP"
+    },
+    "ieee transactions on software engineering": {
+      "abbr": "IEEE TSE"
+    },
+    "ieee transactions on vehicular technology": {
+      "abbr": "IEEE TVT",
+      "review": true
+    },
+    "ieee transactions on very large scale integration systems": {
+      "abbr": "IEEE TVLSI"
+    },
+    "ieee transactions on visualization and computer graphics": {
+      "abbr": "IEEE TVCG"
+    },
+    "ieee transactions on wireless communications": {
+      "abbr": "IEEE TWC"
+    },
+    "ieee vehicular technology conference": {
+      "abbr": "VTC",
+      "review": true
+    },
+    "ieee visualization conference": {
+      "abbr": "IEEE VIS"
+    },
+    "ieee vlsi test symposium": {
+      "abbr": "VTS"
+    },
+    "ieee wic international conference on web intelligence and intelligent agent technology": {
+      "abbr": "WI-IAT"
+    },
+    "ieee world ai iot congress": {
+      "abbr": "AIIoT"
+    },
+    "ieee world congress on computational intelligence": {
+      "abbr": "WCCI"
+    },
+    "ieom world congress on industrial engineering and operations management": {
+      "abbr": "IEOM World Congress"
+    },
+    "ifac world congress": {
+      "abbr": "IFAC"
+    },
+    "ifip ieee international conference on very large scale integration soc": {
+      "abbr": "VLSI-SoC"
+    },
+    "ifip wg 5 7 international conference on advances in production management systems": {
+      "abbr": "APMS"
+    },
+    "iiai international congress on advanced applied informatics": {
+      "abbr": "IIAI-AAI"
+    },
+    "ijcai ecai": {
+      "abbr": "IJCAI"
+    },
+    "immersive learning research network": {
+      "abbr": "iLRN"
+    },
+    "indian conference on computer vision graphics and image processing": {
+      "abbr": "ICVGIP"
+    },
+    "information processing & management": {
+      "abbr": "IPM"
+    },
+    "information systems research": {
+      "abbr": "ISR"
+    },
+    "innovative applications of ai": {
+      "abbr": "IAAI"
+    },
+    "innovative applications of artificial intelligence": {
+      "abbr": "IAAI"
+    },
+    "innovative smart grid technologies europe": {
+      "abbr": "ISGT Europe"
+    },
+    "institute of electronics and information engineers fall conference": {
+      "abbr": "IEIE Fall Conference",
+      "review": true
+    },
+    "intelligent autonomous systems": {
+      "abbr": "IAS"
+    },
+    "intelligent data analysis": {
+      "abbr": "IDA"
+    },
+    "intelligent methods systems and applications": {
+      "abbr": "IMSA"
+    },
+    "intelligent robotics fair": {
+      "abbr": "IntRob"
+    },
+    "intelligent systems conference": {
+      "abbr": "IntelliSys"
+    },
+    "intelligent tutoring systems": {
+      "abbr": "ITS"
+    },
+    "intelligent vehicles symposium": {
+      "abbr": "IEEE IV",
+      "review": true
+    },
+    "international aaai conference on web and social media": {
+      "abbr": "ICWSM"
+    },
+    "international acm sigaccess conference on computers and accessibility": {
+      "abbr": "ASSETS"
+    },
+    "international acm sigir conference on information retrieval in asia pacific": {
+      "abbr": "SIGIR-AP"
+    },
+    "international acm sigir conference on research and development in information retrieval": {
+      "abbr": "SIGIR"
+    },
+    "international artificial intelligence and data processing symposium": {
+      "abbr": "IDAP"
+    },
+    "international association for shell and spatial structures": {
+      "abbr": "IASS Annual Symposium",
+      "review": true
+    },
+    "international compact modeling conference": {
+      "abbr": "ICMC"
+    },
+    "international conference computational linguistics in bulgaria": {
+      "abbr": "CLIB"
+    },
+    "international conference for ai and law": {
+      "abbr": "ICAIL",
+      "review": true
+    },
+    "international conference for high performance computing networking storage and analysis": {
+      "abbr": "SC"
+    },
+    "international conference of ai & law": {
+      "abbr": "ICAIL",
+      "review": true
+    },
+    "international conference of cross language evaluation forum for european languages": {
+      "abbr": "CLEF",
+      "review": true
+    },
+    "international conference of ieee engineering in medicine & biology society": {
+      "abbr": "EMBC"
+    },
+    "international conference of ieee engineering in medicine and biology society": {
+      "abbr": "EMBC"
+    },
+    "international conference of resilience by technology and design": {
+      "abbr": "RTD"
+    },
+    "international conference on 3d vision": {
+      "abbr": "3DV"
+    },
+    "international conference on acoustics speech and signal processing": {
+      "abbr": "ICASSP"
+    },
+    "international conference on advanced computer information technologies": {
+      "abbr": "ACIT"
+    },
+    "international conference on advanced computing technologies": {
+      "abbr": "ICACT"
+    },
+    "international conference on advanced data mining and applications": {
+      "abbr": "ADMA"
+    },
+    "international conference on advanced video and signal based surveillance": {
+      "abbr": "AVSS"
+    },
+    "international conference on advances in information technology": {
+      "abbr": "IAIT",
+      "review": true
+    },
+    "international conference on advances in social network analysis and mining": {
+      "abbr": "ASONAM"
+    },
+    "international conference on affective computing and intelligent interaction": {
+      "abbr": "ACII"
+    },
+    "international conference on affective computing and intelligent interaction workshops and demos": {
+      "abbr": "ACIIW"
+    },
+    "international conference on agentic and generative techniques in intelligent computational systems": {
+      "abbr": "AGENTICS"
+    },
+    "international conference on agents and artificial intelligence": {
+      "abbr": "ICAART"
+    },
+    "international conference on ai engineering": {
+      "abbr": "CAIN"
+    },
+    "international conference on ai engineering software engineering for ai": {
+      "abbr": "CAIN"
+    },
+    "international conference on ai for science": {
+      "abbr": "AI4Sci",
+      "review": true
+    },
+    "international conference on ai in education": {
+      "abbr": "AIED"
+    },
+    "international conference on ai in healthcare": {
+      "abbr": "AIiH"
+    },
+    "international conference on ai ml systems": {
+      "abbr": "AI-ML Systems"
+    },
+    "international conference on ai revolution research ethics and society": {
+      "abbr": "AIR-RES"
+    },
+    "international conference on algorithmic decision theory": {
+      "abbr": "ADT",
+      "review": true
+    },
+    "international conference on algorithmic learning theory": {
+      "abbr": "ALT"
+    },
+    "international conference on application specific systems architectures and processors": {
+      "abbr": "ASAP"
+    },
+    "international conference on applied artificial intelligence": {
+      "abbr": "2AI"
+    },
+    "international conference on applied computing": {
+      "abbr": "AC"
+    },
+    "international conference on applied science and technology engineering science": {
+      "abbr": "iCAST-ES"
+    },
+    "international conference on applying new technology in green buildings": {
+      "abbr": "ATiGB"
+    },
+    "international conference on architecture of computing systems": {
+      "abbr": "ARCS"
+    },
+    "international conference on artificial general intelligence": {
+      "abbr": "AGI"
+    },
+    "international conference on artificial intelligence and applied intelligent systems": {
+      "abbr": "AIAIS"
+    },
+    "international conference on artificial intelligence and law": {
+      "abbr": "ICAIL"
+    },
+    "international conference on artificial intelligence and statistics": {
+      "abbr": "AISTATS"
+    },
+    "international conference on artificial intelligence applications and innovations": {
+      "abbr": "AIAI",
+      "review": true
+    },
+    "international conference on artificial intelligence automation and algorithms": {
+      "abbr": "AI2A"
+    },
+    "international conference on artificial intelligence automation and high performance computing": {
+      "abbr": "AIAHPC"
+    },
+    "international conference on artificial intelligence blockchain and internet of things": {
+      "abbr": "AIBThings"
+    },
+    "international conference on artificial intelligence centric systems services and applications": {
+      "abbr": "AISSA"
+    },
+    "international conference on artificial intelligence circuits and systems": {
+      "abbr": "AICAS"
+    },
+    "international conference on artificial intelligence in education": {
+      "abbr": "AIED"
+    },
+    "international conference on artificial intelligence in education technology": {
+      "abbr": "AIET"
+    },
+    "international conference on artificial intelligence in medicine": {
+      "abbr": "AIME",
+      "review": true
+    },
+    "international conference on artificial neural networks": {
+      "abbr": "ICANN"
+    },
+    "international conference on asia pacific digital libraries": {
+      "abbr": "ICADL"
+    },
+    "international conference on automated machine learning": {
+      "abbr": "AutoML"
+    },
+    "international conference on automated planning and scheduling": {
+      "abbr": "ICAPS"
+    },
+    "international conference on automated software engineering": {
+      "abbr": "ASE"
+    },
+    "international conference on automatic face and gesture recognition": {
+      "abbr": "FG"
+    },
+    "international conference on automation science and engineering": {
+      "abbr": "CASE"
+    },
+    "international conference on autonomous agents and multiagent systems": {
+      "abbr": "AAMAS"
+    },
+    "international conference on availability reliability and security": {
+      "abbr": "ARES"
+    },
+    "international conference on big data applications in education and engineering": {
+      "abbr": "ICBDAEE"
+    },
+    "international conference on big data computational intelligence and applications": {
+      "abbr": "BDCIA"
+    },
+    "international conference on big data computing and communications": {
+      "abbr": "BigCom"
+    },
+    "international conference on big data information and computer network": {
+      "abbr": "BDICN"
+    },
+    "international conference on big data iot and machine learning": {
+      "abbr": "BIM"
+    },
+    "international conference on bioinformatics and computational biology": {
+      "abbr": "ICBCB"
+    },
+    "international conference on body sensor networks": {
+      "abbr": "BSN"
+    },
+    "international conference on business process management": {
+      "abbr": "BPM",
+      "review": true
+    },
+    "international conference on cloud computing big data application and software engineering": {
+      "abbr": "CBASE"
+    },
+    "international conference on codesign of embedded systems at embedded systems week": {
+      "abbr": "ESWEEK-CODES"
+    },
+    "international conference on cognitive mobility": {
+      "abbr": "CogMob"
+    },
+    "international conference on computational advances in bio and medical sciences": {
+      "abbr": "ICCABS"
+    },
+    "international conference on computational creativity": {
+      "abbr": "ICCC"
+    },
+    "international conference on computational intelligence methods for bioinformatics and biostatistics": {
+      "abbr": "CIBB"
+    },
+    "international conference on computational linguistics": {
+      "abbr": "COLING"
+    },
+    "international conference on computational models of argument": {
+      "abbr": "COMMA"
+    },
+    "international conference on computational processing of portuguese": {
+      "abbr": "PROPOR"
+    },
+    "international conference on computational science": {
+      "abbr": "ICCS"
+    },
+    "international conference on computational systems and information technology for sustainable solutions": {
+      "abbr": "CSITSS"
+    },
+    "international conference on computational techniques in data science": {
+      "abbr": "IICTDS"
+    },
+    "international conference on computer aided design": {
+      "abbr": "ICCAD"
+    },
+    "international conference on computer aided verification": {
+      "abbr": "CAV",
+      "review": true
+    },
+    "international conference on computer and applications": {
+      "abbr": "ICCA"
+    },
+    "international conference on computer and information technology": {
+      "abbr": "ICCIT"
+    },
+    "international conference on computer and knowledge engineering": {
+      "abbr": "ICCKE"
+    },
+    "international conference on computer communication and networks": {
+      "abbr": "ICCCN"
+    },
+    "international conference on computer information science and application technology": {
+      "abbr": "CISAT"
+    },
+    "international conference on computer vision": {
+      "abbr": "ICCV"
+    },
+    "international conference on computer vision and image processing": {
+      "abbr": "CVIP"
+    },
+    "international conference on computers in education": {
+      "abbr": "ICCE",
+      "review": true
+    },
+    "international conference on computing applications and systems": {
+      "abbr": "COMPAS"
+    },
+    "international conference on computing communication and networking technologies": {
+      "abbr": "ICCCNT"
+    },
+    "international conference on computing in civil and building engineering": {
+      "abbr": "ICCCBE"
+    },
+    "international conference on computing in civil engineering": {
+      "abbr": "i3CE"
+    },
+    "international conference on contemporary computing": {
+      "abbr": "IC3"
+    },
+    "international conference on control mechatronics and automation": {
+      "abbr": "ICCMA"
+    },
+    "international conference on control robotics engineering and technology": {
+      "abbr": "CRET"
+    },
+    "international conference on cooperative information systems": {
+      "abbr": "CoopIS"
+    },
+    "international conference on critical information infrastructures security": {
+      "abbr": "CRITIS"
+    },
+    "international conference on data engineering workshops": {
+      "abbr": "ICDEW"
+    },
+    "international conference on data science": {
+      "abbr": "CODS"
+    },
+    "international conference on data science and advanced analytics": {
+      "abbr": "DSAA"
+    },
+    "international conference on data science and artificial intelligence": {
+      "abbr": "DSAI"
+    },
+    "international conference on data science mathematics and informatics": {
+      "abbr": "ICoDMI"
+    },
+    "international conference on data science technology and applications": {
+      "abbr": "DATA"
+    },
+    "international conference on database systems for advanced applications": {
+      "abbr": "DASFAA"
+    },
+    "international conference on deep learning theory and applications": {
+      "abbr": "DeLTA"
+    },
+    "international conference on dependable systems and networks": {
+      "abbr": "DSN"
+    },
+    "international conference on digital audio effects": {
+      "abbr": "DAFx",
+      "review": true
+    },
+    "international conference on digital image computing techniques and applications": {
+      "abbr": "DICTA"
+    },
+    "international conference on discovery science": {
+      "abbr": "DS"
+    },
+    "international conference on distributed artificial intelligence": {
+      "abbr": "DAI"
+    },
+    "international conference on distributed computing in smart systems and internet of things": {
+      "abbr": "DCOSS-IoT"
+    },
+    "international conference on document analysis and recognition": {
+      "abbr": "ICDAR"
+    },
+    "international conference on educational data mining": {
+      "abbr": "EDM"
+    },
+    "international conference on electrical and computer engineering researches": {
+      "abbr": "ICECER"
+    },
+    "international conference on electrical computer and energy technologies": {
+      "abbr": "ICECET"
+    },
+    "international conference on electrical computer communications and mechatronics engineering": {
+      "abbr": "ICECCME"
+    },
+    "international conference on electronics circuits and systems": {
+      "abbr": "ICECS"
+    },
+    "international conference on embedded computer systems architectures modeling and simulation": {
+      "abbr": "SAMOS"
+    },
+    "international conference on emerging computational intelligence": {
+      "abbr": "ICECI"
+    },
+    "international conference on emerging technologies and factory automation": {
+      "abbr": "ETFA"
+    },
+    "international conference on energy electrical and power engineering": {
+      "abbr": "CEEPE"
+    },
+    "international conference on evaluation and assessment in software engineering": {
+      "abbr": "EASE"
+    },
+    "international conference on federated learning and intelligent computing systems": {
+      "abbr": "FLICS",
+      "review": true
+    },
+    "international conference on federated learning technologies and applications": {
+      "abbr": "FLTA"
+    },
+    "international conference on field programmable logic and applications": {
+      "abbr": "FPL"
+    },
+    "international conference on field programmable technology": {
+      "abbr": "FPT"
+    },
+    "international conference on formal ontology in information systems": {
+      "abbr": "FOIS"
+    },
+    "international conference on foundation and large language models": {
+      "abbr": "IEEE FLLM"
+    },
+    "international conference on foundations of software engineering": {
+      "abbr": "FSE",
+      "review": true
+    },
+    "international conference on frontiers of artificial intelligence ethics and multidisciplinary applications": {
+      "abbr": "Frontiers of Artificial Intelligence, Ethics, and Multidisciplinary Applications"
+    },
+    "international conference on frontiers of intelligent computing theory and applications": {
+      "abbr": "FICTA"
+    },
+    "international conference on high performance computing networking storage and analysis": {
+      "abbr": "SC",
+      "review": true
+    },
+    "international conference on human agent interaction": {
+      "abbr": "HAI"
+    },
+    "international conference on human computer interaction": {
+      "abbr": "HCI",
+      "review": true
+    },
+    "international conference on hybrid human artificial intelligence": {
+      "abbr": "HHAI"
+    },
+    "international conference on image and graphics": {
+      "abbr": "ICIG"
+    },
+    "international conference on image formation in x ray computed tomography": {
+      "abbr": "CT Meeting"
+    },
+    "international conference on image processing computer vision and machine learning": {
+      "abbr": "ICICML"
+    },
+    "international conference on image processing theory tools and applications": {
+      "abbr": "IPTA",
+      "review": true
+    },
+    "international conference on industrial informatics": {
+      "abbr": "IEEE INDIN",
+      "review": true
+    },
+    "international conference on industry sciences and computer sciences innovation": {
+      "abbr": "iSCSi"
+    },
+    "international conference on informatics and information technologies": {
+      "abbr": "CIIT"
+    },
+    "international conference on information and communications security": {
+      "abbr": "ICICS"
+    },
+    "international conference on information fusion": {
+      "abbr": "Information Fusion"
+    },
+    "international conference on information intelligence systems & applications": {
+      "abbr": "IISA"
+    },
+    "international conference on information reuse and integration for data science": {
+      "abbr": "IRI",
+      "review": true
+    },
+    "international conference on information systems": {
+      "abbr": "ICIS"
+    },
+    "international conference on information systems development": {
+      "abbr": "ISD",
+      "review": true
+    },
+    "international conference on information technology and intelligence": {
+      "abbr": "ICITI"
+    },
+    "international conference on innovations in computational intelligence and computer vision": {
+      "abbr": "ICICV"
+    },
+    "international conference on intelligent computing": {
+      "abbr": "ICIC",
+      "review": true
+    },
+    "international conference on intelligent computing networks and security": {
+      "abbr": "IC-ICNS"
+    },
+    "international conference on intelligent multimedia networking and security": {
+      "abbr": "IMNS"
+    },
+    "international conference on intelligent processing hardware electronics and radio systems": {
+      "abbr": "CIPHER"
+    },
+    "international conference on intelligent robots and systems": {
+      "abbr": "IROS"
+    },
+    "international conference on intelligent systems blockchain and communication technologies": {
+      "abbr": "ISBCT",
+      "review": true
+    },
+    "international conference on intelligent systems theories and applications": {
+      "abbr": "ICISTA",
+      "review": true
+    },
+    "international conference on intelligent transportation systems": {
+      "abbr": "ITSC"
+    },
+    "international conference on intelligent user interfaces": {
+      "abbr": "IUI"
+    },
+    "international conference on internet": {
+      "abbr": "ICONI"
+    },
+    "international conference on internet of things": {
+      "abbr": "IoT"
+    },
+    "international conference on it security incident management & it forensics": {
+      "abbr": "IMF"
+    },
+    "international conference on juris informatics": {
+      "abbr": "JURISIN"
+    },
+    "international conference on knowledge based and intelligent information & engineering systems": {
+      "abbr": "KES"
+    },
+    "international conference on knowledge discovery and information retrieval": {
+      "abbr": "KDIR"
+    },
+    "international conference on knowledge engineering and knowledge management": {
+      "abbr": "EKAW"
+    },
+    "international conference on language resources and evaluation": {
+      "abbr": "LREC"
+    },
+    "international conference on language technologies for low resource languages": {
+      "abbr": "LaTeLL"
+    },
+    "international conference on learning representations": {
+      "abbr": "ICLR"
+    },
+    "international conference on legal knowledge and information systems": {
+      "abbr": "JURIX"
+    },
+    "international conference on llm aided design": {
+      "abbr": "ICLAD"
+    },
+    "international conference on logic programming": {
+      "abbr": "ICLP"
+    },
+    "international conference on machine intelligence and digital applications": {
+      "abbr": "MIDA"
+    },
+    "international conference on machine intelligence and nature inspired computing": {
+      "abbr": "MIND"
+    },
+    "international conference on machine learning": {
+      "abbr": "ICML"
+    },
+    "international conference on machine learning and applications": {
+      "abbr": "ICMLA"
+    },
+    "international conference on machine learning and data engineering": {
+      "abbr": "ICMLDE"
+    },
+    "international conference on machine learning and machine intelligence": {
+      "abbr": "MLMI"
+    },
+    "international conference on machine learning for cyber security": {
+      "abbr": "ML4CS"
+    },
+    "international conference on machine learning optimization and data science": {
+      "abbr": "LOD"
+    },
+    "international conference on machine vision": {
+      "abbr": "ICMV"
+    },
+    "international conference on mathematics of artificial intelligence": {
+      "abbr": "MathAI"
+    },
+    "international conference on medical image computing and computer assisted intervention": {
+      "abbr": "MICCAI"
+    },
+    "international conference on medical imaging and computer aided diagnosis": {
+      "abbr": "MICAD"
+    },
+    "international conference on medical imaging with deep learning": {
+      "abbr": "MIDL"
+    },
+    "international conference on microelectronics": {
+      "abbr": "ICM"
+    },
+    "international conference on military communication and information systems": {
+      "abbr": "ICMCIS"
+    },
+    "international conference on mining software repositories": {
+      "abbr": "MSR",
+      "review": true
+    },
+    "international conference on mobile computing and networking": {
+      "abbr": "MobiCom"
+    },
+    "international conference on mobile military maritime it convergence": {
+      "abbr": "ICMIC"
+    },
+    "international conference on model driven engineering languages and systems": {
+      "abbr": "MODELS"
+    },
+    "international conference on modern computing networking and applications": {
+      "abbr": "MCNA",
+      "review": true
+    },
+    "international conference on multi disciplinary trends in artificial intelligence": {
+      "abbr": "MIWAI"
+    },
+    "international conference on multidisciplinary research": {
+      "abbr": "ICMR"
+    },
+    "international conference on multimedia modeling": {
+      "abbr": "MMM"
+    },
+    "international conference on multimedia retrieval": {
+      "abbr": "ICMR"
+    },
+    "international conference on multimodal interaction": {
+      "abbr": "ICMI"
+    },
+    "international conference on natural language generation": {
+      "abbr": "INLG",
+      "review": true
+    },
+    "international conference on natural language processing for digital humanities": {
+      "abbr": "NLP4DH"
+    },
+    "international conference on network and service management": {
+      "abbr": "CNSM",
+      "review": true
+    },
+    "international conference on neural computation theory and applications": {
+      "abbr": "NCTA"
+    },
+    "international conference on neural information processing": {
+      "abbr": "ICONIP"
+    },
+    "international conference on neuro symbolic systems": {
+      "abbr": "NeuS"
+    },
+    "international conference on neuromorphic systems": {
+      "abbr": "ICONS"
+    },
+    "international conference on neurorehabilitation": {
+      "abbr": "ICNR",
+      "review": true
+    },
+    "international conference on neurosymbolic learning and reasoning": {
+      "abbr": "NeSy"
+    },
+    "international conference on next generation ai systems": {
+      "abbr": "NGEN-AI"
+    },
+    "international conference on next generation electronics": {
+      "abbr": "NEleX"
+    },
+    "international conference on optimization learning algorithms and applications": {
+      "abbr": "OL2A"
+    },
+    "international conference on parallel problem solving from nature": {
+      "abbr": "PPSN"
+    },
+    "international conference on parallel processing": {
+      "abbr": "ICPP"
+    },
+    "international conference on parallel processing and applied mathematics": {
+      "abbr": "PPAM"
+    },
+    "international conference on pattern recognition": {
+      "abbr": "ICPR"
+    },
+    "international conference on pattern recognition and artificial intelligence": {
+      "abbr": "PRAI"
+    },
+    "international conference on pervasive patterns and applications": {
+      "abbr": "PATTERNS"
+    },
+    "international conference on power electronics communications computing and intelligent infrastructure": {
+      "abbr": "PECCII"
+    },
+    "international conference on principles and practice of constraint programming": {
+      "abbr": "CP"
+    },
+    "international conference on principles and practice of multi agent systems": {
+      "abbr": "PRIMA",
+      "review": true
+    },
+    "international conference on principles of knowledge representation and reasoning": {
+      "abbr": "KR"
+    },
+    "international conference on probabilistic numerics": {
+      "abbr": "Probabilistic Numerics"
+    },
+    "international conference on product focused software process improvement": {
+      "abbr": "PROFES"
+    },
+    "international conference on quality of information and communications technology": {
+      "abbr": "QUATIC"
+    },
+    "international conference on quantum enhanced ai and secure computing": {
+      "abbr": "QASC",
+      "review": true
+    },
+    "international conference on quantum photonics artificial intelligence & networking": {
+      "abbr": "QPAIN"
+    },
+    "international conference on real time networks and systems": {
+      "abbr": "RTNS"
+    },
+    "international conference on responsible artificial intelligence": {
+      "abbr": "IRAI"
+    },
+    "international conference on robotics and automation": {
+      "abbr": "ICRA"
+    },
+    "international conference on robotics and automation in industry": {
+      "abbr": "ICRAI"
+    },
+    "international conference on runtime verification": {
+      "abbr": "RV"
+    },
+    "international conference on scalable uncertainty management": {
+      "abbr": "SUM"
+    },
+    "international conference on security & management": {
+      "abbr": "SAM"
+    },
+    "international conference on security and cryptography": {
+      "abbr": "SECRYPT"
+    },
+    "international conference on service oriented computing": {
+      "abbr": "ICSOC"
+    },
+    "international conference on service robotics": {
+      "abbr": "ICoSR"
+    },
+    "international conference on signal processing and information security": {
+      "abbr": "ICSPIS"
+    },
+    "international conference on simulation of adaptive behavior": {
+      "abbr": "SAB"
+    },
+    "international conference on social robotics": {
+      "abbr": "ICSR",
+      "review": true
+    },
+    "international conference on soft computing and intelligent systems and international symposium on advanced intelligent systems": {
+      "abbr": "SCIS&ISIS"
+    },
+    "international conference on software architecture": {
+      "abbr": "ICSA"
+    },
+    "international conference on software business": {
+      "abbr": "ICSOB"
+    },
+    "international conference on software engineering": {
+      "abbr": "ICSE"
+    },
+    "international conference on software engineering advances": {
+      "abbr": "ICSEA"
+    },
+    "international conference on software engineering and formal methods": {
+      "abbr": "SEFM"
+    },
+    "international conference on software engineering education and training": {
+      "abbr": "ICSE",
+      "review": true
+    },
+    "international conference on software engineering research management and applications": {
+      "abbr": "SERA"
+    },
+    "international conference on software maintenance and evolution": {
+      "abbr": "ICSME"
+    },
+    "international conference on software systems and information technology": {
+      "abbr": "SSITCON"
+    },
+    "international conference on software technologies": {
+      "abbr": "ICSOFT"
+    },
+    "international conference on software testing": {
+      "abbr": "ICST"
+    },
+    "international conference on space robotics": {
+      "abbr": "iSpaRo"
+    },
+    "international conference on speech and computer": {
+      "abbr": "SPECOM"
+    },
+    "international conference on sustainable technologies for industry 5 0": {
+      "abbr": "STI"
+    },
+    "international conference on systems man and cybernetics": {
+      "abbr": "SMC",
+      "review": true
+    },
+    "international conference on testing software and systems": {
+      "abbr": "IFIP ICTSS"
+    },
+    "international conference on text speech and dialogue": {
+      "abbr": "TSD"
+    },
+    "international conference on theory and application of diagrams": {
+      "abbr": "Diagrams"
+    },
+    "international conference on theory and applications of satisfiability testing": {
+      "abbr": "SAT"
+    },
+    "international conference on theory and practice of digital libraries": {
+      "abbr": "TPDL",
+      "review": true
+    },
+    "international conference on unmanned aircraft systems": {
+      "abbr": "ICUAS"
+    },
+    "international conference on very large data bases": {
+      "abbr": "VLDB"
+    },
+    "international conference on video signal and image processing": {
+      "abbr": "VSIP"
+    },
+    "international conference on web information systems engineering": {
+      "abbr": "WISE"
+    },
+    "international conference on wireless and mobile computing networking and communications": {
+      "abbr": "WiMob"
+    },
+    "international conference on wirtschaftsinformatik": {
+      "abbr": "WI"
+    },
+    "international conference series on developments in esystems engineering": {
+      "abbr": "DeSE",
+      "review": true
+    },
+    "international conferences on theory and applications of satisfiability testing": {
+      "abbr": "SAT"
+    },
+    "international congress of mathematicians": {
+      "abbr": "ICM",
+      "review": true
+    },
+    "international design engineering technical conferences": {
+      "abbr": "IDETC",
+      "review": true
+    },
+    "international design engineering technical conferences and computers and information in engineering conference": {
+      "abbr": "IDETC-CIE"
+    },
+    "international electronics symposium": {
+      "abbr": "IES"
+    },
+    "international european conference on parallel and distributed computing": {
+      "abbr": "Euro-Par"
+    },
+    "international japan africa conference on electronics communications and computations": {
+      "abbr": "JAC-ECC"
+    },
+    "international joint conference of artificial intelligence": {
+      "abbr": "IJCAI"
+    },
+    "international joint conference on artificial intelligence": {
+      "abbr": "IJCAI"
+    },
+    "international joint conference on artificial intelligence and european conference on artificial intelligence": {
+      "abbr": "IJCAI-ECAI"
+    },
+    "international joint conference on learning and reasoning": {
+      "abbr": "IJCLR"
+    },
+    "international joint conference on natural language processing and asia pacific chapter of association for computational linguistics": {
+      "abbr": "IJCNLP-AACL"
+    },
+    "international joint conference on neural networks": {
+      "abbr": "IJCNN"
+    },
+    "international joint conference on rules and reasoning": {
+      "abbr": "RuleML+RR"
+    },
+    "international journal of computer vision": {
+      "abbr": "IJCV"
+    },
+    "international journal of digital humanities": {
+      "abbr": "Int J Digit Humanities"
+    },
+    "international journal of drug delivery technology": {
+      "abbr": "IJDDT"
+    },
+    "international journal of engineering development and research": {
+      "abbr": "IJEDR"
+    },
+    "international journal of engineering trends and technology": {
+      "abbr": "IJETT"
+    },
+    "international journal of human computer interaction": {
+      "abbr": "IJHCI"
+    },
+    "international journal of robotics research": {
+      "abbr": "IJRR"
+    },
+    "international journal of scientific research and management": {
+      "abbr": "IJSRM"
+    },
+    "international journal on advanced science engineering and information technology": {
+      "abbr": "IJASEIT"
+    },
+    "international journal on document analysis and recognition": {
+      "abbr": "IJDAR"
+    },
+    "international learning analytics and knowledge conference": {
+      "abbr": "LAK"
+    },
+    "international linguistic association": {
+      "abbr": "ILA"
+    },
+    "international mechanical engineering congress and exposition": {
+      "abbr": "IMECE"
+    },
+    "international multi conference on artificial intelligence technology": {
+      "abbr": "MCAIT",
+      "review": true
+    },
+    "international natural language generation conference": {
+      "abbr": "INLG"
+    },
+    "international online conference on nondestructive testing": {
+      "abbr": "NDTonline"
+    },
+    "international requirements engineering conference": {
+      "abbr": "RE",
+      "review": true
+    },
+    "international scientific conference on industrial systems": {
+      "abbr": "IEEE IS",
+      "review": true
+    },
+    "international semantic web conference": {
+      "abbr": "ISWC"
+    },
+    "international soc design conference": {
+      "abbr": "ISOCC"
+    },
+    "international society for music information retrieval": {
+      "abbr": "ISMIR"
+    },
+    "international society for music information retrieval conference": {
+      "abbr": "ISMIR"
+    },
+    "international symposium of robotics research": {
+      "abbr": "ISRR"
+    },
+    "international symposium on ai verification": {
+      "abbr": "SAIV"
+    },
+    "international symposium on artificial life and robotics": {
+      "abbr": "AROB"
+    },
+    "international symposium on biomedical imaging": {
+      "abbr": "ISBI",
+      "review": true
+    },
+    "international symposium on chatbots and human centred ai": {
+      "abbr": "CONVERSATIONS"
+    },
+    "international symposium on combinatorial search": {
+      "abbr": "SoCS"
+    },
+    "international symposium on computer architecture": {
+      "abbr": "ISCA"
+    },
+    "international symposium on computer based medical systems": {
+      "abbr": "CBMS"
+    },
+    "international symposium on electronic art": {
+      "abbr": "ISEA"
+    },
+    "international symposium on embedded multicore many core systems on chip": {
+      "abbr": "MCSoC"
+    },
+    "international symposium on empirical software engineering and measurement": {
+      "abbr": "ESEM"
+    },
+    "international symposium on field programmable gate arrays": {
+      "abbr": "ISFPGA"
+    },
+    "international symposium on foundations & practice of security": {
+      "abbr": "FPS"
+    },
+    "international symposium on high performance parallel and distributed computing": {
+      "abbr": "HPDC"
+    },
+    "international symposium on highly efficient accelerators and reconfigurable technologies": {
+      "abbr": "HEART",
+      "review": true
+    },
+    "international symposium on leveraging applications of formal methods verification and validation": {
+      "abbr": "ISoLA",
+      "review": true
+    },
+    "international symposium on low power electronics and design": {
+      "abbr": "ISLPED"
+    },
+    "international symposium on mathematical foundations of computer science": {
+      "abbr": "MFCS"
+    },
+    "international symposium on modeling analysis and simulation of computer and telecommunication systems": {
+      "abbr": "MASCOTS",
+      "review": true
+    },
+    "international symposium on networks computers and communications": {
+      "abbr": "ISNCC"
+    },
+    "international symposium on research in attacks intrusions and defenses": {
+      "abbr": "RAID"
+    },
+    "international symposium on smart systems algorithms & applications": {
+      "abbr": "IS3A3"
+    },
+    "international symposium on software reliability engineering": {
+      "abbr": "ISSRE"
+    },
+    "international symposium on symbolic and numeric algorithms for scientific computing": {
+      "abbr": "SYNASC"
+    },
+    "international system dynamics conference": {
+      "abbr": "ISDC"
+    },
+    "international web for all conference": {
+      "abbr": "W4A"
+    },
+    "international workshop on acoustic signal enhancement": {
+      "abbr": "IWAENC"
+    },
+    "international workshop on active inference": {
+      "abbr": "IWAI"
+    },
+    "international workshop on artificial intelligence for science of science": {
+      "abbr": "AI4SciSci"
+    },
+    "international workshop on artificial intelligence safety engineering": {
+      "abbr": "WAISE"
+    },
+    "international workshop on automated reasoning in quantified non classical logics": {
+      "abbr": "ARQNL"
+    },
+    "international workshop on automated semantic analysis of information in law": {
+      "abbr": "ASAIL"
+    },
+    "international workshop on choreographic programming": {
+      "abbr": "CP"
+    },
+    "international workshop on computational linguistics for uralic languages": {
+      "abbr": "IWCLUL"
+    },
+    "international workshop on computational models of narrative": {
+      "abbr": "CMN"
+    },
+    "international workshop on constraint modelling and reformulation": {
+      "abbr": "ModRef"
+    },
+    "international workshop on document analysis systems": {
+      "abbr": "DAS"
+    },
+    "international workshop on explainable knowledge discovery in data mining": {
+      "abbr": "XKDD"
+    },
+    "international workshop on hpc user support tools": {
+      "abbr": "HUST"
+    },
+    "international workshop on human brain and artificial intelligence": {
+      "abbr": "HBAI"
+    },
+    "international workshop on low carbon computing": {
+      "abbr": "LOCO"
+    },
+    "international workshop on on board payload data compression": {
+      "abbr": "OBPDC"
+    },
+    "international workshop on performance modeling benchmarking and simulation of high performance computer systems": {
+      "abbr": "PMBS"
+    },
+    "international workshop on testing distributed internet of things systems": {
+      "abbr": "TDIS"
+    },
+    "international workshop on translating natural legal language into formal representations": {
+      "abbr": "NLL2FR"
+    },
+    "international workshop on value engineering in ai": {
+      "abbr": "VALE"
+    },
+    "international workshop on vibe coding and vibe researching": {
+      "abbr": "VibeX"
+    },
+    "iranian international artificial intelligence conference": {
+      "abbr": "ICAI"
+    },
+    "irish conference on artificial intelligence and cognitive science": {
+      "abbr": "AICS"
+    },
+    "irish signals and systems conference": {
+      "abbr": "ISSC"
+    },
+    "isprs annals of photogrammetry remote sensing and spatial information sciences": {
+      "abbr": "ISPRS Annals"
+    },
+    "italian conference on big data and data science": {
+      "abbr": "ITADATA"
+    },
+    "italian workshop on artificial intelligence and robotics": {
+      "abbr": "AIRO"
+    },
+    "italian workshop on artificial intelligence for human machine interaction": {
+      "abbr": "AIxHMI"
+    },
+    "joint european conference on machine learning and knowledge discovery in databases": {
+      "abbr": "ECML PKDD"
+    },
+    "joint european conference on machine learning and principles and practice of knowledge discovery in databases": {
+      "abbr": "ECML PKDD",
+      "review": true
+    },
+    "journal of acoustical society of america": {
+      "abbr": "JASA"
+    },
+    "journal of aerospace information systems": {
+      "abbr": "JAIS"
+    },
+    "journal of american medical informatics association": {
+      "abbr": "JAMIA",
+      "review": true
+    },
+    "journal of artificial intelligence research": {
+      "abbr": "JAIR"
+    },
+    "journal of artificial societies and social simulation": {
+      "abbr": "JASSS"
+    },
+    "journal of biomedical and health informatics": {
+      "abbr": "IEEE JBHI",
+      "review": true
+    },
+    "journal of chemical theory and computation": {
+      "abbr": "JCTC",
+      "review": true
+    },
+    "journal of computer and system sciences": {
+      "abbr": "JCSS"
+    },
+    "journal of data centric machine learning research": {
+      "abbr": "DMLR"
+    },
+    "journal of guidance control and dynamics": {
+      "abbr": "JGCD"
+    },
+    "journal of lre": {
+      "abbr": "LRE"
+    },
+    "journal of machine learning": {
+      "abbr": "JMLR"
+    },
+    "journal of machine learning and deep learning": {
+      "abbr": "JMLDL"
+    },
+    "journal of machine learning for biomedical imaging": {
+      "abbr": "MELBA"
+    },
+    "journal of machine learning research": {
+      "abbr": "JMLR"
+    },
+    "journal of nonlinear and variational analysis": {
+      "abbr": "J. Nonlinear Var. Anal."
+    },
+    "journal of systems & software": {
+      "abbr": "JSS"
+    },
+    "journal of systems and software": {
+      "abbr": "JSS",
+      "review": true
+    },
+    "journal of upper rhine artificial intelligence symposium": {
+      "abbr": "URAI"
+    },
+    "knowledge based intelligent information and engineering systems": {
+      "abbr": "KES"
+    },
+    "knowledge based systems": {
+      "abbr": "KBS"
+    },
+    "knowledge representation": {
+      "abbr": "KR"
+    },
+    "koli calling international conference on computing education research": {
+      "abbr": "Koli Calling"
+    },
+    "language resource and evaluation conference": {
+      "abbr": "LREC",
+      "review": true
+    },
+    "language resources and evaluation conference": {
+      "abbr": "LREC"
+    },
+    "latin american music information retrieval": {
+      "abbr": "LAMIR"
+    },
+    "learning analytics summer institute spain": {
+      "abbr": "LASI Spain"
+    },
+    "learning and intelligent optimization conference": {
+      "abbr": "LION"
+    },
+    "learning at scale conference": {
+      "abbr": "L@S"
+    },
+    "learning for dynamics & control conference": {
+      "abbr": "L4DC",
+      "review": true
+    },
+    "learning for dynamics and control": {
+      "abbr": "L4DC"
+    },
+    "learning for dynamics and control conference": {
+      "abbr": "L4DC"
+    },
+    "learning on graphs": {
+      "abbr": "LoG",
+      "review": true
+    },
+    "learning on graphs conference": {
+      "abbr": "LoG"
+    },
+    "lecture notes in computer science": {
+      "abbr": "LNCS"
+    },
+    "lecture notes of institute for computer sciences social informatics and telecommunications engineering": {
+      "abbr": "LNICST"
+    },
+    "linguistic annotation workshop": {
+      "abbr": "LAW"
+    },
+    "machine learning and system conference": {
+      "abbr": "MLSys"
+    },
+    "machine learning for architecture and systems workshop": {
+      "abbr": "MLArchSys"
+    },
+    "machine learning for health": {
+      "abbr": "ML4H"
+    },
+    "machine learning for health symposium": {
+      "abbr": "ML4H",
+      "review": true
+    },
+    "machine learning for healthcare": {
+      "abbr": "MLHC"
+    },
+    "machine learning for healthcare conference": {
+      "abbr": "MLHC"
+    },
+    "machine learning science and technology": {
+      "abbr": "MLST"
+    },
+    "mdpi applied sciences": {
+      "abbr": "Applied Sciences"
+    },
+    "medical image analysis": {
+      "abbr": "MedIA"
+    },
+    "medical image computing and computer assisted intervention": {
+      "abbr": "MICCAI",
+      "review": true
+    },
+    "medical image understanding and analysis": {
+      "abbr": "MIUA"
+    },
+    "medical imaging with deep learning": {
+      "abbr": "MIDL"
+    },
+    "meeting of association for computational linguistics": {
+      "abbr": "ACL"
+    },
+    "meeting of cognitive science society": {
+      "abbr": "CogSci"
+    },
+    "meeting of special interest group on discourse and dialogue": {
+      "abbr": "SIGDIAL"
+    },
+    "microarchitecture security conference": {
+      "abbr": "uASC"
+    },
+    "modeling & simulation of systems and applications": {
+      "abbr": "MODSIM"
+    },
+    "modelling and simulation for autonomous systems": {
+      "abbr": "MESAS"
+    },
+    "models of consciousness 6": {
+      "abbr": "MoC6"
+    },
+    "modern fiction studies": {
+      "abbr": "MFS"
+    },
+    "multimedia modeling": {
+      "abbr": "MMM"
+    },
+    "national academy of sciences": {
+      "abbr": "PNAS"
+    },
+    "national council on measurement in education": {
+      "abbr": "NCME"
+    },
+    "national meeting on artificial and computational intelligence": {
+      "abbr": "ENIAC"
+    },
+    "natural legal language processing workshop": {
+      "abbr": "NLLP"
+    },
+    "nature conference": {
+      "abbr": "NaturePitor",
+      "review": true
+    },
+    "network and distributed system security symposium": {
+      "abbr": "NDSS"
+    },
+    "neural information processing": {
+      "abbr": "ICONIP"
+    },
+    "neural information processing systems": {
+      "abbr": "NeurIPS"
+    },
+    "new trends in translation and interpreting technology": {
+      "abbr": "NeTTIT"
+    },
+    "nips": {
+      "abbr": "NeurIPS",
+      "review": true
+    },
+    "north american fuzzy information processing society": {
+      "abbr": "NAFIPS"
+    },
+    "ntcir conference": {
+      "abbr": "NTCIR"
+    },
+    "on board payload data compression workshop": {
+      "abbr": "OBPDC"
+    },
+    "open source computer architecture research workshop": {
+      "abbr": "OSCAR"
+    },
+    "optical fiber communication conference": {
+      "abbr": "OFC"
+    },
+    "optical interconnects and packaging": {
+      "abbr": "OIP"
+    },
+    "pacific asia conference on knowledge discovery and data mining": {
+      "abbr": "PAKDD"
+    },
+    "pacific asia conference on language information and computation": {
+      "abbr": "PACLIC",
+      "review": true
+    },
+    "pacific rim international conference on artificial intelligence": {
+      "abbr": "PRICAI"
+    },
+    "pacific symposium on biocomputing": {
+      "abbr": "PSB"
+    },
+    "parallel problem solving from nature": {
+      "abbr": "PPSN"
+    },
+    "pervasive computing and communications": {
+      "abbr": "IEEE PerCom"
+    },
+    "pervasive technologies related to assistive environments": {
+      "abbr": "PETRA"
+    },
+    "philosophy and mind sciences": {
+      "abbr": "PhiMiSci"
+    },
+    "physics and ai at stanford university": {
+      "abbr": "PAI"
+    },
+    "physics and imaging in radiation oncology": {
+      "abbr": "phiRO"
+    },
+    "platform for advanced scientific computing": {
+      "abbr": "PASC"
+    },
+    "practice and experience in advanced research computing": {
+      "abbr": "PEARC"
+    },
+    "pragmatics of sat workshop": {
+      "abbr": "Pragmatics of SAT"
+    },
+    "probabilistic graphical models": {
+      "abbr": "PGM"
+    },
+    "proceedings on privacy enhancing technologies": {
+      "abbr": "PoPETs"
+    },
+    "reflection in creative experience": {
+      "abbr": "RiCE"
+    },
+    "reinforcement learning conference": {
+      "abbr": "RLC"
+    },
+    "reinforcement learning journal": {
+      "abbr": "RLJ"
+    },
+    "requirements engineering conference": {
+      "abbr": "RE",
+      "review": true
+    },
+    "robotics and automation letters": {
+      "abbr": "IEEE RA-L",
+      "review": true
+    },
+    "robotics science and systems": {
+      "abbr": "RSS"
+    },
+    "rsi international conference on robotics and mechatronics": {
+      "abbr": "ICRoM"
+    },
+    "scandinavian conference on image analysis": {
+      "abbr": "SCIA"
+    },
+    "semantic web iswc": {
+      "abbr": "ISWC"
+    },
+    "siam international conference on data mining": {
+      "abbr": "SDM"
+    },
+    "sigcse technical symposium": {
+      "abbr": "SIGCSE"
+    },
+    "signal image and video processing": {
+      "abbr": "SVIP"
+    },
+    "simp sio brasileiro de automa o inteligente": {
+      "abbr": "SBAI"
+    },
+    "simp sio brasileiro de computa o aplicada sa de": {
+      "abbr": "SBCAS"
+    },
+    "simp sio brasileiro de telecomunica es e processamento de sinais": {
+      "abbr": "SBrT"
+    },
+    "simp sio de aplica es operacionais em reas de defesa": {
+      "abbr": "SIGE"
+    },
+    "southwest data science conference": {
+      "abbr": "SDSC"
+    },
+    "speaker and language recognition workshop": {
+      "abbr": "Odyssey"
+    },
+    "spie sensors + imaging": {
+      "abbr": "SPIE"
+    },
+    "springer neural computing and applications": {
+      "abbr": "Neural Computing and Applications"
+    },
+    "statistical atlases and computational modeling of heart": {
+      "abbr": "STACOM"
+    },
+    "sti enid conference": {
+      "abbr": "STI-ENID"
+    },
+    "supercomputing": {
+      "abbr": "SC"
+    },
+    "sustainable earth resources communications": {
+      "abbr": "SERC"
+    },
+    "symposium on machine learning and applications in healthcare": {
+      "abbr": "SMASH"
+    },
+    "symposium on probabilistic machine learning": {
+      "abbr": "ProbML"
+    },
+    "symposium on usable privacy and security": {
+      "abbr": "SOUPS"
+    },
+    "systems for data centric agents with human in loop": {
+      "abbr": "DASHSys"
+    },
+    "taiwan academic network conference": {
+      "abbr": "TANET"
+    },
+    "theory and practice of logic programming": {
+      "abbr": "TPLP",
+      "review": true
+    },
+    "third conference on ai in and for space": {
+      "abbr": "SPAICE"
+    },
+    "third conference on language modeling": {
+      "abbr": "COLM",
+      "review": true
+    },
+    "transactions of acl": {
+      "abbr": "TACL",
+      "review": true
+    },
+    "transactions of association for computational linguistics": {
+      "abbr": "TACL"
+    },
+    "transactions of machine learning research": {
+      "abbr": "TMLR",
+      "review": true
+    },
+    "transactions on machine learning research": {
+      "abbr": "TMLR"
+    },
+    "uk ai conference": {
+      "abbr": "UK-AI"
+    },
+    "ukrainian natural language processing conference": {
+      "abbr": "UNLP"
+    },
+    "uncertainty in artificial intelligence": {
+      "abbr": "UAI"
+    },
+    "uni das e v workshop fahrerassistenz und automatisiertes fahren": {
+      "abbr": "Uni-DAS e.V. Workshop"
+    },
+    "us europe air transportation research and development symposium": {
+      "abbr": "ATRDS",
+      "review": true
+    },
+    "usenix osdi": {
+      "abbr": "OSDI"
+    },
+    "usenix security symposium": {
+      "abbr": "USENIX Security"
+    },
+    "usenix symposium on networked systems design and implementation": {
+      "abbr": "NSDI"
+    },
+    "usenix symposium on operating systems design and implementation": {
+      "abbr": "OSDI"
+    },
+    "usenix technical conference": {
+      "abbr": "USENIX ATC"
+    },
+    "vehicular technology conference": {
+      "abbr": "VTC",
+      "review": true
+    },
+    "vldb endowment": {
+      "abbr": "VLDB"
+    },
+    "web conference": {
+      "abbr": "WWW"
+    },
+    "western canada conference on computing education": {
+      "abbr": "WCCCE"
+    },
+    "winter conference on applications of computer vision": {
+      "abbr": "WACV"
+    },
+    "winter simulation conference": {
+      "abbr": "WSC"
+    },
+    "wipsce conference on primary and secondary computing education research": {
+      "abbr": "WiPSCE"
+    },
+    "workshop of austrian association for pattern recognition": {
+      "abbr": "OAGM"
+    },
+    "workshop on analyzing and interpreting neural networks for nlp": {
+      "abbr": "BlackboxNLP"
+    },
+    "workshop on artificial intelligence and security": {
+      "abbr": "AISec"
+    },
+    "workshop on automatic speech recognition and understanding": {
+      "abbr": "ASRU"
+    },
+    "workshop on computational linguistics and clinical psychology": {
+      "abbr": "CLPsych"
+    },
+    "workshop on computational models of narrative": {
+      "abbr": "CMN"
+    },
+    "workshop on computing within limits": {
+      "abbr": "LIMITS"
+    },
+    "workshop on context aware autonomous and smart architectures": {
+      "abbr": "CASA"
+    },
+    "workshop on education for high performance computing": {
+      "abbr": "EduHiPC"
+    },
+    "workshop on graphs and more complex structures for learning and reasoning": {
+      "abbr": "GCLR"
+    },
+    "workshop on information technology and systems": {
+      "abbr": "WITS",
+      "review": true
+    },
+    "workshop on innovative use of nlp for building educational applications": {
+      "abbr": "BEA"
+    },
+    "workshop on international competition on legal information extraction and entailment": {
+      "abbr": "COLIEE"
+    },
+    "workshop on large language models for explainable ai": {
+      "abbr": "LLM4XAI"
+    },
+    "workshop on llms and generative ai for finance": {
+      "abbr": "AI4F"
+    },
+    "workshop on machine learning and systems": {
+      "abbr": "EuroMLSys"
+    },
+    "workshop on mathematical natural language processing": {
+      "abbr": "MathNLP"
+    },
+    "workshop on optimization and learning in multiagent systems": {
+      "abbr": "OptLearnMAS"
+    },
+    "world aiiot congress": {
+      "abbr": "AIIoT"
+    },
+    "world computing power network conference academic": {
+      "abbr": "WCNCA"
+    },
+    "world conference of transport research": {
+      "abbr": "WCTR",
+      "review": true
+    },
+    "world conference on explainable artificial intelligence": {
+      "abbr": "xAI"
+    },
+    "world congress on smart computing": {
+      "abbr": "WCSC",
+      "review": true
+    },
+    "world symposium on algorithmic foundations of robotics": {
+      "abbr": "WAFR"
+    }
+  }
+}

@@ -20,6 +20,12 @@ import re
 import sys
 from pathlib import Path
 
+PRESENTATION_TYPES = ("Oral", "Spotlight", "Poster")
+# Wording that only appears in spelled-out venue names, not in abbreviations.
+FULL_VENUE_NAME_RE = re.compile(
+    r"\b(?:International|Conference on|Symposium on|Workshop on|Proceedings|Journal of|Transactions on|Annual)\b"
+)
+
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -320,12 +326,20 @@ def validate_body(lines: list[str], start: int, result: ValidationResult):
             if "(replaced)" not in paper_block:
                 result.warn(line_no, f"论文 [{display_num}] 属于替换投稿但缺少 (replaced) 标记")
 
-        # Venue format check (if present)
+        # Venue format check (if present): short names like "ICML 2026", "ACL 2026 Findings"
         venue_match = re.search(r"- \*\*Venue\*\*:\s*(.*)", paper_block)
         if venue_match:
             venue_val = venue_match.group(1).strip()
-            if venue_val and not re.match(r"^[A-Za-z].+\d{4}", venue_val):
-                result.warn(line_no, f"论文 [{display_num}] Venue 格式可能不正确: '{venue_val}'")
+            if venue_val and (len(venue_val) > 40 or FULL_VENUE_NAME_RE.search(venue_val)):
+                result.warn(line_no, f"论文 [{display_num}] Venue 可能是全称而非简称: '{venue_val}'")
+
+        presentation_match = re.search(r"- \*\*Presentation\*\*:\s*(.*)", paper_block)
+        if presentation_match:
+            presentation_val = presentation_match.group(1).strip()
+            if presentation_val not in PRESENTATION_TYPES:
+                result.warn(line_no, f"论文 [{display_num}] Presentation 应为 Oral/Spotlight/Poster: '{presentation_val}'")
+            if not venue_match:
+                result.warn(line_no, f"论文 [{display_num}] 有 Presentation 但缺少 Venue")
 
         # Code URL format check (if present)
         code_match = re.search(r"- \*\*Code\*\*:\s*(.*)", paper_block)

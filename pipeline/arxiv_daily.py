@@ -1636,16 +1636,40 @@ def run_phase2(
 # ---------------------------------------------------------------------------
 
 _ACCEPTANCE_SIGNAL_RE = re.compile(
-    r"\b(?:accepted|published|to appear|camera[- ]ready|appearing at|presented at|forthcoming|to be presented)\b",
+    r"\b(?:ac+e?pt(?:ed)?|accpted|acceped|published|to appear|camera[- ]ready|appearing (?:at|in)|presented at"
+    r"|forthcoming|to be presented|award(?:ed)?|best (?:paper|student paper|demo)|selected (?:as|for)"
+    r"|oral|spotlight|poster|in proceedings|proceedings of"
+    # Comments that only name the venue ("2026 IEEE International Geoscience and Remote
+    # Sensing Symposium (IGARSS)", "IEEE Transactions on Learning Technologies, 2026").
+    r"|conference|symposium|workshop|journal|transactions|congress|letters"
+    r"|findings|full paper|short paper|long paper)\b"
+    r"|\bproc\."
+    r"|\(\s*(?:19|20)\d{2}\s*\)"  # "Nature Biomedical Engineering (2026)"
+    r"|\b[a-z]{2,12}(?:19|20)\d{2}\b"  # glued "cvpr2026", "INTERSPEECH2026"
+    r"|@\s*[A-Z][\w\-&]+",
+    re.IGNORECASE,
+)
+# A bare "ACL 2026" / "IJCAI '26" with no other wording also names a venue,
+# unless the comments say the paper is only submitted or under review, or only
+# name the venue's LaTeX template ("ICML 2026 style").
+_VENUE_YEAR_MENTION_RE = re.compile(r"\b[A-Z][A-Za-z\-&]{1,15}\s?(?:'?(?:19|20)\d{2}|'\d{2})\b")
+_NOT_ACCEPTED_RE = re.compile(
+    r"\b(?:submitted|under review|in submission|submission|preprint|review|style|template|formatted|format|latex)\b",
     re.IGNORECASE,
 )
 
 
 def has_acceptance_signal(comments: str | None) -> bool:
-    """Deterministic keyword gate: True if comments contain an acceptance/publication signal."""
+    """Deterministic keyword gate: True if comments may name a venue this paper was accepted to.
+
+    The gate is deliberately loose; the venue LLM still returns null for papers
+    that are only submitted or that cite another paper's venue.
+    """
     if not comments:
         return False
-    return bool(_ACCEPTANCE_SIGNAL_RE.search(comments))
+    if _ACCEPTANCE_SIGNAL_RE.search(comments):
+        return True
+    return bool(_VENUE_YEAR_MENTION_RE.search(comments)) and not _NOT_ACCEPTED_RE.search(comments)
 
 
 VENUE_LLM_TIMEOUT = 30
@@ -1663,20 +1687,25 @@ def build_venue_prompt(papers: list[dict]) -> list[dict]:
     entries = []
     for p in papers:
         entries.append(f"ID: {p['id']}\nComments: {p.get('comments', '')}")
-    user_content = f"""Below are {len(papers)} paper comment fields. For each paper, extract the venue (conference or journal) where the paper was accepted/published.
+    user_content = f"""Below are {len(papers)} paper comment fields. For each paper, decide whether the Comments say THIS paper was accepted, published or presented at a conference, workshop or journal, and if so describe that venue.
 
 Rules:
-- Extract ONLY from the Comments text provided. Do NOT guess or infer venues not mentioned.
-- Use the most specific venue name mentioned.
-- Include the year ONLY if it explicitly appears in Comments. Do NOT infer or add a year.
-- Journals count as venues.
-- If you cannot determine a venue from the Comments, set venue to null.
+- Use ONLY the Comments text. Do NOT guess venues that are not mentioned.
+- Set venue to null if the Comments only say the paper is submitted, under review or in submission, or only mention the venue of another paper (e.g. "extends our GECCO 2018 paper").
+- venue: the host conference or journal by its common short name (ICML, NeurIPS, ACL, EMNLP, CVPR, TMLR, IEEE TPAMI). Prefer a short name written in the Comments; otherwise use the widely used abbreviation; if the venue has none, give its shortest standard name (e.g. Bioinformatics). Never put the year, track or workshop into venue.
+- full_name: the host's full name if the Comments spell it out, otherwise null.
+- year: the four-digit year only if the Comments state it ('26 or "IJCAI 26" means 2026), otherwise null.
+- category: "main", "findings", "track" or "workshop".
+- track: for category "track", a short label such as D&B, Demo, Industry, Position or Short; otherwise null.
+- workshop: for category "workshop", the workshop's short name exactly as written in the Comments (e.g. MATH-AI); null if none is written.
+- presentation: "Oral", "Spotlight" or "Poster" only if the Comments say so; otherwise null.
+- If several venues are listed, describe the one this paper was accepted to.
 
 Papers:
 {PAPER_SEPARATOR.join(entries)}
 
 Respond in strict JSON format:
-{{"venues": [{{"id": "...", "venue": "VENUE or null"}}]}}"""
+{{"venues": [{{"id": "...", "venue": "ICML", "full_name": null, "year": "2026", "category": "main", "track": null, "workshop": null, "presentation": null}}]}}"""
 
     return [
         {
@@ -1709,6 +1738,8 @@ def call_venue_llm(
             "temperature": 0,
             "max_tokens": 4096,
             "response_format": {"type": "json_object"},
+            # Reasoning used up max_tokens and truncated the JSON, as it did for summaries (6167b42).
+            "thinking": {"type": "disabled"},
         }
     ).encode("utf-8")
     headers = {
@@ -1794,12 +1825,362 @@ def _venue_grounding_check(venue: str, comments: str) -> bool:
     Matching is token-level (not substring) so short tokens like "AI" are not
     accidentally grounded by appearing inside unrelated words like "available".
     """
-    venue_tokens = re.findall(r"[a-z0-9]+", venue.lower())
-    core_tokens = [t for t in venue_tokens if t not in _VENUE_STOPWORDS and not t.isdigit()]
+    # Upper-case acronyms count even when they spell a stopword ("ITS", "AS").
+    core_tokens = [
+        t.lower() for t in re.findall(r"[A-Za-z0-9]+", venue)
+        if not t.isdigit() and (t.lower() not in _VENUE_STOPWORDS or (t.isupper() and len(t) >= 2))
+    ]
     if not core_tokens:
         return False
-    comment_tokens = set(re.findall(r"[a-z0-9]+", comments.lower()))
+    lowered = comments.lower()
+    # Letter runs too, so "SIGKDD2026" grounds "SIGKDD"; venue tokens stay whole words.
+    comment_tokens = set(re.findall(r"[a-z0-9]+", lowered)) | set(re.findall(r"[a-z]+", lowered))
     return any(token in comment_tokens for token in core_tokens)
+
+
+DEFAULT_VENUE_ABBREVS_PATH = DEFAULT_TAGS_PATH.parent / "venue_abbreviations.json"
+PRESENTATION_TYPES = ("Oral", "Spotlight", "Poster")
+# Track labels appended after "<VENUE> <YEAR>"; keys are lowercased, without a trailing "track".
+_VENUE_TRACKS = {
+    "d&b": "D&B", "datasets and benchmarks": "D&B", "datasets & benchmarks": "D&B",
+    "e&d": "E&D", "evaluations and datasets": "E&D", "evaluations & datasets": "E&D",
+    "demo": "Demo", "demos": "Demo", "demonstration": "Demo", "demonstrations": "Demo",
+    "system demonstration": "Demo", "system demonstrations": "Demo",
+    "industry": "Industry", "position": "Position", "position paper": "Position", "position papers": "Position",
+    "short": "Short", "short paper": "Short", "short papers": "Short",
+    "applied data science": "ADS", "ads": "ADS",
+}
+_YEAR_RE = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
+# A workshop is named only by an acronym-like single token (MATH-AI, ML4RS,
+# GenAI4Health); descriptive names ("Sight and Sound") fall back to "Workshop".
+_WORKSHOP_ACRONYM_RE = re.compile(r"^(?=\S*(?:[A-Z]\S*[A-Z]|\d|[a-z][A-Z]))[A-Za-z0-9][A-Za-z0-9\-&+.]{1,24}$")
+_ORDINAL_RE = re.compile(r"\b\d+(?:st|nd|rd|th)\b", re.IGNORECASE)
+
+
+def venue_name_key(name: str) -> str:
+    """Normalize a venue full name for abbreviation-table lookup."""
+    s = name.lower()
+    s = re.sub(r"\([^)]*\)", " ", s)
+    s = _YEAR_RE.sub(" ", s)
+    s = re.sub(r"'\d{2}\b", " ", s)
+    s = _ORDINAL_RE.sub(" ", s)
+    s = re.sub(r"\b(?:the|proceedings of|annual)\b", " ", s)
+    s = re.sub(r"[^a-z0-9&+]+", " ", s)
+    return " ".join(s.split())
+
+
+def load_venue_abbrevs(path: Path | None) -> dict:
+    """Load the venue abbreviation table ({"aliases": {...}, "full_names": {...}}); empty if absent."""
+    table: dict = {"aliases": {}, "full_names": {}}
+    if path is None or not path.exists():
+        return table
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    for key, value in data.items():
+        if key in ("aliases", "full_names"):
+            table[key].update(value or {})
+        else:
+            table[key] = value
+    return table
+
+
+def save_venue_abbrevs(path: Path, table: dict) -> None:
+    """Persist the abbreviation table with sorted keys so diffs stay small."""
+    data = {k: v for k, v in table.items() if k not in ("aliases", "full_names")}
+    data["aliases"] = dict(sorted(table.get("aliases", {}).items()))
+    data["full_names"] = dict(sorted(table.get("full_names", {}).items()))
+    _atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+
+def _clean_venue_name(name: str) -> str:
+    """Drop years, ordinals and "Proceedings of" from a name that has no abbreviation."""
+    s = re.sub(r"\bproceedings of (?:the )?", "", name, flags=re.IGNORECASE)
+    s = _ORDINAL_RE.sub("", s)
+    s = _YEAR_RE.sub("", s)
+    s = re.sub(r"'\d{2}\b", "", s)
+    s = re.sub(r"^\s*the\s+", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\(\s*\)", "", s)
+    return re.sub(r"\s{2,}", " ", s).strip(" ,;:-")
+
+
+def _word_in(text: str, comments: str) -> bool:
+    return re.search(rf"(?<![A-Za-z0-9]){re.escape(text)}(?![A-Za-z0-9])", comments, re.IGNORECASE) is not None
+
+
+def _year_grounded(year: str, comments: str) -> bool:
+    return year in comments or re.search(rf"(?<!\d)'?{year[2:]}(?!\d)", comments) is not None
+
+
+def _canonical_venue_host(short: str, full: str, comments: str, table: dict) -> str | None:
+    """Short host name: table full-name match, else alias-normalized short name, else cleaned full name.
+
+    A new full name -> short pair is recorded in the table; it is marked for review
+    when the short name does not appear in the comments (the model supplied it).
+    """
+    aliases, full_names = table["aliases"], table["full_names"]
+    full_key = venue_name_key(full) if full else ""
+    if full_key and full_key in full_names:
+        abbr = full_names[full_key]["abbr"]
+        return aliases.get(abbr.lower(), abbr)
+    if short:
+        short_entry = full_names.get(venue_name_key(short))
+        if short_entry:
+            return aliases.get(short_entry["abbr"].lower(), short_entry["abbr"])
+        # Abbreviations already in full_names count as known short names too.
+        known = {e["abbr"].lower(): e["abbr"] for e in full_names.values()}
+        known.update(aliases)
+        host = known.get(short.lower())
+        if host is None:
+            # "ACM FAccT", "IEEE ICME", "IEEE/CVF CVPR": drop the publisher when the rest is a known
+            # venue; canonical names that keep it ("IEEE S&P", "ACM MM") are aliases themselves.
+            bare = re.sub(r"^(?:IEEE/CVF|IEEE/ACM|IEEE|ACM)\s+", "", short, flags=re.IGNORECASE)
+            host = known.get(bare.lower(), short)
+        if full_key and full_key != venue_name_key(host):
+            full_names[full_key] = {"abbr": host} if _word_in(host, comments) else {"abbr": host, "review": True}
+        return host
+    return _clean_venue_name(full) or None
+
+
+def format_venue_entry(item: dict, comments: str, table: dict | None = None) -> tuple[str | None, str | None]:
+    """Build "<VENUE> <YEAR> [Findings|<track>|[<ws>] Workshop]" and the presentation type.
+
+    Only parts grounded in the comments are kept: the year, the workshop's short
+    name and the presentation type must all appear there.
+    """
+    table = table if table is not None else {"aliases": {}, "full_names": {}}
+    comments = comments or ""
+    short = item.get("venue") if isinstance(item.get("venue"), str) else ""
+    full = item.get("full_name") if isinstance(item.get("full_name"), str) else ""
+    year = str(item.get("year") or "").strip()
+    year_in_short = _YEAR_RE.search(short)
+    if year_in_short:
+        year = year or year_in_short.group(1)
+        short = _YEAR_RE.sub("", short)
+    # The model sometimes folds these into the venue name ("ACL 2026 Findings",
+    # "EMNLP Main Conference", "ICML (Oral)"); move them to their own fields.
+    category_hint = None
+    if re.search(r"\bfindings\b", short, re.IGNORECASE):
+        category_hint = "findings"
+        short = re.sub(r"\bfindings(?:\s+of)?\b", "", short, flags=re.IGNORECASE)
+    short = re.sub(r"\bmain(?:\s+(?:conference|track|paper))?\b", "", short, flags=re.IGNORECASE)
+    presentation_in_short = re.search(r"\b(oral|spotlight|poster)\b", short, re.IGNORECASE)
+    if presentation_in_short:
+        short = re.sub(r"\b(?:oral|spotlight|poster)\b", "", short, flags=re.IGNORECASE)
+    short = re.sub(r"\(\s*\)", "", short)
+    short = re.sub(r"\s{2,}", " ", short).strip(" ,;:-")
+    if not (re.fullmatch(r"(?:19|20)\d{2}", year) and _year_grounded(year, comments)):
+        year = ""
+
+    category = str(item.get("category") or category_hint or "main").strip().lower()
+    if category_hint and category == "main":
+        category = category_hint
+    workshop = item.get("workshop") if isinstance(item.get("workshop"), str) else ""
+    workshop = re.sub(r"\s*workshop$", "", workshop.strip(), flags=re.IGNORECASE)
+    workshop_named = bool(workshop and _WORKSHOP_ACRONYM_RE.match(workshop) and workshop.lower() in comments.lower())
+
+    presentation = item.get("presentation") if isinstance(item.get("presentation"), str) else ""
+    if not presentation and presentation_in_short:
+        presentation = presentation_in_short.group(1)
+    presentation = presentation.strip().capitalize()
+    if presentation not in PRESENTATION_TYPES or not _word_in(presentation, comments):
+        presentation = None
+
+    host = _canonical_venue_host(short, full.strip(), comments, table)
+    if not host:
+        # A standalone workshop has no host conference: "TPDP 2026 Workshop". Without an
+        # acronym its (short) name is the only identifier: "World Modeling 2026 Workshop".
+        standalone = workshop if category == "workshop" and workshop.lower() in comments.lower() else ""
+        if standalone and (workshop_named or len(standalone) <= 30):
+            return " ".join([standalone] + ([year] if year else []) + ["Workshop"]), presentation
+        return None, None
+    workshop_in_host = False
+    if category == "workshop":
+        # "Graph Signal Processing Workshop" / "IEEE Globecom Workshops" as the venue: "Workshop"
+        # is appended below; "International Workshop on X" already says it, so nothing is added.
+        trimmed = re.sub(r"\s*workshops?$", "", host, flags=re.IGNORECASE)
+        workshop_in_host = trimmed == host and re.search(r"\bworkshops?\b", host, re.IGNORECASE) is not None
+        if trimmed and trimmed != host:
+            host = table["aliases"].get(trimmed.lower(), trimmed)
+    parts = [host] + ([year] if year else [])
+    track = item.get("track") if isinstance(item.get("track"), str) else ""
+    track_key = re.sub(r"\s*track$", "", track.strip(), flags=re.IGNORECASE).lower()
+    if category == "findings" or track_key == "findings":
+        parts.append("Findings")
+    elif category == "track" and track_key:
+        label = _VENUE_TRACKS.get(track_key)
+        if label is None:
+            # An unlisted label counts only if the comments call it a track ("AI for Science Track").
+            raw_label = re.sub(r"\s*track$", "", track.strip(), flags=re.IGNORECASE)
+            if raw_label and re.search(rf"{re.escape(raw_label)}\s+track", comments, re.IGNORECASE):
+                label = raw_label
+        if label and len(label) <= 20:
+            parts.append(label)
+    elif category == "workshop" and not workshop_in_host:
+        parts.append(f"{workshop} Workshop" if workshop_named and workshop.lower() != host.lower() else "Workshop")
+    return " ".join(parts), presentation
+
+
+def _venue_grounded_by_alias(item: dict, comments: str, table: dict | None) -> bool:
+    """Fallbacks for venues the token check misses: the name written verbatim ("A&A"),
+    or a comment token that the alias table maps to the same venue ("NeuIPS" -> NeurIPS)."""
+    short = item.get("venue") if isinstance(item.get("venue"), str) else ""
+    short = _YEAR_RE.sub("", short).strip()
+    if not short:
+        return False
+    if _word_in(short, comments):
+        return True
+    aliases = (table or {}).get("aliases", {})
+    canonical = aliases.get(short.lower(), short)
+    lowered = comments.lower()
+    tokens = set(re.findall(r"[a-z0-9&\-]+", lowered)) | set(re.findall(r"[a-z]+", lowered))
+    if any(aliases.get(t) == canonical for t in tokens):
+        return True
+    # A misspelled venue the model corrected ("ENMLP" -> EMNLP, "ASPDAC'27" -> ASP-DAC):
+    # one edit (or swap) away, for names of at least five letters.
+    name = re.sub(r"[^a-z0-9]", "", short.lower())
+    if len(name) < 5:
+        return False
+    squashed = {re.sub(r"[^a-z0-9]", "", t) for t in tokens}
+    return any(abs(len(t) - len(name)) <= 1 and _osa_distance(t, name) <= 1 for t in squashed)
+
+
+def _osa_distance(a: str, b: str) -> int:
+    """Optimal string alignment distance (Levenshtein plus adjacent transpositions)."""
+    d = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]
+    for i in range(len(a) + 1):
+        d[i][0] = i
+    for j in range(len(b) + 1):
+        d[0][j] = j
+    for i in range(1, len(a) + 1):
+        for j in range(1, len(b) + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+    return d[len(a)][len(b)]
+
+
+def resolve_venue_item(
+    item: dict, comments: str, abbrev_table: dict | None = None,
+    logger: logging.Logger | None = None, pid: str = "",
+) -> dict:
+    """Turn one venue-LLM entry into {"venue", "presentation"}: grounding check, then formatting."""
+    raw = " ".join(
+        v for v in (item.get("venue"), item.get("full_name"), item.get("workshop"))
+        if isinstance(v, str) and v.strip()
+    )
+    if not raw:
+        return {"venue": None, "presentation": None}
+    if not (_venue_grounding_check(raw, comments) or _venue_grounded_by_alias(item, comments, abbrev_table)):
+        if logger:
+            logger.warning(f"[Venue] grounding failed for {pid}: '{raw}' not in comments")
+        return {"venue": None, "presentation": None}
+    venue_str, presentation = format_venue_entry(item, comments, abbrev_table)
+    if logger and venue_str and len(venue_str) > 60:
+        logger.warning(f"[Venue] long venue for {pid} ({len(venue_str)} chars): '{venue_str}'")
+    return {"venue": venue_str, "presentation": presentation}
+
+
+def _cached_venue_info(value) -> dict:
+    """Accept both cache formats: a venue string (format 1) or {"venue", "presentation"}."""
+    if isinstance(value, dict):
+        return {"venue": value.get("venue"), "presentation": value.get("presentation")}
+    return {"venue": value, "presentation": None}
+
+
+def extract_venue_info_batch(
+    papers: list[dict],
+    api_endpoint: str,
+    api_key: str,
+    model: str,
+    logger: logging.Logger,
+    field_cache: Path | None = None,
+    metadata_hash: str | None = None,
+    debug_dir: Path | None = None,
+    abbrev_table: dict | None = None,
+) -> dict[str, dict]:
+    """Extract {"venue", "presentation"} for all papers using keyword gate + LLM.
+
+    abbrev_table (see load_venue_abbrevs) normalizes host names and collects new
+    full name -> abbreviation pairs; the caller saves it.
+    """
+    infos: dict[str, dict] = {}
+    gated_papers = []
+
+    for p in papers:
+        pid = p["id"]
+        if has_acceptance_signal(p.get("comments")):
+            gated_papers.append(p)
+        else:
+            infos[pid] = {"venue": None, "presentation": None}
+
+    logger.info(f"[Venue] {len(gated_papers)}/{len(papers)} papers passed acceptance gate")
+
+    if not gated_papers:
+        return infos
+
+    cached_ids: set[str] = set()
+    if field_cache is not None and metadata_hash is not None:
+        cache_file = field_cache / "venue_cache.json"
+        if cache_file.exists():
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    cache_data = json.load(f)
+                if cache_data.get("metadata_hash") == metadata_hash:
+                    for pid, value in cache_data.get("venues", {}).items():
+                        infos[pid] = _cached_venue_info(value)
+                        cached_ids.add(pid)
+                    logger.info(f"[Venue] loaded {len(cached_ids)} cached venue results")
+                else:
+                    logger.info("[Venue] cache hash mismatch, discarding old cache")
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"[Venue] failed to read cache: {e}")
+
+    remaining = [p for p in gated_papers if p["id"] not in cached_ids]
+    if not remaining:
+        return infos
+
+    venue_debug_dir = debug_dir if debug_dir is not None else field_cache
+    batch_count = 0
+    for i in range(0, len(remaining), VENUE_BATCH_SIZE):
+        batch = remaining[i:i + VENUE_BATCH_SIZE]
+        messages = build_venue_prompt(batch)
+        result = call_venue_llm(
+            messages, api_endpoint, api_key, model, logger,
+            debug_dir=venue_debug_dir,
+            debug_label=f"venue_batch_{batch_count:03d}_error",
+        )
+        if result is None:
+            for p in batch:
+                infos[p["id"]] = {"venue": None, "presentation": None}
+            logger.warning(f"[Venue] batch {batch_count:03d} failed, setting all venues to None")
+        else:
+            items = {coerce_paper_id(item["id"]): item for item in result["venues"]}
+            for p in batch:
+                pid = p["id"]
+                infos[pid] = resolve_venue_item(
+                    items.get(coerce_paper_id(pid)) or {}, p.get("comments") or "", abbrev_table, logger, pid,
+                )
+
+        if field_cache is not None and metadata_hash is not None:
+            cache_file = field_cache / "venue_cache.json"
+            field_cache.mkdir(parents=True, exist_ok=True)
+            processed_ids = cached_ids | {p["id"] for p in remaining[:i + VENUE_BATCH_SIZE]}
+            cache_data = {
+                "metadata_hash": metadata_hash,
+                "format": 2,
+                "venues": {pid: infos[pid] for pid in processed_ids if pid in infos},
+            }
+            tmp_path = cache_file.with_suffix(".tmp")
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+            tmp_path.replace(cache_file)
+
+        batch_count += 1
+
+    successful = sum(1 for info in infos.values() if info["venue"] is not None)
+    logger.info(f"[Venue] extraction complete: {successful} venues extracted from {len(papers)} papers")
+    return infos
 
 
 def extract_venues_batch(
@@ -1811,97 +2192,60 @@ def extract_venues_batch(
     field_cache: Path | None = None,
     metadata_hash: str | None = None,
     debug_dir: Path | None = None,
+    abbrev_table: dict | None = None,
 ) -> dict[str, str | None]:
-    """Extract venues for all papers using keyword gate + LLM."""
-    venues: dict[str, str | None] = {}
-    gated_papers = []
+    """Venue strings only; see extract_venue_info_batch for the presentation type."""
+    infos = extract_venue_info_batch(
+        papers, api_endpoint, api_key, model, logger,
+        field_cache=field_cache, metadata_hash=metadata_hash, debug_dir=debug_dir,
+        abbrev_table=abbrev_table,
+    )
+    return {pid: info["venue"] for pid, info in infos.items()}
 
-    for p in papers:
-        pid = p["id"]
-        if has_acceptance_signal(p.get("comments")):
-            gated_papers.append(p)
-        else:
-            venues[pid] = None
 
-    logger.info(f"[Venue] {len(gated_papers)}/{len(papers)} papers passed acceptance gate")
+def _venue_abbrevs_path(args) -> Path | None:
+    """--venue-abbrevs from the CLI; None (no table) when the attribute is absent."""
+    value = getattr(args, "venue_abbrevs", None)
+    return Path(value) if value else None
 
-    if not gated_papers:
-        return venues
 
-    # Cache resume logic (TASK 004 will implement full cache read/write)
-    cached_ids: set[str] = set()
-    if field_cache is not None and metadata_hash is not None:
-        cache_file = field_cache / "venue_cache.json"
-        if cache_file.exists():
-            try:
-                with open(cache_file, "r", encoding="utf-8") as f:
-                    cache_data = json.load(f)
-                if cache_data.get("metadata_hash") == metadata_hash:
-                    cached_venues = cache_data.get("venues", {})
-                    for pid, v in cached_venues.items():
-                        venues[pid] = v
-                        cached_ids.add(pid)
-                    logger.info(f"[Venue] loaded {len(cached_ids)} cached venue results")
-                else:
-                    logger.info("[Venue] cache hash mismatch, discarding old cache")
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning(f"[Venue] failed to read cache: {e}")
+def apply_venue_extraction(
+    papers: list[dict],
+    results_by_id: dict[str, dict],
+    llm_config: "LlmConfig",
+    logger: logging.Logger,
+    abbrevs_path: Path | None,
+    field_cache: Path | None = None,
+    metadata_hash: str | None = None,
+    debug_dir: Path | None = None,
+) -> None:
+    """Phase 2.5: fill venue and presentation into results_by_id, then save new abbreviations.
 
-    remaining = [p for p in gated_papers if p["id"] not in cached_ids]
-    if not remaining:
-        return venues
-
-    venue_debug_dir = debug_dir if debug_dir is not None else field_cache
-    batch_count = 0
-    for i in range(0, len(remaining), VENUE_BATCH_SIZE):
-        batch = remaining[i:i + VENUE_BATCH_SIZE]
-        batch_debug_dir = venue_debug_dir
-        messages = build_venue_prompt(batch)
-        result = call_venue_llm(
-            messages, api_endpoint, api_key, model, logger,
-            debug_dir=batch_debug_dir,
-            debug_label=f"venue_batch_{batch_count:03d}_error",
+    abbrevs_path None runs without the abbreviation table (nothing is written).
+    """
+    table = load_venue_abbrevs(abbrevs_path)
+    known = set(table["full_names"])
+    try:
+        infos = extract_venue_info_batch(
+            papers, llm_config.api_endpoint, llm_config.api_key, llm_config.model, logger,
+            field_cache=field_cache, metadata_hash=metadata_hash, debug_dir=debug_dir,
+            abbrev_table=table,
         )
-        if result is None:
-            for p in batch:
-                venues[p["id"]] = None
-            logger.warning(f"[Venue] batch {batch_count:03d} failed, setting all venues to None")
-        else:
-            venue_map = {item["id"]: item.get("venue") for item in result["venues"]}
-            for p in batch:
-                pid = p["id"]
-                raw_venue = venue_map.get(pid)
-                if raw_venue is None or not isinstance(raw_venue, str) or not raw_venue.strip():
-                    venues[pid] = None
-                    continue
-                venue_str = raw_venue.strip()
-                if not _venue_grounding_check(venue_str, p.get("comments", "")):
-                    logger.warning(f"[Venue] grounding failed for {pid}: '{venue_str}' not in comments")
-                    venues[pid] = None
-                    continue
-                if len(venue_str) > 60:
-                    logger.warning(f"[Venue] long venue for {pid} ({len(venue_str)} chars): '{venue_str}'")
-                venues[pid] = venue_str
-
-        # Incremental cache write
-        if field_cache is not None and metadata_hash is not None:
-            cache_file = field_cache / "venue_cache.json"
-            field_cache.mkdir(parents=True, exist_ok=True)
-            processed_ids = cached_ids | {p["id"] for p in remaining[:i + VENUE_BATCH_SIZE]}
-            cache_data = {
-                "metadata_hash": metadata_hash,
-                "venues": {pid: venues[pid] for pid in processed_ids if pid in venues},
-            }
-            tmp_path = cache_file.with_suffix(".tmp")
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(cache_data, f, ensure_ascii=False, indent=2)
-            tmp_path.replace(cache_file)
-
-        batch_count += 1
-
-    successful = sum(1 for pid in venues if venues[pid] is not None)
-    logger.info(f"[Venue] extraction complete: {successful} venues extracted from {len(papers)} papers")
-    return venues
+    except Exception as e:
+        logger.warning(f"[Venue] extraction failed, continuing without venues: {e}")
+        return
+    for pid, info in infos.items():
+        if pid in results_by_id:
+            results_by_id[pid]["venue"] = info["venue"]
+            results_by_id[pid]["presentation"] = info["presentation"]
+    added = sorted(set(table["full_names"]) - known)
+    if abbrevs_path is not None and added:
+        save_venue_abbrevs(abbrevs_path, table)
+        review = [k for k in added if table["full_names"][k].get("review")]
+        logger.info(
+            f"[Venue] added {len(added)} abbreviation(s) to {abbrevs_path} ({len(review)} marked for review): "
+            + ", ".join(f"{k} -> {table['full_names'][k]['abbr']}" for k in added)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -2117,6 +2461,8 @@ def generate_markdown(data: dict, results_by_id: dict, output_dir: Path, date_st
             venue = r.get("venue")
             if venue:
                 lines.append(f"- **Venue**: {venue}")
+                if r.get("presentation"):
+                    lines.append(f"- **Presentation**: {r['presentation']}")
             if paper.get("code_urls"):
                 code_links = ", ".join(f"[code]({u})" for u in paper["code_urls"])
                 lines.append(f"- **Code**: {code_links}")
@@ -2145,12 +2491,13 @@ def patch_markdown(md_path: Path, results_by_id: dict[str, dict], logger: loggin
         summary = r.get("summary", "")
         tags = r.get("tags", [])
         venue = r.get("venue")
+        presentation = r.get("presentation")
 
         # Find the paper block by arXiv ID link
         # Pattern: from the arXiv line to the next heading or end
         paper_pattern = re.compile(
             rf"(- \*\*arXiv\*\*: \[{re.escape(pid)}\].*\n)"
-            rf"((?:- \*\*(?:Authors|Subjects|Tags|Venue|Code|Summary)\*\*:.*\n)*)",
+            rf"((?:- \*\*(?:Authors|Subjects|Tags|Venue|Presentation|Code|Summary)\*\*:.*\n)*)",
         )
         m = paper_pattern.search(content)
         if not m:
@@ -2168,7 +2515,7 @@ def patch_markdown(md_path: Path, results_by_id: dict[str, dict], logger: loggin
                 if line.startswith(f"- **{key}**:"):
                     existing[key] = line + "\n"
 
-        # Rebuild in canonical order: Authors, Subjects, Tags, Venue, Code, Summary
+        # Rebuild in canonical order: Authors, Subjects, Tags, Venue, Presentation, Code, Summary
         new_lines = [arxiv_line]
         if "Authors" in existing:
             new_lines.append(existing["Authors"])
@@ -2178,6 +2525,8 @@ def patch_markdown(md_path: Path, results_by_id: dict[str, dict], logger: loggin
             new_lines.append(f"- **Tags**: {', '.join(tags)}\n")
         if venue:
             new_lines.append(f"- **Venue**: {venue}\n")
+            if presentation:
+                new_lines.append(f"- **Presentation**: {presentation}\n")
         if "Code" in existing:
             new_lines.append(existing["Code"])
         new_lines.append(f"- **Summary**: {_escape_md_inline(summary)}\n")
@@ -2260,18 +2609,10 @@ def run_patch_mode(args, logger: logging.Logger, cache_base: Path, llm_config: L
         raise PipelineError("No papers successfully matched from LLM response")
 
     # Phase 2.5: Venue extraction (no cache in patch mode)
-    try:
-        venues = extract_venues_batch(
-            patch_papers, llm_config.api_endpoint, llm_config.api_key,
-            llm_config.model, logger,
-            field_cache=None, metadata_hash=None,
-            debug_dir=debug_output_dir(cache_base, args.field, args.date),
-        )
-        for pid, venue in venues.items():
-            if pid in results_by_id:
-                results_by_id[pid]["venue"] = venue
-    except Exception as e:
-        logger.warning(f"[Venue] extraction failed, continuing without venues: {e}")
+    apply_venue_extraction(
+        patch_papers, results_by_id, llm_config, logger, _venue_abbrevs_path(args),
+        debug_dir=debug_output_dir(cache_base, args.field, args.date),
+    )
 
     # Patch markdown
     output_dir = Path(args.output)
@@ -2433,18 +2774,11 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
     all_papers = [p for s in data["sections"] for p in s["papers"]]
     venue_cache_dir = None if args.no_cache else field_cache
     venue_hash = compute_metadata_hash(data) if venue_cache_dir else None
-    try:
-        venues = extract_venues_batch(
-            all_papers, llm_config.api_endpoint, llm_config.api_key,
-            llm_config.model, logger,
-            field_cache=venue_cache_dir, metadata_hash=venue_hash,
-            debug_dir=debug_output_dir(cache_base, args.field, date_str),
-        )
-        for pid, venue in venues.items():
-            if pid in results_by_id:
-                results_by_id[pid]["venue"] = venue
-    except Exception as e:
-        logger.warning(f"[Venue] extraction failed, continuing without venues: {e}")
+    apply_venue_extraction(
+        all_papers, results_by_id, llm_config, logger, _venue_abbrevs_path(args),
+        field_cache=venue_cache_dir, metadata_hash=venue_hash,
+        debug_dir=debug_output_dir(cache_base, args.field, date_str),
+    )
 
     output_file = generate_markdown(data, results_by_id, output_dir, date_str)
 
@@ -2502,6 +2836,11 @@ def main() -> int:
         "--tags",
         default=str(DEFAULT_TAGS_PATH),
         help="Path to tags.json (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--venue-abbrevs",
+        default=str(DEFAULT_VENUE_ABBREVS_PATH),
+        help="Venue abbreviation table, updated with new entries (default: %(default)s)",
     )
     parser.add_argument("--no-cache", action="store_true", help="Ignore cache, full re-run")
     parser.add_argument("--date", help="Use saved HTML for this date (YYYY-MM-DD) instead of fetching")
