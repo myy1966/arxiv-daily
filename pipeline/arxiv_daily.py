@@ -2580,6 +2580,173 @@ def patch_markdown(md_path: Path, results_by_id: dict[str, dict], logger: loggin
 
 
 # ---------------------------------------------------------------------------
+# Summary reuse
+# ---------------------------------------------------------------------------
+# A replaced paper, or one listed in two fields, often has the abstract it had
+# in an earlier post. Its summary and tags are copied from that post instead of
+# asking the LLM again. Posts do not store abstracts, so an index in the cache
+# directory records, for every paper id, a digest of the abstract and the post
+# whose summary was written from it.
+
+ABSTRACT_INDEX_NAME = "abstract_index.json"
+_POST_NAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-(.+)\.md$")
+_POST_ARXIV_ID_RE = re.compile(r"^- \*\*arXiv\*\*: \[([^\]]+)\]", re.MULTILINE)
+_POST_PAPER_RE = re.compile(
+    r"^- \*\*arXiv\*\*: \[(?P<id>[^\]]+)\].*\n"
+    r"(?P<meta>(?:- \*\*(?:Authors|Subjects|Tags|Venue|Presentation|Code|Summary)\*\*:.*(?:\n|$))*)",
+    re.MULTILINE,
+)
+
+
+def abstract_digest(abstract: str) -> str:
+    """Digest of an abstract, ignoring whitespace differences."""
+    return hashlib.sha256(" ".join(abstract.split()).encode("utf-8")).hexdigest()[:16]
+
+
+def _unescape_md_inline(text: str) -> str:
+    """Invert _escape_md_inline."""
+    return text.replace("\\|", "|").replace("\\<", "<").replace("\\>", ">")
+
+
+def read_post_results(md_path: Path) -> dict[str, dict]:
+    """Summary and tags of every paper in a generated post, keyed by arXiv id."""
+    results: dict[str, dict] = {}
+    content = md_path.read_text(encoding="utf-8")
+    for m in _POST_PAPER_RE.finditer(content):
+        summary, tags = None, []
+        for line in m.group("meta").splitlines():
+            if line.startswith("- **Summary**: "):
+                summary = _unescape_md_inline(line[len("- **Summary**: "):])
+            elif line.startswith("- **Tags**: "):
+                tags = [t.strip() for t in line[len("- **Tags**: "):].split(",") if t.strip()]
+        if summary is not None:
+            results[m.group("id")] = {"summary": summary, "tags": tags}
+    return results
+
+
+def record_post_abstracts(
+    index: dict[str, list[str]], data: dict, post_name: str, only_ids: set[str] | None = None,
+) -> None:
+    """Point each paper of a written post at that post, unless a later post already has it."""
+    post_date = post_name[:10]
+    for section in data["sections"]:
+        for paper in section["papers"]:
+            pid, abstract = paper["id"], paper.get("abstract")
+            if not abstract or (only_ids is not None and pid not in only_ids):
+                continue
+            existing = index.get(pid)
+            if existing and existing[1][:10] > post_date:
+                continue
+            index[pid] = [abstract_digest(abstract), post_name]
+
+
+def rebuild_abstract_index(pages_base: Path, posts_dir: Path) -> dict[str, list[str]]:
+    """Rebuild the index from the archived listing pages of the existing posts."""
+    index: dict[str, list[str]] = {}
+    for md_path in sorted(posts_dir.glob("*.md")):
+        m = _POST_NAME_RE.match(md_path.name)
+        if not m:
+            continue
+        page = pages_base / m.group(2) / f"{m.group(1)}.html"
+        if not page.exists():
+            continue
+        post_ids = set(_POST_ARXIV_ID_RE.findall(md_path.read_text(encoding="utf-8")))
+        if post_ids:
+            data = parse_html(page.read_text(encoding="utf-8"), m.group(2))
+            record_post_abstracts(index, data, md_path.name, only_ids=post_ids)
+    return index
+
+
+def load_abstract_index(path: Path, pages_base: Path, posts_dir: Path, logger: logging.Logger) -> dict:
+    if path.exists():
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)["papers"]
+        except (OSError, json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.warning(f"[Reuse] unreadable abstract index {path}, rebuilding: {e}")
+    print(f"Building abstract index from {pages_base} ...", file=sys.stderr)
+    index = rebuild_abstract_index(pages_base, posts_dir)
+    logger.info(f"[Reuse] rebuilt abstract index with {len(index)} papers")
+    _atomic_write_json(path, {"papers": index})
+    return index
+
+
+def save_abstract_index(path: Path, data: dict, post_name: str) -> None:
+    """Record a written post, re-reading the file so a concurrent run's entries are kept."""
+    index: dict[str, list[str]] = {}
+    if path.exists():
+        try:
+            with open(path, encoding="utf-8") as f:
+                index = json.load(f)["papers"]
+        except (OSError, json.JSONDecodeError, KeyError, TypeError):
+            index = {}
+    record_post_abstracts(index, data, post_name)
+    _atomic_write_json(path, {"papers": index})
+
+
+def find_reusable_results(
+    data: dict,
+    index: dict[str, list[str]],
+    posts_dir: Path,
+    post_name: str,
+    tag_vocab: set[str],
+    tag_mapping: dict[str, str],
+) -> dict[str, dict]:
+    """Summaries and tags of earlier posts whose paper still has the same abstract.
+
+    Only posts dated on or before this one count (same date means the other field),
+    never the post being written. A summary is skipped when it is a failure
+    placeholder, would fail today's quality checks, or has a tag that is no
+    longer in the tag list.
+    """
+    post_date = post_name[:10]
+    wanted: dict[str, list[str]] = defaultdict(list)
+    for section in data["sections"]:
+        for paper in section["papers"]:
+            entry = index.get(paper["id"])
+            if not entry or not paper.get("abstract"):
+                continue
+            digest, source = entry
+            if source == post_name or source[:10] > post_date:
+                continue
+            if digest == abstract_digest(paper["abstract"]):
+                wanted[source].append(paper["id"])
+
+    reused: dict[str, dict] = {}
+    for source, ids in wanted.items():
+        source_path = posts_dir / source
+        if not source_path.exists():
+            continue
+        results = read_post_results(source_path)
+        for pid in ids:
+            r = results.get(pid)
+            if not r:
+                continue
+            summary = r["summary"]
+            tags = canonicalize_tag_list(r["tags"], tag_mapping)
+            if (
+                summary == SUMMARY_FAILURE_PLACEHOLDER
+                or len(summary) < MIN_SUMMARY_LEN
+                or normalize_summary_ending(summary) != summary
+                or not tags
+                or any(tag not in tag_vocab for tag in tags)
+            ):
+                continue
+            reused[pid] = {"summary": summary, "tags": tags, "venue": None}
+    return reused
+
+
+def _without_papers(data: dict, ids) -> dict:
+    return {
+        **data,
+        "sections": [
+            {**section, "papers": [p for p in section["papers"] if p["id"] not in ids]}
+            for section in data["sections"]
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -2786,10 +2953,21 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
         logger.info(f"[Phase1] --date mode overwriting existing output: {expected_output}")
         print(f"Warning: --date mode overwriting existing output: {expected_output}", file=sys.stderr)
 
-    # Phase 2: LLM summarization
+    # Phase 2: LLM summarization, except for papers whose earlier summary still fits
     tags_path = Path(args.tags)
+    index_path = cache_base / ABSTRACT_INDEX_NAME
+    reused: dict[str, dict] = {}
+    if not getattr(args, "no_reuse", False):
+        abstract_index = load_abstract_index(index_path, cache_base / "pages", output_dir, logger)
+        reused = find_reusable_results(
+            data, abstract_index, output_dir, expected_output.name,
+            set(load_tags(tags_path)), load_tag_mapping(tags_path),
+        )
+        if reused:
+            logger.info(f"[Reuse] {len(reused)} paper(s) keep the summary of an earlier post")
+            print(f"Reusing {len(reused)} summaries from earlier posts (abstract unchanged)", file=sys.stderr)
     results_by_id, failed_papers = run_phase2(
-        data,
+        _without_papers(data, reused) if reused else data,
         tags_path,
         cache_base,
         args.no_cache,
@@ -2797,7 +2975,9 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
         llm_config.api_key,
         llm_config.model,
         logger,
+        content_source=data,
     )
+    results_by_id.update(reused)
 
     # Phase 3: Generate markdown (only if all batches succeeded)
     output_dir = Path(args.output)
@@ -2820,6 +3000,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
     )
 
     output_file = generate_markdown(data, results_by_id, output_dir, date_str)
+    save_abstract_index(index_path, data, output_file.name)
 
     # Clean cache on full success
     if field_cache.exists():
@@ -2839,6 +3020,7 @@ def run_normal_mode(args, logger: logging.Logger, cache_base: Path, llm_config: 
         "total": total_papers,
         "failed_batches": 0,
         "failed_papers": 0,
+        "reused_summaries": len(reused),
     }
     logger.info(f"[Phase3] Run completed successfully. Output: {output_file}")
     return RunResult(summary)
@@ -2882,6 +3064,10 @@ def main() -> int:
         help="Venue abbreviation table, updated with new entries (default: %(default)s)",
     )
     parser.add_argument("--no-cache", action="store_true", help="Ignore cache, full re-run")
+    parser.add_argument(
+        "--no-reuse", action="store_true",
+        help="Summarize every paper, even when an earlier post has its unchanged abstract",
+    )
     parser.add_argument("--date", help="Use saved HTML for this date (YYYY-MM-DD) instead of fetching")
     parser.add_argument("--patch", nargs="+", metavar="ID", help="Re-generate specific paper IDs and patch into existing md (requires --date)")
     parser.add_argument("--cache-dir", help="Cache directory (default: ~/.cache/arxiv-update)")

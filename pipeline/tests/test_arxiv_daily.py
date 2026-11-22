@@ -3536,6 +3536,208 @@ class TestMainCli:
 
 
 # ===========================================================================
+# TestSummaryReuse
+# ===========================================================================
+
+REUSE_SUMMARY = "该论文研究长上下文推理中的失败模式，提出分层记忆框架，在三个基准上把准确率提升了 <5% | 方差更低。"
+
+
+def _paper(pid, abstract="An abstract about long-context reasoning with hierarchical memory."):
+    return {"id": pid, "title": f"Title {pid}", "authors": "A", "subjects": "cs.AI", "abstract": abstract}
+
+
+def _listing(papers, section="New submissions"):
+    return {
+        "field": "cs.AI",
+        "sections": [{"name": section, "count": len(papers), "papers": papers}],
+    }
+
+
+def _write_post(posts_dir, date, data, results):
+    return arxiv_daily.generate_markdown(data, results, posts_dir, date)
+
+
+class TestSummaryReuse:
+    def test_abstract_digest_ignores_whitespace(self):
+        assert arxiv_daily.abstract_digest("a  b\nc ") == arxiv_daily.abstract_digest("a b c")
+        assert arxiv_daily.abstract_digest("a b c") != arxiv_daily.abstract_digest("a b d")
+
+    def test_read_post_results_round_trips_generated_markdown(self, tmp_path):
+        data = _listing([_paper("2604.00001")])
+        results = {"2604.00001": {"summary": REUSE_SUMMARY, "tags": ["LLM Reasoning", "AI Memory"], "venue": "ACL"}}
+        md = _write_post(tmp_path, "2026-04-10", data, results)
+        assert "\\<5% \\|" in md.read_text(encoding="utf-8")
+
+        assert arxiv_daily.read_post_results(md) == {
+            "2604.00001": {"summary": REUSE_SUMMARY, "tags": ["LLM Reasoning", "AI Memory"]},
+        }
+
+    def test_record_keeps_the_latest_post(self):
+        index = {}
+        arxiv_daily.record_post_abstracts(index, _listing([_paper("2604.00001", "v2")]), "2026-04-20-cs.AI.md")
+        arxiv_daily.record_post_abstracts(index, _listing([_paper("2604.00001", "v1")]), "2026-04-10-cs.AI.md")
+        assert index["2604.00001"] == [arxiv_daily.abstract_digest("v2"), "2026-04-20-cs.AI.md"]
+
+        arxiv_daily.record_post_abstracts(index, _listing([_paper("2604.00001", "v3")]), "2026-04-20-cs.AR.md")
+        assert index["2604.00001"] == [arxiv_daily.abstract_digest("v3"), "2026-04-20-cs.AR.md"]
+
+    def _setup_earlier_post(self, tmp_path):
+        posts = tmp_path / "posts"
+        earlier = _listing([
+            _paper("2604.00001"),
+            _paper("2604.00002", "Original abstract of the second paper about agents."),
+            _paper("2604.00003"),
+            _paper("2604.00004"),
+            _paper("2604.00005"),
+        ])
+        ok = {"summary": REUSE_SUMMARY, "tags": ["LLM Reasoning"], "venue": None}
+        results = {
+            "2604.00001": ok,
+            "2604.00002": ok,
+            "2604.00003": {"summary": arxiv_daily.SUMMARY_FAILURE_PLACEHOLDER, "tags": [arxiv_daily.SUMMARY_FAILURE_TAG]},
+            "2604.00004": {**ok, "tags": ["Pruned Tag"]},
+            "2604.00005": {**ok, "tags": ["Old Name"]},
+        }
+        md = _write_post(posts, "2026-04-10", earlier, results)
+        index = {}
+        arxiv_daily.record_post_abstracts(index, earlier, md.name)
+        return posts, index
+
+    def test_reuses_only_unchanged_valid_summaries(self, tmp_path):
+        posts, index = self._setup_earlier_post(tmp_path)
+        today = _listing([
+            _paper("2604.00001"),
+            _paper("2604.00002", "Revised abstract with new experiments."),
+            _paper("2604.00003"),
+            _paper("2604.00004"),
+            _paper("2604.00005"),
+            _paper("2604.09999"),
+        ], section="Replacement submissions")
+
+        reused = arxiv_daily.find_reusable_results(
+            today, index, posts, "2026-04-20-cs.AI.md",
+            tag_vocab={"LLM Reasoning", "New Name"}, tag_mapping={"Old Name": "New Name"},
+        )
+
+        assert reused == {
+            "2604.00001": {"summary": REUSE_SUMMARY, "tags": ["LLM Reasoning"], "venue": None},
+            "2604.00005": {"summary": REUSE_SUMMARY, "tags": ["New Name"], "venue": None},
+        }
+
+    def test_never_reuses_the_post_being_written_or_a_later_one(self, tmp_path):
+        posts, index = self._setup_earlier_post(tmp_path)
+        today = _listing([_paper("2604.00001")])
+        vocab = {"LLM Reasoning"}
+
+        assert arxiv_daily.find_reusable_results(today, index, posts, "2026-04-10-cs.AI.md", vocab, {}) == {}
+        assert arxiv_daily.find_reusable_results(today, index, posts, "2026-04-09-cs.AI.md", vocab, {}) == {}
+        assert "2604.00001" in arxiv_daily.find_reusable_results(today, index, posts, "2026-04-10-cs.AR.md", vocab, {})
+
+    def test_rebuild_reads_archived_pages_of_existing_posts(self, tmp_path, sample_listing_html):
+        pages = tmp_path / "pages"
+        (pages / "cs.AI").mkdir(parents=True)
+        (pages / "cs.AI" / "2025-04-11.html").write_text(sample_listing_html, encoding="utf-8")
+        (pages / "cs.AI" / "2025-04-14.html").write_text(sample_listing_html, encoding="utf-8")
+        data = arxiv_daily.parse_html(sample_listing_html, "cs.AI")
+        posts = tmp_path / "posts"
+        only_first = {**data, "sections": [data["sections"][0]]}
+        _write_post(posts, "2025-04-11", only_first, {})
+        (posts / "2025-04-01-welcome.md").parent.mkdir(exist_ok=True)
+        (posts / "2025-04-01-welcome.md").write_text("hello", encoding="utf-8")
+
+        index = arxiv_daily.rebuild_abstract_index(pages, posts)
+
+        assert set(index) == {p["id"] for p in data["sections"][0]["papers"]}
+        assert all(entry[1] == "2025-04-11-cs.AI.md" for entry in index.values())
+
+    def _run_day(self, monkeypatch, api_url, tmp_path, html, date, extra_args=()):
+        pages_dir = tmp_path / "cache" / "pages" / "cs.AI"
+        pages_dir.mkdir(parents=True, exist_ok=True)
+        (pages_dir / f"{date}.html").write_text(html, encoding="utf-8")
+        monkeypatch.setenv("ARXIV_UPDATE_KEY", "test-key")
+        monkeypatch.setenv("ARXIV_UPDATE_API", api_url)
+        monkeypatch.setenv("ARXIV_UPDATE_MODEL", "test-model")
+        monkeypatch.setattr("sys.argv", [
+            "arxiv_daily.py", "cs.AI",
+            "--output", str(tmp_path / "posts"),
+            "--tags", str(tmp_path / "tags.json"),
+            "--date", date,
+            "--cache-dir", str(tmp_path / "cache"),
+            *extra_args,
+        ])
+        return arxiv_daily.main()
+
+    def _replacement_day_html(self):
+        import conftest
+        changed = conftest.SAMPLE_PAPER_CHUNK_REPLACEMENT.replace(
+            "This paper revisits attention", "This revised paper revisits attention",
+        )
+        return conftest._build_listing_html(
+            "Showing new listings for Monday, 14 April 2025",
+            f"""\
+<h3>Replacement submissions (showing 2 of 2 entries)</h3>
+<dl>
+{conftest.SAMPLE_PAPER_CHUNK}
+{changed}
+</dl>""",
+        )
+
+    def _record_llm_ids(self, monkeypatch):
+        asked: list[list[str]] = []
+        real_call_llm = arxiv_daily.call_llm
+
+        def recording_call_llm(messages, *args, **kwargs):
+            asked.append(list(kwargs.get("expected_ids") or []))
+            return real_call_llm(messages, *args, **kwargs)
+
+        monkeypatch.setattr(arxiv_daily, "call_llm", recording_call_llm)
+        return asked
+
+    def test_normal_run_reuses_unchanged_replacement(
+        self, monkeypatch, fake_llm_server, tmp_path, sample_listing_html, capsys,
+    ):
+        api_url, _ = fake_llm_server
+        (tmp_path / "tags.json").write_text('{"tags": ["LLM Reasoning"]}', encoding="utf-8")
+        assert self._run_day(monkeypatch, api_url, tmp_path, sample_listing_html, "2025-04-11") == 0
+        assert (tmp_path / "cache" / arxiv_daily.ABSTRACT_INDEX_NAME).exists()
+        first = tmp_path / "posts" / "2025-04-11-cs.AI.md"
+        first_text = first.read_text(encoding="utf-8")
+        # Mark the earlier summary of 2604.06189 (the first paper) so its copy can be recognized.
+        first.write_text(
+            first_text.replace("- **Summary**: ", f"- **Summary**: {REUSE_SUMMARY}", 1), encoding="utf-8",
+        )
+        capsys.readouterr()
+
+        asked = self._record_llm_ids(monkeypatch)
+        assert self._run_day(monkeypatch, api_url, tmp_path, self._replacement_day_html(), "2025-04-14") == 0
+
+        assert asked == [["2603.01234"]]
+        summary = json.loads(capsys.readouterr().out)
+        assert summary["reused_summaries"] == 1
+        second = arxiv_daily.read_post_results(tmp_path / "posts" / "2025-04-14-cs.AI.md")
+        assert second["2604.06189"]["summary"].startswith(REUSE_SUMMARY)
+        assert not second["2603.01234"]["summary"].startswith(REUSE_SUMMARY)
+        index = json.loads((tmp_path / "cache" / arxiv_daily.ABSTRACT_INDEX_NAME).read_text(encoding="utf-8"))
+        assert index["papers"]["2604.06189"][1] == "2025-04-14-cs.AI.md"
+
+    def test_no_reuse_summarizes_every_paper(
+        self, monkeypatch, fake_llm_server, tmp_path, sample_listing_html, capsys,
+    ):
+        api_url, _ = fake_llm_server
+        (tmp_path / "tags.json").write_text('{"tags": ["LLM Reasoning"]}', encoding="utf-8")
+        assert self._run_day(monkeypatch, api_url, tmp_path, sample_listing_html, "2025-04-11") == 0
+        capsys.readouterr()
+
+        asked = self._record_llm_ids(monkeypatch)
+        assert self._run_day(
+            monkeypatch, api_url, tmp_path, self._replacement_day_html(), "2025-04-14", ["--no-reuse"],
+        ) == 0
+
+        assert sorted(sum(asked, [])) == ["2603.01234", "2604.06189"]
+        assert json.loads(capsys.readouterr().out)["reused_summaries"] == 0
+
+
+# ===========================================================================
 # TestHasAcceptanceSignal
 # ===========================================================================
 
