@@ -531,13 +531,11 @@ def build_prompt(batch_papers: list[dict], current_tags: list[str]) -> list[dict
         + f'  "new_tags": {example_new_tags}\n'
         + "}"
     )
-    user_content = f"""Below are {total_papers} papers.
-Copy these IDs verbatim as JSON strings (not numbers): {ids_csv}
-
-Return exactly {total_papers} paper objects. The set of "id" values must be exactly these {total_papers} IDs (order may differ).
-Do not drop, invent, reuse, or suffix IDs (_dup, placeholder). Each object must include id, a 1-3 sentence summary, and 1-2 tags.
-
-For each paper:
+    # Everything up to the tag list is the same for every batch of a run, so the
+    # API's prefix cache can serve it; batch-specific text (IDs, counts, papers)
+    # goes after it. New tags are appended to current_tags, which only changes
+    # the tail of the shared prefix.
+    user_content = f"""For each paper listed below:
 1. Write a 1-3 sentence Chinese summary following this structure:
    - What problem or gap does the paper address?
    - What is the proposed method, framework, or main contribution?
@@ -553,6 +551,12 @@ For each paper:
    - GOOD new: a missing topic at that same grain, e.g. a distinct subfield that is not in the list
 
 Current tag list: {tags_str}
+
+Below are {total_papers} papers.
+Copy these IDs verbatim as JSON strings (not numbers): {ids_csv}
+
+Return exactly {total_papers} paper objects. The set of "id" values must be exactly these {total_papers} IDs (order may differ).
+Do not drop, invent, reuse, or suffix IDs (_dup, placeholder). Each object must include id, a 1-3 sentence summary, and 1-2 tags.
 
 Papers:
 {PAPER_SEPARATOR.join(papers_text)}

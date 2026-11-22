@@ -1,5 +1,6 @@
 """Tests for arxiv_daily.py."""
 import json
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -409,6 +410,25 @@ class TestBuildPrompt:
         assert "exactly 2 paper objects" in content
         assert '"id": "2604.00001"' in content
         assert "Copy these IDs verbatim" in content
+
+    def test_batches_share_prefix_through_tag_list(self):
+        # The API's prefix cache only hits when batches start with identical text.
+        tags = ["LLM Agent", "AI Safety"]
+        one = arxiv_daily.build_prompt(
+            [{"id": "2604.00001", "title": "T1", "abstract": "A1"}], tags,
+        )
+        two = arxiv_daily.build_prompt(
+            [
+                {"id": "2604.00002", "title": "T2", "abstract": "A2"},
+                {"id": "2604.00003", "title": "T3", "abstract": "A3"},
+            ],
+            tags + ["Neuromorphic Photonics"],
+        )
+        assert one[0] == two[0]
+        prefix = os.path.commonprefix([one[1]["content"], two[1]["content"]])
+        assert prefix.endswith("Current tag list: LLM Agent, AI Safety")
+        assert "Do not stretch a weakly related existing tag" in prefix
+        assert "2604.0000" not in prefix
 
 
 # ===========================================================================
