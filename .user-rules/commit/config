@@ -1,0 +1,8 @@
+# Commit rules read by the dotfiles git hooks (written by `dotfiles hooks install --rules conventional-en`).
+# Conventional Commits in English: the 11 types, an optional scope, "!" for breaking changes.
+# This project owns the file from now on; change it here and commit it.
+[message]
+	types = feat fix docs refactor test chore perf build ci style revert
+	scope = allow
+	language = en
+	breaking = allow
