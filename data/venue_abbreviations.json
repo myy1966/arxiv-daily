@@ -352,6 +352,9 @@
       "abbr": "IVA",
       "review": true
     },
+    "acm international conference for ai in finance": {
+      "abbr": "ICAIF"
+    },
     "acm international conference on advances in geographic information systems": {
       "abbr": "SIGSPATIAL"
     },
@@ -499,6 +502,9 @@
     },
     "acm sigmod international conference on management of data": {
       "abbr": "SIGMOD"
+    },
+    "acm sigops atc": {
+      "abbr": "ATC"
     },
     "acm sigops technical conference": {
       "abbr": "ATC"
@@ -749,6 +755,9 @@
     },
     "bionlp workshop": {
       "abbr": "BioNLP"
+    },
+    "blackboxnlp workshop analyzing and interpreting neural networks for nlp": {
+      "abbr": "BlackboxNLP"
     },
     "brazilian conference on intelligent systems": {
       "abbr": "BRACIS",

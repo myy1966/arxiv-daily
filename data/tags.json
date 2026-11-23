@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-11-21T21:24:46.425118+08:00",
+  "updated_at": "2026-11-23T23:02:31.218895+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -954,6 +954,8 @@
     "Statistical Relational AI",
     "Holography",
     "Computational Lithography",
-    "Kernel Methods"
+    "Kernel Methods",
+    "Device Modeling",
+    "Gait Analysis"
   ]
 }
