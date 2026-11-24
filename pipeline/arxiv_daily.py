@@ -1889,6 +1889,9 @@ _VENUE_TRACKS = {
     "short": "Short", "short paper": "Short", "short papers": "Short",
     "applied data science": "ADS", "ads": "ADS",
 }
+# Track names that mean the main papers, so nothing is appended: ML4H calls its
+# archival track the "Proceedings track" (next to "Findings").
+_MAIN_TRACKS = {"main", "main conference", "proceedings"}
 _YEAR_RE = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
 # A workshop is named only by an acronym-like single token (MATH-AI, ML4RS,
 # GenAI4Health); descriptive names ("Sight and Sound") fall back to "Workshop".
@@ -2045,7 +2048,7 @@ def format_venue_entry(item: dict, comments: str, table: dict | None = None) -> 
     track_key = re.sub(r"\s*track$", "", track.strip(), flags=re.IGNORECASE).lower()
     if category == "findings" or track_key == "findings":
         parts.append("Findings")
-    elif category == "track" and track_key:
+    elif category == "track" and track_key and track_key not in _MAIN_TRACKS:
         label = _VENUE_TRACKS.get(track_key)
         if label is None:
             # An unlisted label counts only if the comments call it a track ("AI for Science Track").
