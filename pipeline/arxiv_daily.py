@@ -2295,12 +2295,15 @@ def apply_venue_extraction(
 # ---------------------------------------------------------------------------
 
 
+# "|" starts a table, "<" an HTML tag, and two "*" (A*, RRT*) or "_" put the text
+# between them in italics.
+_MD_INLINE_SPECIAL_RE = re.compile(r"([|<>*_])")
+_MD_INLINE_ESCAPED_RE = re.compile(r"\\([|<>*_])")
+
+
 def _escape_md_inline(text: str) -> str:
     """Escape markdown-sensitive characters in inline list text."""
-    text = text.replace("|", "\\|")
-    text = text.replace("<", "\\<")
-    text = text.replace(">", "\\>")
-    return text
+    return _MD_INLINE_SPECIAL_RE.sub(r"\\\1", text)
 
 
 SECTION_NAME_CN = {
@@ -2608,7 +2611,7 @@ def abstract_digest(abstract: str) -> str:
 
 def _unescape_md_inline(text: str) -> str:
     """Invert _escape_md_inline."""
-    return text.replace("\\|", "|").replace("\\<", "<").replace("\\>", ">")
+    return _MD_INLINE_ESCAPED_RE.sub(r"\1", text)
 
 
 def read_post_results(md_path: Path) -> dict[str, dict]:

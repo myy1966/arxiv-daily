@@ -2788,6 +2788,17 @@ class TestMarkdownEscaping:
     def test_escape_md_inline_preserves_empty_string(self):
         assert arxiv_daily._escape_md_inline("") == ""
 
+    def test_escape_md_inline_escapes_emphasis_chars(self):
+        # Two unescaped "*" put the text between them in italics ("A*" ... "RRT*").
+        assert arxiv_daily._escape_md_inline("A*搜索与RRT*") == "A\\*搜索与RRT\\*"
+        assert arxiv_daily._escape_md_inline("变量_x_与y") == "变量\\_x\\_与y"
+
+    @pytest.mark.parametrize("text", [
+        "A*搜索与RRT*", "snake_case", "方法 <A|B> 在任务 C | D 上有效", "a\\_b 与 c\\*d", "普通中文。",
+    ])
+    def test_unescape_md_inline_inverts_escape(self, text):
+        assert arxiv_daily._unescape_md_inline(arxiv_daily._escape_md_inline(text)) == text
+
 
 # ===========================================================================
 # TestFrontMatterDate
