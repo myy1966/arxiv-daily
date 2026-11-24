@@ -451,6 +451,10 @@
     "acm multimedia asia": {
       "abbr": "MMAsia"
     },
+    "acm multimedia conference": {
+      "abbr": "ACM MM",
+      "review": true
+    },
     "acm on human computer interaction": {
       "abbr": "CSCW"
     },
@@ -1666,6 +1670,9 @@
     "ieee international conference on interdisciplinary approaches in technology and management for social innovation": {
       "abbr": "IATMSI"
     },
+    "ieee international conference on knowledge graphs": {
+      "abbr": "ICKG"
+    },
     "ieee international conference on llm aided design": {
       "abbr": "ICLAD"
     },
@@ -1938,6 +1945,9 @@
     "ieee sbc international symposium on computer architecture and high performance computing": {
       "abbr": "SBAC-PAD"
     },
+    "ieee sice international symposium on system integration": {
+      "abbr": "SII"
+    },
     "ieee signal processing and communications applications conference": {
       "abbr": "IEEE SIU",
       "review": true
@@ -1956,6 +1966,10 @@
     },
     "ieee spoken language technology workshop": {
       "abbr": "SLT"
+    },
+    "ieee symposium on ci in health and medicine": {
+      "abbr": "IEEE SSCI",
+      "review": true
     },
     "ieee symposium on computers & informatics": {
       "abbr": "ISCI"
@@ -2466,6 +2480,9 @@
     },
     "international conference on codesign of embedded systems at embedded systems week": {
       "abbr": "ESWEEK-CODES"
+    },
+    "international conference on cognitive machine intelligence": {
+      "abbr": "CogMI"
     },
     "international conference on cognitive mobility": {
       "abbr": "CogMob"

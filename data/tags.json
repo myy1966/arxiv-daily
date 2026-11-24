@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-11-23T23:02:31.218895+08:00",
+  "updated_at": "2026-11-24T21:56:02.620558+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -956,6 +956,14 @@
     "Computational Lithography",
     "Kernel Methods",
     "Device Modeling",
-    "Gait Analysis"
+    "Gait Analysis",
+    "Stochastic Computing",
+    "Physiological Sensing",
+    "Maritime Navigation",
+    "CAPTCHA",
+    "BIM",
+    "Implicit Neural Representation",
+    "Computational Proteomics",
+    "Position Paper"
   ]
 }
