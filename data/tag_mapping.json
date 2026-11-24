@@ -9,8 +9,8 @@
     "post_assignments": 125096
   },
   "canonical_count": 693,
-  "alias_count": 124,
-  "identity_count": 3392,
+  "alias_count": 125,
+  "identity_count": 3391,
   "canonical": [
     "LLM Agent",
     "LLM Evaluation",
@@ -707,6 +707,7 @@
     "Mamba"
   ],
   "aliases": {
+    "BIM": "Building Information Modeling",
     "LLM Interoperability": "LLM Application",
     "Neural Architecture Search": "Neural Architecture",
     "Code Execution": "Code Generation",
@@ -3208,7 +3209,7 @@
     "Model-Based Systems Engineering": "Model-Based Systems Engineering",
     "Multi-Object Tracking": "Multi-Object Tracking",
     "Cognitive Load Theory": "Cognitive Load Theory",
-    "BIM": "BIM",
+    "BIM": "Building Information Modeling",
     "Biostatistics": "Biostatistics",
     "Tutorial": "Tutorial",
     "Communication Efficiency": "Communication Efficiency",
@@ -5352,7 +5353,6 @@
     "Aviation",
     "Aviation Safety",
     "BEV Perception",
-    "BIM",
     "BM25",
     "Backtracking DFS",
     "Banzhaf Interaction",
@@ -10136,7 +10136,7 @@
     "Model-Based Systems Engineering": "identity",
     "Multi-Object Tracking": "identity",
     "Cognitive Load Theory": "identity",
-    "BIM": "identity",
+    "BIM": "spelling",
     "Biostatistics": "identity",
     "Tutorial": "identity",
     "Communication Efficiency": "identity",
