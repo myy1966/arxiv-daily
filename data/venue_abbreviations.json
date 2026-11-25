@@ -1416,6 +1416,9 @@
     "ieee frontiers in education conference": {
       "abbr": "FIE"
     },
+    "ieee gaming entertainment and media conference": {
+      "abbr": "GEM"
+    },
     "ieee geoscience and remote sensing letters": {
       "abbr": "IEEE GRSL",
       "review": true
@@ -3081,6 +3084,9 @@
       "abbr": "TPDL",
       "review": true
     },
+    "international conference on tools with artificial intelligence": {
+      "abbr": "ICTAI"
+    },
     "international conference on unmanned aircraft systems": {
       "abbr": "ICUAS"
     },
@@ -3602,6 +3608,10 @@
     },
     "nips": {
       "abbr": "NeurIPS",
+      "review": true
+    },
+    "nonlinear theory and its applications ieice": {
+      "abbr": "IEICE NOLTA",
       "review": true
     },
     "north american fuzzy information processing society": {
