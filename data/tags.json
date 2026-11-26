@@ -1,7 +1,7 @@
 {
   "consolidated_from": "tags_full.json",
   "min_frequency": 20,
-  "updated_at": "2026-11-25T21:53:12.980574+08:00",
+  "updated_at": "2026-11-26T21:55:47.614364+08:00",
   "tags": [
     "LLM Agent",
     "LLM Evaluation",
@@ -967,6 +967,14 @@
     "Thermal Analysis",
     "Rough Sets",
     "AI Monitoring",
-    "Gravitational Waves"
+    "Gravitational Waves",
+    "Boolean Function Analysis",
+    "Optical Wireless Communication",
+    "Sequential Testing",
+    "Item Response Theory",
+    "Differentiable Physics",
+    "Bilevel Optimization",
+    "Numerical Reasoning",
+    "Submodular Optimization"
   ]
 }

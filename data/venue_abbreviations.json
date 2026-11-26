@@ -1738,6 +1738,9 @@
     "ieee international conference on sensing communication and networking": {
       "abbr": "IEEE SECON"
     },
+    "ieee international conference on signal processing information communication and systems": {
+      "abbr": "SPICSCON"
+    },
     "ieee international conference on smart energy grid engineering": {
       "abbr": "SEGE"
     },
@@ -2541,6 +2544,9 @@
     "international conference on computer information science and application technology": {
       "abbr": "CISAT"
     },
+    "international conference on computer information technologies in industry 4 0": {
+      "abbr": "CITI"
+    },
     "international conference on computer vision": {
       "abbr": "ICCV"
     },
@@ -3128,6 +3134,9 @@
     },
     "international european conference on parallel and distributed computing": {
       "abbr": "Euro-Par"
+    },
+    "international forum on research and technologies for society and industry": {
+      "abbr": "RTSI"
     },
     "international japan africa conference on electronics communications and computations": {
       "abbr": "JAC-ECC"
@@ -3732,6 +3741,9 @@
     },
     "speaker and language recognition workshop": {
       "abbr": "Odyssey"
+    },
+    "spie conference proceedings": {
+      "abbr": "SPIE"
     },
     "spie sensors + imaging": {
       "abbr": "SPIE"
